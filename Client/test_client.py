@@ -12,7 +12,7 @@ from waveshare_epd import epd7in5_V2  # Stellen Sie sicher, dass dieses Modul in
 
 logging.basicConfig(level=logging.DEBUG)
 
-BASE_URL = "http://100.115.222.102:5000"
+BASE_URL = "http://127.0.0.1:5000"
 DESIGN_PATH = "/design"
 IMAGE_PATH = "/image/"
 FONT_PATH = "/font/"
