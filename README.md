@@ -1,4 +1,3 @@
-
 # E-Ink Picture
 
 ![E-Ink Picture Logo](https://github.com/Kilian-Schwarz/E-INK-Picture/blob/main/logo.png?raw=true)
@@ -232,7 +231,6 @@ E-INK-Picture/
   - `DESIGN_PATH`: API endpoint for fetching designs.
   - `IMAGE_PATH` and `FONT_PATH`: API endpoints for accessing images and fonts.
 
-
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
@@ -245,5 +243,3 @@ This project is licensed under the [MIT License](LICENSE).
 - [Docker](https://www.docker.com/) - Containerization platform for easy deployment.
 
 ---
-
-Feel free to customize this README further to suit your project's specific needs and updates!
