@@ -19,7 +19,6 @@
   - [Running the Client](#running-the-client)
 - [Directory Structure](#directory-structure)
 - [Configuration](#configuration)
-- [Contributing](#contributing)
 - [License](#license)
 - [Acknowledgments](#acknowledgments)
 
@@ -233,46 +232,6 @@ E-INK-Picture/
   - `DESIGN_PATH`: API endpoint for fetching designs.
   - `IMAGE_PATH` and `FONT_PATH`: API endpoints for accessing images and fonts.
 
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. **Fork the Repository:**
-
-   Click the "Fork" button at the top-right of the repository page.
-
-2. **Clone Your Fork:**
-
-   ```bash
-   git clone https://github.com/your-username/E-INK-Picture.git
-   cd E-INK-Picture
-   ```
-
-3. **Create a New Branch:**
-
-   ```bash
-   git checkout -b feature/YourFeature
-   ```
-
-4. **Make Your Changes:**
-
-   Implement your feature or fix.
-
-5. **Commit Your Changes:**
-
-   ```bash
-   git commit -m "Add Your Feature"
-   ```
-
-6. **Push to Your Fork:**
-
-   ```bash
-   git push origin feature/YourFeature
-   ```
-
-7. **Create a Pull Request:**
-
-   Go to the original repository and click "Compare & pull request."
 
 ## License
 
