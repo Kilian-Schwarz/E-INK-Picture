@@ -174,36 +174,36 @@ def fetch_weather(lat, lon):
 
 def weathercode_to_desc_icon(code, is_night=False):
     day_map = {
-        0: ("Clear sky", "clear_day.bmp"),
-        1: ("Mainly clear", "clear_day.bmp"),
-        2: ("Partly cloudy", "cloudy_day.bmp"),
-        3: ("Overcast", "cloudy_day.bmp"),
-        45:("Fog", "fog_day.bmp"),
-        48:("Rime fog", "fog_day.bmp"),
-        51:("Light drizzle", "drizzle_day.bmp"),
-        61:("Slight rain", "rain_day.bmp"),
-        63:("Moderate rain", "rain_day.bmp"),
-        65:("Heavy rain", "rain_day.bmp"),
-        80:("Rain showers", "shower_day.bmp")
+        0: ("Clear sky", "clear_day.png"),
+        1: ("Mainly clear", "clear_day.png"),
+        2: ("Partly cloudy", "cloudy_day.png"),
+        3: ("Overcast", "cloudy_day.png"),
+        45:("Fog", "fog_day.png"),
+        48:("Rime fog", "fog_day.png"),
+        51:("Light drizzle", "drizzle_day.png"),
+        61:("Slight rain", "rain_day.png"),
+        63:("Moderate rain", "rain_day.png"),
+        65:("Heavy rain", "rain_day.png"),
+        80:("Rain showers", "shower_day.png")
     }
 
     night_map = {
-        0: ("Clear sky", "clear_night.bmp"),
-        1: ("Mainly clear", "clear_night.bmp"),
-        2: ("Partly cloudy", "cloudy_night.bmp"),
-        3: ("Overcast", "cloudy_night.bmp"),
-        45:("Fog", "fog_night.bmp"),
-        48:("Rime fog", "fog_night.bmp"),
-        51:("Light drizzle", "drizzle_night.bmp"),
-        61:("Slight rain", "rain_night.bmp"),
-        63:("Moderate rain", "rain_night.bmp"),
-        65:("Heavy rain", "rain_night.bmp"),
-        80:("Rain showers", "shower_night.bmp")
+        0: ("Clear sky", "clear_night.png"),
+        1: ("Mainly clear", "clear_night.png"),
+        2: ("Partly cloudy", "cloudy_night.png"),
+        3: ("Overcast", "cloudy_night.png"),
+        45:("Fog", "fog_night.png"),
+        48:("Rime fog", "fog_night.png"),
+        51:("Light drizzle", "drizzle_night.png"),
+        61:("Slight rain", "rain_night.png"),
+        63:("Moderate rain", "rain_night.png"),
+        65:("Heavy rain", "rain_night.png"),
+        80:("Rain showers", "shower_night.png")
     }
 
     if is_night and code in night_map:
         return night_map[code]
-    return day_map.get(code, ("Unknown","cloudy_day.bmp"))
+    return day_map.get(code, ("Unknown","cloudy_day.png"))
 
 @app.route('/weather_styles', methods=['GET'])
 def weather_styles():
@@ -439,17 +439,18 @@ def upload_image():
     file = request.files['file']
     filename = secure_filename(file.filename)
     if file and allowed_image_file(filename):
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
+        # Speichern der Datei im Originalformat oder als PNG
+        original_ext = os.path.splitext(filename)[1].lower()
         base_name = os.path.splitext(filename)[0]
-        bmp_path = os.path.join(app.config['UPLOAD_FOLDER'], base_name + ".bmp")
+        # Optional: Konvertiere alle Bilder zu PNG für einheitliches Format
+        png_filename = base_name + ".png"
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], png_filename)
         try:
-            img = Image.open(filepath).convert("RGB")
-            img.save(bmp_path, "BMP")
+            img = Image.open(file).convert("RGBA")
+            img.save(filepath, "PNG")
         except Exception as e:
-            return jsonify({"message": f"Image conversion failed: {e}"}), 400
-        os.remove(filepath)
-        return jsonify({"message": "File uploaded successfully!", "file_path": base_name + ".bmp"})
+            return jsonify({"message": f"Image processing failed: {e}"}), 400
+        return jsonify({"message": "File uploaded successfully!", "file_path": png_filename})
     elif file and allowed_font_file(filename):
         fontpath = os.path.join(app.config['FONT_FOLDER'], filename)
         file.save(fontpath)
@@ -459,7 +460,7 @@ def upload_image():
 @app.route('/images_all', methods=['GET'])
 def images_all():
     files = os.listdir(app.config['UPLOAD_FOLDER'])
-    images = [f for f in files if f.lower().endswith('.bmp')]
+    images = [f for f in files if f.lower().endswith('.png')]
     return jsonify(images)
 
 @app.route('/fonts_all', methods=['GET'])
@@ -472,7 +473,7 @@ def fonts_all():
 def get_image(filename):
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     if os.path.exists(filepath):
-        return send_file(filepath, mimetype='image/bmp')
+        return send_file(filepath, mimetype='image/png')  # Ändere den MIME-Typ zu PNG
     return jsonify({"message": "File not found!"}), 404
 
 @app.route('/font/<filename>', methods=['GET'])
@@ -544,7 +545,7 @@ def render_text(draw, x, y, w, h, text, font, bold=False, italic=False, strike=F
                 else:
                     cl=[wo]
                     cw=ww
-                
+
         if cl:
             wrapped_lines.append(' '.join(cl))
 
