@@ -392,6 +392,7 @@
             <div class="module" draggable="true" data-type="timer">Timer</div>
             <div class="module" draggable="true" data-type="news">News</div>
             <div class="module" draggable="true" data-type="line">Line/Shape</div>
+            <div class="module" draggable="true" data-type="calendar">Calendar</div> <!-- Neuer Kalender-Modul -->
         </div>
 
         <h2>Settings</h2>
@@ -609,7 +610,7 @@
             cropCurrentHandle=null;
         });
 
-        cropApply.addEventListener('click',()=>{
+        document.getElementById('crop-apply').addEventListener('click',()=>{
             let displayedW = cropImage.clientWidth;
             let displayedH = cropImage.clientHeight;
 
@@ -637,7 +638,7 @@
             cropModal.style.display='none';
         });
 
-        cropReset.addEventListener('click', ()=>{
+        document.getElementById('crop-reset').addEventListener('click', ()=>{
             delete cropTargetElement.dataset.crop_x;
             delete cropTargetElement.dataset.crop_y;
             delete cropTargetElement.dataset.crop_w;
@@ -910,6 +911,9 @@
                         content = '';
                         element.style.background = '#ccc';
                         break;
+                    case 'calendar':
+                        content = 'No Events';
+                        break;
                 }
             }
 
@@ -931,7 +935,24 @@
                 };
                 element.appendChild(img);
             } else if (type!=='image') {
-                element.textContent = content;
+                if(type === 'calendar'){
+                    // Spezielle Darstellung für Kalender-Module
+                    const eventList = document.createElement('ul');
+                    eventList.style.listStyle = 'none';
+                    eventList.style.padding = '0';
+                    eventList.style.margin = '0';
+                    const events = content.split('\n');
+                    events.forEach(event => {
+                        if(event.trim() !== "No events"){
+                            const li = document.createElement('li');
+                            li.textContent = event;
+                            eventList.appendChild(li);
+                        }
+                    });
+                    element.appendChild(eventList);
+                } else {
+                    element.textContent = content;
+                }
             }
 
             applyTextStyles(element);
@@ -1146,7 +1167,7 @@
                 updateElementOpacity(el);
             });
 
-            if (['text','news','weather','datetime','timer'].includes(type)) {
+            if (['text','news','weather','datetime','timer','calendar'].includes(type)) {
                 const fontField = document.createElement('div');
                 fontField.className = 'property-field';
                 fontField.innerHTML = '<label>Font</label><select id="fontSelect"></select>';
@@ -1172,8 +1193,8 @@
                 `;
                 propertiesPanel.appendChild(styleField);
 
-                // Offline Client Sync for datetime, weather, timer
-                if (type==='datetime' || type==='weather' || type==='timer'){
+                // Offline Client Sync für datetime, weather, timer, calendar
+                if (type==='datetime' || type==='weather' || type==='timer' || type==='calendar'){
                     const offlineField = document.createElement('div');
                     offlineField.className = 'property-field';
                     offlineField.innerHTML = '<label><input type="checkbox" id="offlineClientSync"/> Offline Client Sync</label>';
@@ -1381,6 +1402,26 @@
                 });
                 document.getElementById('timerFormat').addEventListener('input',(ev)=>{
                     el.dataset.timerFormat = ev.target.value;
+                });
+            } else if (type === 'calendar') { <!-- Neue Kalender-Modul-Properties -->
+                const calendarField = document.createElement('div');
+                calendarField.className = 'property-field';
+                calendarField.innerHTML = `
+                    <label>Calendar URL (iCal/Webcal)</label>
+                    <input type="text" id="calendarURL" placeholder="https://example.com/calendar.ics" value="${el.dataset.calendarURL || ''}"/>
+                `;
+                propertiesPanel.appendChild(calendarField);
+
+                const maxEventsField = document.createElement('div');
+                maxEventsField.className = 'property-field';
+                maxEventsField.innerHTML = '<label>Max Events to Display</label><input type="number" id="maxEvents" value="' + (el.dataset.maxEvents || 5) + '"/>';
+                propertiesPanel.appendChild(maxEventsField);
+
+                document.getElementById('calendarURL').addEventListener('input',(ev)=>{
+                    el.dataset.calendarURL = ev.target.value;
+                });
+                document.getElementById('maxEvents').addEventListener('input',(ev)=>{
+                    el.dataset.maxEvents = ev.target.value;
                 });
             }
 

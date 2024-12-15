@@ -4,11 +4,14 @@ import json
 from werkzeug.utils import secure_filename
 from PIL import Image, ImageDraw, ImageFont
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 import calendar
 import io
 import logging
 import glob
+from icalendar import Calendar
+from urllib.parse import urlparse, urlunparse
+from tzlocal import get_localzone  # Import für lokale Zeitzone
 
 app = Flask(__name__)
 
@@ -111,7 +114,8 @@ def format_datetime(fmt):
     fmt = fmt.replace('HH','%H')
     fmt = fmt.replace('mm','%M')
     fmt = fmt.replace('ss','%S')
-    now = datetime.now()
+    local_tz = get_localzone()
+    now = datetime.now(local_tz)
     return now.strftime(fmt)
 
 def fetch_weather(lat, lon):
@@ -171,6 +175,54 @@ def fetch_weather(lat, lon):
         "sunrise": sunrise,
         "sunset": sunset
     }
+
+def fetch_calendar(url, max_events):
+    try:
+        # Parse die URL
+        parsed_url = urlparse(url)
+        
+        # Wenn das Schema 'webcal' ist, ändere es zu 'https'
+        if parsed_url.scheme == 'webcal':
+            parsed_url = parsed_url._replace(scheme='https')
+            url = urlunparse(parsed_url)
+        
+        # Führe die Anfrage durch mit Timeout
+        response = requests.get(url, timeout=10)
+        if response.status_code != 200:
+            logging.error(f"Failed to fetch calendar. Status code: {response.status_code}")
+            return None
+        
+        # Parse den Kalenderinhalt
+        cal = Calendar.from_ical(response.content)
+        events = []
+        
+        # Lokale Zeitzone ermitteln
+        local_tz = get_localzone()
+        now = datetime.now(local_tz)
+        
+        for component in cal.walk():
+            if component.name == "VEVENT":
+                start = component.get('dtstart').dt
+                
+                # Sicherstellen, dass 'start' ein datetime-Objekt ist
+                if isinstance(start, datetime):
+                    # Wenn 'start' offset-naive ist, setze es auf lokale Zeitzone
+                    if start.tzinfo is None:
+                        start = start.replace(tzinfo=local_tz)
+                    else:
+                        start = start.astimezone(local_tz)
+                    
+                    if start >= now:
+                        summary = component.get('summary')
+                        description = component.get('description', '')
+                        events.append({'start': start, 'summary': summary, 'description': description})
+        
+        # Sortiere die Ereignisse und begrenze die Anzahl
+        events = sorted(events, key=lambda x: x['start'])[:max_events]
+        return events
+    except Exception as e:
+        logging.error(f"Error fetching calendar: {e}")
+        return None
 
 def weathercode_to_desc_icon(code, is_night=False):
     day_map = {
@@ -259,7 +311,13 @@ def get_design_by_name_endpoint():
             target_str = styleData.get('timerTarget', '2025-01-01 00:00:00')
             try:
                 target_dt = datetime.strptime(target_str, "%Y-%m-%d %H:%M:%S")
-                now = datetime.now()
+                local_tz = get_localzone()
+                # Wenn 'target_dt' offset-naive ist, setze es auf lokale Zeitzone
+                if target_dt.tzinfo is None:
+                    target_dt = target_dt.replace(tzinfo=local_tz)
+                else:
+                    target_dt = target_dt.astimezone(local_tz)
+                now = datetime.now(local_tz)
                 diff = target_dt - now
                 if diff.total_seconds() < 0:
                     m['content'] = "Time's up!"
@@ -275,8 +333,19 @@ def get_design_by_name_endpoint():
                     display = display.replace('MM', f"{minutes:02d}")
                     display = display.replace('SS', f"{seconds:02d}")
                     m['content'] = display
-            except:
+            except Exception as e:
+                logging.error(f"Error processing timer: {e}")
                 m['content'] = "Invalid timer target"
+        elif m['type'] == 'calendar':
+            styleData = m.get('styleData', {})
+            calendar_url = styleData.get('calendarURL', '')
+            max_events = int(styleData.get('maxEvents', 5))
+            events = fetch_calendar(calendar_url, max_events)
+            if not events:
+                m['content'] = "No events"
+            else:
+                formatted_events = "\n".join([f"{event['start'].strftime('%Y-%m-%d %H:%M')} - {event['summary']}" for event in events])
+                m['content'] = formatted_events
     return jsonify(d)
 
 @app.route('/design', methods=['GET'])
@@ -306,7 +375,13 @@ def get_design():
             target_str = styleData.get('timerTarget', '2025-01-01 00:00:00')
             try:
                 target_dt = datetime.strptime(target_str, "%Y-%m-%d %H:%M:%S")
-                now = datetime.now()
+                local_tz = get_localzone()
+                # Wenn 'target_dt' offset-naive ist, setze es auf lokale Zeitzone
+                if target_dt.tzinfo is None:
+                    target_dt = target_dt.replace(tzinfo=local_tz)
+                else:
+                    target_dt = target_dt.astimezone(local_tz)
+                now = datetime.now(local_tz)
                 diff = target_dt - now
                 if diff.total_seconds() < 0:
                     m['content'] = "Time's up!"
@@ -322,8 +397,19 @@ def get_design():
                     display = display.replace('MM', f"{minutes:02d}")
                     display = display.replace('SS', f"{seconds:02d}")
                     m['content'] = display
-            except:
+            except Exception as e:
+                logging.error(f"Error processing timer: {e}")
                 m['content'] = "Invalid timer target"
+        elif m['type'] == 'calendar':
+            styleData = m.get('styleData', {})
+            calendar_url = styleData.get('calendarURL', '')
+            max_events = int(styleData.get('maxEvents', 5))
+            events = fetch_calendar(calendar_url, max_events)
+            if not events:
+                m['content'] = "No events"
+            else:
+                formatted_events = "\n".join([f"{event['start'].strftime('%Y-%m-%d %H:%M')} - {event['summary']}" for event in events])
+                m['content'] = formatted_events
 
     return jsonify(design)
 
@@ -484,7 +570,7 @@ def get_font(filename):
     return jsonify({"message":"Font not found"}),404
 
 @app.route('/delete_image', methods=['POST'])
-def delete_image():
+def delete_image_route():
     data = request.json
     filename = data.get('filename')
     if not filename:
@@ -522,7 +608,6 @@ def download_font(font_name):
 
 def render_text(draw, x, y, w, h, text, font, bold=False, italic=False, strike=False, align='left'):
     lines = text.split('\n')
-    space_w = font.getlength(' ')
     wrapped_lines=[]
     for line in lines:
         words = line.split(' ')
@@ -531,15 +616,15 @@ def render_text(draw, x, y, w, h, text, font, bold=False, italic=False, strike=F
         for wo in words:
             ww=font.getlength(wo)
             if cl:
-                if cw+space_w+ww<=w:
+                if cw+font.getlength(' ') + ww <=w:
                     cl.append(wo)
-                    cw+=space_w+ww
+                    cw += font.getlength(' ') + ww
                 else:
                     wrapped_lines.append(' '.join(cl))
                     cl=[wo]
                     cw=ww
             else:
-                if ww<=w:
+                if ww <=w:
                     cl=[wo]
                     cw=ww
                 else:
@@ -552,16 +637,16 @@ def render_text(draw, x, y, w, h, text, font, bold=False, italic=False, strike=F
     line_height = font.size+2
     iy=y
     for line in wrapped_lines:
-        line_width=font.getlength(line)
+        line_width = font.getlength(line)
         if align=='center':
-            lx=x+(w-line_width)/2
+            lx = x + (w - line_width)/2
         elif align=='right':
-            lx=x+(w-line_width)
+            lx = x + (w - line_width)
         else:
-            lx=x
+            lx = x
         if italic:
-            lx+=1
-        if iy+line_height>y+h:
+            lx +=1
+        if iy + line_height > y + h:
             break
         if bold:
             draw.text((lx,iy), line, font=font, fill=0)
@@ -569,8 +654,8 @@ def render_text(draw, x, y, w, h, text, font, bold=False, italic=False, strike=F
         else:
             draw.text((lx,iy), line, font=font, fill=0)
         if strike:
-            draw.line((lx, iy+font.size/2, lx+line_width, iy+font.size/2), fill=0)
-        iy+=line_height
+            draw.line((lx, iy + font.size/2, lx + line_width, iy + font.size/2), fill=0)
+        iy += line_height
 
 @app.route('/preview', methods=['GET'])
 def preview_image():
@@ -585,7 +670,7 @@ def preview_image():
         if not d:
             return jsonify({"message":"No design"}),404
 
-    for m in d['modules']:
+    for m in d.get('modules', []):
         if m['type']=='datetime':
             styleData = m.get('styleData',{})
             dt_fmt = styleData.get('datetimeFormat','YYYY-MM-DD HH:mm')
@@ -606,7 +691,13 @@ def preview_image():
             target_str = styleData.get('timerTarget', '2025-01-01 00:00:00')
             try:
                 target_dt = datetime.strptime(target_str, "%Y-%m-%d %H:%M:%S")
-                now = datetime.now()
+                local_tz = get_localzone()
+                # Wenn 'target_dt' offset-naive ist, setze es auf lokale Zeitzone
+                if target_dt.tzinfo is None:
+                    target_dt = target_dt.replace(tzinfo=local_tz)
+                else:
+                    target_dt = target_dt.astimezone(local_tz)
+                now = datetime.now(local_tz)
                 diff = target_dt - now
                 if diff.total_seconds()<0:
                     m['content'] = "Time's up!"
@@ -615,15 +706,26 @@ def preview_image():
                     days = diff.days
                     sec = diff.seconds
                     hours = sec // 3600
-                    minutes = (sec % 3600)//60
+                    minutes = (sec % 3600) // 60
                     seconds = sec % 60
                     display = fmt.replace('D', str(days))
                     display = display.replace('HH', f"{hours:02d}")
                     display = display.replace('MM', f"{minutes:02d}")
                     display = display.replace('SS', f"{seconds:02d}")
                     m['content'] = display
-            except:
+            except Exception as e:
+                logging.error(f"Error processing timer: {e}")
                 m['content'] = "Invalid timer target"
+        elif m['type'] == 'calendar':
+            styleData = m.get('styleData', {})
+            calendar_url = styleData.get('calendarURL', '')
+            max_events = int(styleData.get('maxEvents', 5))
+            events = fetch_calendar(calendar_url, max_events)
+            if not events:
+                m['content'] = "No events"
+            else:
+                formatted_events = "\n".join([f"{event['start'].strftime('%Y-%m-%d %H:%M')} - {event['summary']}" for event in events])
+                m['content'] = formatted_events
 
     blackImage = Image.new('1', (EINK_WIDTH, EINK_HEIGHT), 255)
     draw_black = ImageDraw.Draw(blackImage)
@@ -665,7 +767,7 @@ def preview_image():
         else:
             font = ImageFont.load_default()
 
-        if t in ['text','news','weather','datetime','timer']:
+        if t in ['text','news','weather','datetime','timer','calendar']:
             render_text(draw_black, x, y, w, h, content, font, bold=bold, italic=italic, strike=strike, align=align)
         elif t == 'image':
             img_name = styleData.get('image', None)

@@ -173,6 +173,33 @@ def fetch_weather_data(lat, lon):
         return "Keine Wetterdaten"
 
 
+def fetch_calendar_events(url, max_events):
+    """
+    Holt Kalenderereignisse von einer iCal/Webcal-URL.
+    """
+    try:
+        response = requests.get(url)
+        if response.status_code != 200:
+            logging.error(f"Kalender-URL konnte nicht abgerufen werden: {url}")
+            return None
+        cal = Calendar.from_ical(response.content)
+        events = []
+        now = datetime.now()
+        for component in cal.walk():
+            if component.name == "VEVENT":
+                start = component.get('dtstart').dt
+                if isinstance(start, datetime):
+                    if start >= now:
+                        summary = component.get('summary')
+                        description = component.get('description', '')
+                        events.append({'start': start, 'summary': summary, 'description': description})
+        events = sorted(events, key=lambda x: x['start'])[:max_events]
+        return events
+    except Exception as e:
+        logging.error(f"Fehler beim Abrufen des Kalenders: {e}")
+        return None
+
+
 def download_file(base_url, path, file_name):
     """
     Lädt eine Datei (Bild oder Schriftart) vom Server herunter und speichert sie im temporären Verzeichnis.
@@ -282,6 +309,18 @@ def main():
                 lon = styleData.get('longitude', '13.41')
                 m['content'] = fetch_weather_data(lat, lon)
 
+        elif t == 'calendar':
+            # Wenn offlineClientSync aktiviert ist und Internet verfügbar ist, hole Kalenderdaten
+            if offlineSync and internet_available:
+                calendar_url = styleData.get('calendarURL', '')
+                max_events = int(styleData.get('maxEvents', 5))
+                events = fetch_calendar_events(calendar_url, max_events)
+                if not events:
+                    m['content'] = "No events"
+                else:
+                    formatted_events = "\n".join([f"{event['start'].strftime('%Y-%m-%d %H:%M')} - {event['summary']}" for event in events])
+                    m['content'] = formatted_events
+
         # Weitere Typen können hier behandelt werden
 
     # Aktualisiere Datums- und Uhrzeitfelder im Design (wenn offline und offlineClientSync aktiviert)
@@ -340,21 +379,12 @@ def main():
             logging.error(f"Fehler beim Laden der Schriftart: {e}")
             font = ImageFont.load_default()
 
-        if t in ['text', 'news', 'weather', 'datetime', 'timer']:
+        if t in ['text', 'news', 'weather', 'datetime', 'timer', 'calendar']:
             render_text(draw_color, x, y, w, h, content, font, color=color, bold=bold, italic=italic, strike=strike, align=align)
         elif t == 'image':
             img_name = styleData.get('image', None)
             if img_name:
-                img_path = None
-                if server_reachable:
-                    img_path = download_file(BASE_URL, IMAGE_PATH, img_name)
-                else:
-                    local_path = os.path.join(TEMP_DIR, img_name)
-                    if os.path.exists(local_path):
-                        img_path = local_path
-                    else:
-                        # Kein Server und kein lokales Bild - überspringen
-                        logging.warning(f"Bild {img_name} nicht gefunden. Überspringe Modul.")
+                img_path = download_file(BASE_URL, IMAGE_PATH, img_name) if server_reachable else os.path.join(TEMP_DIR, img_name)
                 if img_path and os.path.exists(img_path):
                     try:
                         img = Image.open(img_path).convert('RGB')
@@ -367,6 +397,8 @@ def main():
                         colorImage.paste(img, (x, y))
                     except Exception as e:
                         logging.error(f"Fehler beim Verarbeiten des Bildes {img_name}: {e}")
+        elif t == 'line':
+            draw_color.rectangle((x, y, x + w, y + h), fill=color)
 
     # Speichere das Bild als BMP
     try:

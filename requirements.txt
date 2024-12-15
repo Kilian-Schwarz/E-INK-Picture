@@ -3,3 +3,5 @@ Werkzeug==2.3.4
 Pillow==9.5.0
 requests==2.31.0
 gunicorn==20.1.0
+icalendar==4.0.9
+tzlocal==5.0
