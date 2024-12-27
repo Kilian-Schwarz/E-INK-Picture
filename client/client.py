@@ -1,407 +1,435 @@
-#!/bin/bash
-
-echo "🚀 Starte vollständiges Setup inklusive aller Dateien, Funktionen und Default-Admin!"
-
-# Überprüfen auf sudo/root
-if [ "$EUID" -ne 0 ]; then
-  echo "Bitte führe dieses Skript als root oder mit sudo aus."
-  exit 1
-fi
-
-# Systempakete aktualisieren
-echo "🔄 Aktualisiere Systempakete..."
-apt update && apt upgrade -y
-
-# Installiere erforderliche Programme
-echo "🐍 Installiere Python, pip und andere Pakete..."
-apt install -y python3 python3-pip python3-venv wget git
-
-# Projektstruktur erstellen
-echo "📂 Erstelle Projektstruktur..."
-mkdir -p /opt/webapp
-cd /opt/webapp
-
-mkdir -p app/templates app/static/css app/static/js app/geoip backups migrations
-touch app/__init__.py app/models.py app/routes.py config.py run.py requirements.txt
-touch app/templates/base.html app/templates/index.html app/templates/login.html app/templates/register.html
-touch app/templates/dashboard.html app/templates/edit_domain.html app/templates/delete_confirm.html
-touch app/static/css/styles.css app/static/js/scripts.js
-
-# GeoIP-Datenbank herunterladen (optional, mit Fehlerprüfung)
-echo "🌍 Lade GeoIP-Datenbank herunter (optional)..."
-# Hinweis: Aktualisierte URL mit Lizenzschlüssel erforderlich
-# DL_URL="https://geolite.maxmind.com/download/geoip/database/GeoLite2-City.mmdb"
-# Beispiel für neue URL mit Lizenzschlüssel:
-# DL_URL="https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-City&license_key=YOUR_LICENSE_KEY&suffix=tar.gz"
-
-DL_URL="https://geolite.maxmind.com/download/geoip/database/GeoLite2-City.mmdb"
-
-if wget -q --spider "$DL_URL"; then
-  wget -O app/geoip/GeoLite2-City.mmdb "$DL_URL"
-  echo "✅ GeoIP-Datenbank erfolgreich heruntergeladen."
-else
-  echo "⚠️  Konnte $DL_URL nicht erreichen (DNS oder veraltet?)."
-  echo "⚠️  Bitte ggf. URL / Lizenzschlüssel anpassen, siehe MaxMind-Doku!"
-fi
-
-# Anforderungen für Python erstellen (cachelib nun auf 0.13.0)
-echo "📦 Generiere requirements.txt..."
-cat <<EOF > requirements.txt
-Flask==2.3.3
-Flask-SQLAlchemy==3.0.5
-Flask-Login==0.6.3
-Flask-Caching==1.11.0
-Flask-Limiter==3.0.0
-geoip2==4.7.0
-cachelib==0.13.0
-EOF
-
-# Beispielkonfiguration erstellen
-echo "⚙️ Generiere config.py..."
-cat <<EOF > config.py
+#!/usr/bin/python3
+# -*- coding:utf-8 -*-
 import os
+import requests
+import logging
+from PIL import Image, ImageDraw, ImageFont
+import json
+import time
+import subprocess
+from datetime import datetime, timedelta
+from waveshare_epd import epd7in5_V2  # Stellen Sie sicher, dass dieses Modul installiert ist
 
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+logging.basicConfig(level=logging.DEBUG)
 
-class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'default_secret_key')
-    SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(BASE_DIR, 'app.db')
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-EOF
+BASE_URL = "http://127.0.0.1:5000"
+DESIGN_PATH = "/design"
+IMAGE_PATH = "/image/"
+FONT_PATH = "/font/"
 
-# Beispielcode für app/__init__.py erstellen
-echo "📝 Generiere app/__init__.py..."
-cat <<EOF > app/__init__.py
-from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
-from flask_caching import Cache
-from flask_login import LoginManager
+EINK_OFFSET_X = 200
+EINK_OFFSET_Y = 160
+EINK_WIDTH = 800
+EINK_HEIGHT = 480
 
-app = Flask(__name__)
-app.config.from_object('config.Config')
+max_retries = 3
+retry_delay = 20  # Sekunden
 
-db = SQLAlchemy(app)
-cache = Cache(app, config={'CACHE_TYPE': 'SimpleCache'})
-login_manager = LoginManager(app)
-login_manager.login_view = "login"
+TEMP_DIR = "./temp_files/"  # Temporäres Verzeichnis für heruntergeladene Dateien
+LOCAL_DESIGN_FILE = "./local_design.json"  # Lokale Datei zum Speichern des letzten bekannten Designs
+OUTPUT_IMAGE_FILE = "output_image.bmp"  # Name der Ausgabedatei
 
-from app import routes, models
 
-# user_loader Funktion hinzufügen
-@login_manager.user_loader
-def load_user(user_id):
-    from app.models import User
-    return User.query.get(int(user_id))
-EOF
+def check_internet_connectivity():
+    """
+    Überprüft, ob das Internet erreichbar ist, indem eine zuverlässige externe IP angepingt wird.
+    """
+    try:
+        subprocess.check_output(["ping", "-c", "1", "1.1.1.1"])
+        logging.info("Internetverbindung bestätigt.")
+        return True
+    except subprocess.CalledProcessError:
+        logging.warning("Keine Internetverbindung.")
+        return False
 
-# Beispielcode für app/models.py erstellen
-echo "📝 Generiere app/models.py..."
-cat <<EOF > app/models.py
-from app import db
-from flask_login import UserMixin
-from werkzeug.security import generate_password_hash, check_password_hash
 
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(150), nullable=False, unique=True)
-    password_hash = db.Column(db.String(150), nullable=False)
+def clean_temp_files():
+    """
+    Löscht alle temporären Dateien, einschließlich Schriftarten, Bilder und anderer nicht verwendeter Ressourcen.
+    """
+    if os.path.exists(TEMP_DIR):
+        for file_name in os.listdir(TEMP_DIR):
+            file_path = os.path.join(TEMP_DIR, file_name)
+            try:
+                os.remove(file_path)
+                logging.info(f"Alte Datei gelöscht: {file_path}")
+            except Exception as e:
+                logging.error(f"Fehler beim Löschen von {file_path}: {e}")
 
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
 
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+def fetch_design(base_url):
+    """
+    Holt das Design-JSON vom Server und speichert es lokal.
+    """
+    try:
+        url = base_url + DESIGN_PATH
+        response = requests.get(url, timeout=5)
+        if response.status_code == 200:
+            design_data = response.json()
+            with open(LOCAL_DESIGN_FILE, "w") as file:
+                json.dump(design_data, file)
+            logging.info("Design erfolgreich abgerufen und gespeichert.")
+            return design_data
+        else:
+            logging.error(f"Fehler beim Abrufen des Designs. HTTP-Status: {response.status_code}.")
+            return None
+    except requests.RequestException as e:
+        logging.error(f"Fehler beim Abrufen des Designs: {e}")
+        return None
 
-class Domain(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    domain_name = db.Column(db.String(255), nullable=False)
-    alias_name = db.Column(db.String(255), nullable=False)
-EOF
 
-# Beispielcode für app/routes.py erstellen
-echo "📝 Generiere app/routes.py..."
-cat <<EOF > app/routes.py
-from flask import render_template, request, redirect, url_for, flash
-from flask_login import login_user, logout_user, login_required, current_user
-from app import app, db
-from app.models import Domain, User
+def load_local_design():
+    """
+    Lädt das zuletzt bekannte Design aus der lokalen Datei, falls der Server nicht erreichbar ist.
+    """
+    if os.path.exists(LOCAL_DESIGN_FILE):
+        with open(LOCAL_DESIGN_FILE, "r") as file:
+            logging.info("Lokale Designdaten geladen.")
+            return json.load(file)
+    logging.error("Kein lokales Design verfügbar.")
+    return None
 
-# Login- und Logout-Funktionen
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        user = User.query.filter_by(username=username).first()
-        if user and user.check_password(password):
-            login_user(user)
-            return redirect(url_for('dashboard'))
-        flash('Login fehlgeschlagen. Überprüfen Sie Benutzername und Passwort.')
-    return render_template('login.html')
 
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for('login'))
+def update_datetime_fields(design):
+    """
+    Aktualisiert alle Datums- und Uhrzeitfelder im Design mit der aktuellen Systemzeit, wenn offlineClientSync aktiviert ist
+    und keine Serververbindung besteht.
+    """
+    for module in design.get('modules', []):
+        if module.get('type') == 'datetime':
+            styleData = module.get('styleData', {})
+            format_string = styleData.get('datetimeFormat', '%Y-%m-%d %H:%M:%S')
+            # Platzhalter ersetzen
+            format_string = format_string.replace("YYYY", "%Y").replace("MM", "%m").replace("DD", "%d")
+            format_string = format_string.replace("HH", "%H").replace("mm", "%M").replace("ss", "%S")
 
-# Dashboard anzeigen
-@app.route('/dashboard')
-@login_required
-def dashboard():
-    domains = Domain.query.all()
-    return render_template('dashboard.html', domains=domains)
+            # Wenn offlineClientSync wahr ist, die Zeit vom lokalen System aktualisieren
+            if styleData.get('offlineClientSync', 'false') == 'true':
+                current_time = datetime.now().strftime(format_string)
+                module['content'] = current_time
+                logging.info(f"Datum und Uhrzeit aktualisiert auf {current_time}")
+    return design
 
-# Domain hinzufügen
-@app.route('/add', methods=['GET', 'POST'])
-@login_required
-def add_domain():
-    if request.method == 'POST':
-        domain_name = request.form.get('domain_name')
-        alias_name = request.form.get('alias_name')
-        new_domain = Domain(domain_name=domain_name, alias_name=alias_name)
-        db.session.add(new_domain)
-        db.session.commit()
-        flash('Domain erfolgreich hinzugefügt!')
-        return redirect(url_for('dashboard'))
-    return render_template('add_domain.html')
 
-# Domain bearbeiten
-@app.route('/edit/<int:id>', methods=['GET', 'POST'])
-@login_required
-def edit_domain(id):
-    domain = Domain.query.get_or_404(id)
-    if request.method == 'POST':
-        domain.domain_name = request.form.get('domain_name')
-        domain.alias_name = request.form.get('alias_name')
-        db.session.commit()
-        flash('Domain erfolgreich aktualisiert!')
-        return redirect(url_for('dashboard'))
-    return render_template('edit_domain.html', domain=domain)
+def update_timer_fields(design):
+    """
+    Aktualisiert alle Timerfelder im Design mit dem aktuellen Countdown, wenn offlineClientSync aktiviert ist
+    und keine Serververbindung besteht. timerTarget wird als 'YYYY-MM-DD HH:mm:ss' in styleData erwartet.
+    timerFormat könnte etwas wie 'D days, HH:MM:SS' sein.
+    """
+    for module in design.get('modules', []):
+        if module.get('type') == 'timer':
+            styleData = module.get('styleData', {})
+            target_str = styleData.get('timerTarget', '2025-01-01 00:00:00')
+            # offlineClientSync überprüfen
+            if styleData.get('offlineClientSync', 'false') == 'true':
+                try:
+                    target_dt = datetime.strptime(target_str, "%Y-%m-%d %H:%M:%S")
+                    now = datetime.now()
+                    diff = target_dt - now
+                    if diff.total_seconds() < 0:
+                        # Timer beendet
+                        module['content'] = "Zeit abgelaufen!"
+                    else:
+                        # Differenz basierend auf timerFormat formatieren
+                        fmt = styleData.get('timerFormat', 'D days, HH:MM:SS')
+                        days = diff.days
+                        sec = diff.seconds
+                        hours = sec // 3600
+                        minutes = (sec % 3600) // 60
+                        seconds = sec % 60
 
-# Domain löschen
-@app.route('/delete/<int:id>', methods=['POST'])
-@login_required
-def delete_domain(id):
-    domain = Domain.query.get_or_404(id)
-    db.session.delete(domain)
-    db.session.commit()
-    flash('Domain erfolgreich gelöscht!')
-    return redirect(url_for('dashboard'))
+                        # Platzhalter ersetzen
+                        display = fmt.replace('D', str(days))
+                        display = display.replace('HH', f"{hours:02d}")
+                        display = display.replace('MM', f"{minutes:02d}")
+                        display = display.replace('SS', f"{seconds:02d}")
+                        module['content'] = display
+                        logging.info(f"Timer aktualisiert auf {display}")
+                except Exception as e:
+                    logging.error(f"Fehler beim Aktualisieren des Timers: {e}")
+    return design
 
-# Startseite Route hinzufügen
-@app.route('/')
-def index():
-    return render_template('index.html')
-EOF
 
-# HTML-Templates generieren
-echo "📝 Generiere HTML-Templates..."
-cat <<EOF > app/templates/login.html
-{% extends "base.html" %}
-{% block content %}
-<h2>Login</h2>
-<form method="POST">
-    <input type="text" name="username" placeholder="Benutzername" required>
-    <input type="password" name="password" placeholder="Passwort" required>
-    <button type="submit">Login</button>
-</form>
-{% endblock %}
-EOF
+def fetch_weather_data(lat, lon):
+    """
+    Holt Wetterdaten direkt von open-meteo, wenn offlineClientSync aktiviert ist und wir Internet haben,
+    aber der Server nicht erreichbar ist.
+    """
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&hourly=temperature_2m,weathercode,precipitation&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset&current_weather=true&forecast_days=4&timezone=Europe%2FBerlin"
+    try:
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
+            # Vereinfachte Darstellung der Wetterdaten
+            if 'current_weather' in data:
+                temp = data['current_weather']['temperature']
+                return f"Temp: {temp}°C"
+            else:
+                return "Keine Wetterdaten"
+        else:
+            return "Keine Wetterdaten"
+    except:
+        return "Keine Wetterdaten"
 
-cat <<EOF > app/templates/dashboard.html
-{% extends "base.html" %}
-{% block content %}
-<h2>Willkommen, {{ current_user.username }}!</h2>
-<a href="{{ url_for('add_domain') }}">Domain hinzufügen</a>
-<h3>Domain-Liste</h3>
-<table>
-    <tr>
-        <th>Domain</th>
-        <th>Alias</th>
-        <th>Aktionen</th>
-    </tr>
-    {% for domain in domains %}
-    <tr>
-        <td>{{ domain.domain_name }}</td>
-        <td>{{ domain.alias_name }}</td>
-        <td>
-            <a href="{{ url_for('edit_domain', id=domain.id) }}">Bearbeiten</a>
-            <form action="{{ url_for('delete_domain', id=domain.id) }}" method="POST" style="display:inline;">
-                <button type="submit">Löschen</button>
-            </form>
-        </td>
-    </tr>
-    {% endfor %}
-</table>
-{% endblock %}
-EOF
 
-cat <<EOF > app/templates/add_domain.html
-{% extends "base.html" %}
-{% block content %}
-<h2>Domain hinzufügen</h2>
-<form method="POST">
-    <input type="text" name="domain_name" placeholder="Domain Name" required>
-    <input type="text" name="alias_name" placeholder="Alias Name" required>
-    <button type="submit">Hinzufügen</button>
-</form>
-{% endblock %}
-EOF
+def fetch_calendar_events(url, max_events):
+    """
+    Holt Kalenderereignisse von einer iCal/Webcal-URL.
+    """
+    try:
+        response = requests.get(url)
+        if response.status_code != 200:
+            logging.error(f"Kalender-URL konnte nicht abgerufen werden: {url}")
+            return None
+        cal = Calendar.from_ical(response.content)
+        events = []
+        now = datetime.now()
+        for component in cal.walk():
+            if component.name == "VEVENT":
+                start = component.get('dtstart').dt
+                if isinstance(start, datetime):
+                    if start >= now:
+                        summary = component.get('summary')
+                        description = component.get('description', '')
+                        events.append({'start': start, 'summary': summary, 'description': description})
+        events = sorted(events, key=lambda x: x['start'])[:max_events]
+        return events
+    except Exception as e:
+        logging.error(f"Fehler beim Abrufen des Kalenders: {e}")
+        return None
 
-cat <<EOF > app/templates/edit_domain.html
-{% extends "base.html" %}
-{% block content %}
-<h2>Domain bearbeiten</h2>
-<form method="POST">
-    <input type="text" name="domain_name" value="{{ domain.domain_name }}" required>
-    <input type="text" name="alias_name" value="{{ domain.alias_name }}" required>
-    <button type="submit">Speichern</button>
-</form>
-{% endblock %}
-EOF
 
-cat <<EOF > app/templates/delete_confirm.html
-{% extends "base.html" %}
-{% block content %}
-<h2>Domain löschen</h2>
-<p>Möchten Sie die Domain "{{ domain.domain_name }}" wirklich löschen?</p>
-<form method="POST">
-    <button type="submit">Ja, löschen</button>
-    <a href="{{ url_for('dashboard') }}">Abbrechen</a>
-</form>
-{% endblock %}
-EOF
+def download_file(base_url, path, file_name):
+    """
+    Lädt eine Datei (Bild oder Schriftart) vom Server herunter und speichert sie im temporären Verzeichnis.
+    """
+    if not os.path.exists(TEMP_DIR):
+        os.makedirs(TEMP_DIR)
 
-# Basis-Template (base.html) und ggf. index.html
-cat <<EOF > app/templates/base.html
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <title>WebApp</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
-</head>
-<body>
-<header>
-    <h1>Meine WebApp</h1>
-    {% if current_user.is_authenticated %}
-    <nav>
-        <a href="{{ url_for('dashboard') }}">Dashboard</a>
-        <a href="{{ url_for('logout') }}">Logout</a>
-    </nav>
-    {% else %}
-    <nav>
-        <a href="{{ url_for('login') }}">Login</a>
-    </nav>
-    {% endif %}
-</header>
-<main>
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}
-        <ul>
-        {% for message in messages %}
-          <li>{{ message }}</li>
-        {% endfor %}
-        </ul>
-      {% endif %}
-    {% endwith %}
-    {% block content %}{% endblock %}
-</main>
-<script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
-</body>
-</html>
-EOF
+    file_path = os.path.join(TEMP_DIR, file_name)
+    if os.path.exists(file_path):
+        return file_path
 
-cat <<EOF > app/templates/index.html
-{% extends "base.html" %}
-{% block content %}
-<h2>Startseite</h2>
-<p>Willkommen auf der Startseite</p>
-{% endblock %}
-EOF
+    try:
+        file_url = base_url + path + file_name
+        response = requests.get(file_url, stream=True)
+        if response.status_code == 200:
+            with open(file_path, "wb") as f:
+                f.write(response.content)
+            logging.info(f"Datei {file_name} heruntergeladen und gespeichert.")
+            return file_path
+    except requests.RequestException as e:
+        logging.error(f"Fehler beim Herunterladen der Datei {file_name}: {e}")
+    return None
 
-# CSS und JS generieren
-echo "🎨 Generiere CSS- und JS-Dateien..."
-cat <<EOF > app/static/css/styles.css
-body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-header { background: #333; color: white; padding: 1rem; text-align: center; }
-nav a { color: white; margin: 0 1rem; text-decoration: none; }
-main { padding: 2rem; }
-form { margin-top: 1rem; }
-table, td, th {
-    border: 1px solid #ccc;
-    border-collapse: collapse;
-    padding: 0.5rem;
-}
-ul { list-style-type: none; padding: 0; }
-li { background: #f2f2f2; margin-bottom: 0.5rem; padding: 0.5rem; }
-EOF
 
-cat <<EOF > app/static/js/scripts.js
-console.log("JavaScript geladen!");
-EOF
+def render_text(draw, x, y, w, h, text, font, color=(0, 0, 0), bold=False, italic=False, strike=False, align='left'):
+    lines = text.split('\n')
+    wrapped_lines = []
+    for line in lines:
+        words = line.split(' ')
+        cl = []
+        cw = 0
+        for word in words:
+            ww, _ = font.getsize(word)
+            space_width, _ = font.getsize(' ')
+            if cl:
+                if cw + space_width + ww <= w:
+                    cl.append(word)
+                    cw += space_width + ww
+                else:
+                    wrapped_lines.append(' '.join(cl))
+                    cl = [word]
+                    cw = ww
+            else:
+                if ww <= w:
+                    cl = [word]
+                    cw = ww
+        if cl:
+            wrapped_lines.append(' '.join(cl))
 
-# run.py anlegen (hier startet die Flask-App)
-echo "🚀 Erstelle run.py..."
-cat <<EOF > run.py
-from app import app
+    _, line_height = font.getsize('A')  # Verwendung einer Referenzzeile für die Höhe
+    line_height += 2
+    for line in wrapped_lines:
+        line_width, _ = font.getsize(line)
+        if align == 'center':
+            lx = x + (w - line_width) / 2
+        elif align == 'right':
+            lx = x + (w - line_width)
+        else:
+            lx = x
+        draw.text((lx, y), line, font=font, fill=color)
+        if strike:
+            draw.line((lx, y + line_height / 2, lx + line_width, y + line_height / 2), fill=color)
+        y += line_height
 
-if __name__ == "__main__":
-    # Standard-Port 5000, kann angepasst werden
-    app.run(host="0.0.0.0", port=5000)
-EOF
 
-# Virtual Environment anlegen und Pakete installieren
-echo "📦 Erstelle Virtual Environment und installiere Pakete..."
-python3 -m venv venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-deactivate
+def main():
+    retry_count = 0  # Lokale Deklaration von retry_count
+    design = None    # Initialisierung von design
+    server_design = None  # Initialisierung von server_design
 
-# Datenbank initialisieren und Default-Admin erstellen
-echo "🗄️ Initialisiere SQLite-Datenbank..."
-source venv/bin/activate
-python3 -c "
-from app import app, db
-from app.models import User
+    internet_available = check_internet_connectivity()
 
-with app.app_context():
-    db.create_all()
-    if not User.query.filter_by(username='PAM').first():
-        admin = User(username='PAM')
-        admin.set_password('PAM')  # Hinweis: Verwenden Sie sichere Passwörter in Produktionsumgebungen
-        db.session.add(admin)
-        db.session.commit()
-    print('✅ Default-Admin erstellt (Benutzername: PAM, Passwort: PAM)')
-"
-deactivate
+    # Versuch, das Design vom Server abzurufen
+    while retry_count < max_retries:
+        server_design = fetch_design(BASE_URL)
+        if server_design:
+            design = server_design
+            clean_temp_files()
+            break
+        else:
+            logging.warning(f"Versuch {retry_count + 1} fehlgeschlagen. Erneuter Versuch in {retry_delay} Sekunden.")
+            retry_count += 1
+            time.sleep(retry_delay)
 
-# Systemd-Service erstellen
-echo "📝 Erstelle Systemd-Service-Datei..."
-cat <<EOF > /etc/systemd/system/webapp.service
-[Unit]
-Description=Web Application (Flask)
-After=network.target
+    # Falls das Design nach den Retries immer noch None ist, lade es lokal
+    if not design:
+        logging.warning("Server nicht erreichbar. Verwende lokale Designdaten.")
+        design = load_local_design()
 
-[Service]
-# Es wird empfohlen, einen dedizierten Benutzer für die Anwendung zu verwenden, z.B. "webapp"
-User=root
-Group=root
-WorkingDirectory=/opt/webapp
-ExecStart=/opt/webapp/venv/bin/python /opt/webapp/run.py
-Restart=always
+    # Wenn immer noch kein Design verfügbar ist, Programm beenden
+    if not design:
+        logging.error("Keine Designdaten verfügbar. Beende das Programm.")
+        return
 
-[Install]
-WantedBy=multi-user.target
-EOF
+    # Prüfe die Module und wende Offline-Logik an, falls nötig
+    server_reachable = (server_design is not None)
 
-# Service aktivieren und starten
-echo "📦 Aktivieren und Starten des Systemd-Services..."
-systemctl daemon-reload
-systemctl enable webapp.service
-systemctl start webapp.service
+    for m in design.get('modules', []):
+        t = m['type']
+        styleData = m.get('styleData', {})
+        offlineSync = (styleData.get('offlineClientSync', 'false').lower() == 'true')
 
-# Abschluss
-echo "✅ Setup abgeschlossen! Die Anwendung läuft (sofern keine Firewall blockiert) unter http://<server-ip>:5000"
+        if t == 'weather':
+            # Wenn offlineClientSync aktiviert ist und der Server nicht erreichbar ist, aber Internet verfügbar ist, hole Wetterdaten
+            if offlineSync and (not server_reachable) and internet_available:
+                lat = styleData.get('latitude', '52.52')
+                lon = styleData.get('longitude', '13.41')
+                m['content'] = fetch_weather_data(lat, lon)
+
+        elif t == 'calendar':
+            # Wenn offlineClientSync aktiviert ist und Internet verfügbar ist, hole Kalenderdaten
+            if offlineSync and internet_available:
+                calendar_url = styleData.get('calendarURL', '')
+                max_events = int(styleData.get('maxEvents', 5))
+                events = fetch_calendar_events(calendar_url, max_events)
+                if not events:
+                    m['content'] = "No events"
+                else:
+                    formatted_events = "\n".join([f"{event['start'].strftime('%Y-%m-%d %H:%M')} - {event['summary']}" for event in events])
+                    m['content'] = formatted_events
+
+        # Weitere Typen können hier behandelt werden
+
+    # Aktualisiere Datums- und Uhrzeitfelder im Design (wenn offline und offlineClientSync aktiviert)
+    design = update_datetime_fields(design)
+    # Aktualisiere Timerfelder im Design
+    design = update_timer_fields(design)
+
+    # Erstelle ein farbiges Bild
+    colorImage = Image.new('RGB', (EINK_WIDTH, EINK_HEIGHT), (255, 255, 255))
+    draw_color = ImageDraw.Draw(colorImage)
+
+    for m in design.get('modules', []):
+        x = m['position']['x'] - EINK_OFFSET_X
+        y = m['position']['y'] - EINK_OFFSET_Y
+        w = m['size']['width']
+        h = m['size']['height']
+        content = m['content']
+        t = m['type']
+        styleData = m.get('styleData', {})
+
+        if x + w < 0 or x > EINK_WIDTH or y + h < 0 or y > EINK_HEIGHT:
+            continue
+
+        font_name = styleData.get('font', '').strip()
+        font_size = int(styleData.get('fontSize', '18'))
+        bold = (styleData.get('fontBold', 'false').lower() == 'true')
+        italic = (styleData.get('fontItalic', 'false').lower() == 'true')
+        strike = (styleData.get('fontStrike', 'false').lower() == 'true')
+        align = styleData.get('textAlign', 'left')
+        text_color = styleData.get('textColor', '#000000')  # Standardfarbe Schwarz
+
+        # Konvertiere Hex-Farbe zu RGB
+        try:
+            if text_color.startswith('#') and len(text_color) == 7:
+                color = tuple(int(text_color[i:i+2], 16) for i in (1, 3, 5))
+            else:
+                color = (0, 0, 0)  # Fallback zu Schwarz
+        except:
+            color = (0, 0, 0)
+
+        if font_name:
+            font_path = download_file(BASE_URL, FONT_PATH, font_name) if server_reachable else os.path.join(TEMP_DIR, font_name)
+            if not font_path or not os.path.exists(font_path):
+                # Fallback
+                font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+                if not os.path.exists(font_path):
+                    font_path = None
+        else:
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+            if not os.path.exists(font_path):
+                font_path = None
+
+        try:
+            font = ImageFont.truetype(font_path, font_size) if font_path else ImageFont.load_default()
+        except Exception as e:
+            logging.error(f"Fehler beim Laden der Schriftart: {e}")
+            font = ImageFont.load_default()
+
+        if t in ['text', 'news', 'weather', 'datetime', 'timer', 'calendar']:
+            render_text(draw_color, x, y, w, h, content, font, color=color, bold=bold, italic=italic, strike=strike, align=align)
+        elif t == 'image':
+            img_name = styleData.get('image', None)
+            if img_name:
+                img_path = download_file(BASE_URL, IMAGE_PATH, img_name) if server_reachable else os.path.join(TEMP_DIR, img_name)
+                if img_path and os.path.exists(img_path):
+                    try:
+                        img = Image.open(img_path).convert('RGB')
+                        cx = int(styleData.get('crop_x', 0))
+                        cy = int(styleData.get('crop_y', 0))
+                        cw = int(styleData.get('crop_w', img.width))
+                        ch = int(styleData.get('crop_h', img.height))
+                        img = img.crop((cx, cy, cx + cw, cy + ch))
+                        img = img.resize((w, h))
+                        colorImage.paste(img, (x, y))
+                    except Exception as e:
+                        logging.error(f"Fehler beim Verarbeiten des Bildes {img_name}: {e}")
+        elif t == 'line':
+            draw_color.rectangle((x, y, x + w, y + h), fill=color)
+
+    # Speichere das Bild als BMP
+    try:
+        colorImage.save(OUTPUT_IMAGE_FILE, format='BMP')
+        logging.info(f"Bild gespeichert als {OUTPUT_IMAGE_FILE}")
+    except Exception as e:
+        logging.error(f"Fehler beim Speichern des Bildes: {e}")
+        return
+
+    # Sende das Bild an das E-Ink-Display
+    try:
+        epd = epd7in5_V2.EPD()
+        epd.init()
+        epd.Clear()
+
+        # Lade das Bild (800x480 Pixel, farbig)
+        image = Image.open(OUTPUT_IMAGE_FILE)
+        epd.display(epd.getbuffer(image))
+
+        # Optional: Das Display schlafen legen
+        epd.sleep()
+        logging.info("Bild erfolgreich an das E-Ink-Display gesendet.")
+    except IOError as e:
+        logging.error(f"IOError: {e}")
+    except KeyboardInterrupt:
+        epd7in5_V2.epdconfig.module_exit()
+        logging.info("Programm durch Benutzer unterbrochen.")
+        exit()
+    except Exception as e:
+        logging.error(f"Unerwarteter Fehler: {e}")
+
+
+if __name__ == '__main__':
+    main()
