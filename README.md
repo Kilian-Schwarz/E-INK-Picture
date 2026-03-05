@@ -27,47 +27,28 @@ Design layouts in the browser, render them server-side, and display the result o
 
 ---
 
-## Quick Start: All-in-One (Raspberry Pi)
-
-Server and client run on the same Raspberry Pi.
+## Quick Start
 
 ```bash
 git clone https://github.com/Kilian-Schwarz/E-INK-Picture.git
 cd E-INK-Picture
-chmod +x scripts/*.sh
-./scripts/setup-local.sh
+docker compose up -d
 ```
 
-- **Designer UI:** `http://<pi-ip>:5000/designer`
-- **Start client:**
+Designer: **http://localhost:5000/designer**
+
+No `.env` file needed. The server builds and starts with sensible defaults.
+Optional configuration via `.env` -- see [.env.example](.env.example).
+
+### Cloud Deployment
+
+For running the server on a VPS with a remote Pi client:
 
 ```bash
-cd client && python3 client.py
-```
-
-## Quick Start: Cloud + Client
-
-Server runs on a VPS, client runs on the Pi.
-
-**Server (VPS):**
-
-```bash
-git clone https://github.com/Kilian-Schwarz/E-INK-Picture.git
-cd E-INK-Picture
 cp .env.example .env
 # Edit .env: set DEPLOYMENT_MODE=cloud, CORS_ALLOWED_ORIGINS=https://your-domain.com
 docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
 ```
-
-**Client (Raspberry Pi):**
-
-```bash
-git clone https://github.com/Kilian-Schwarz/E-INK-Picture.git
-cd E-INK-Picture
-./scripts/setup-cloud-client.sh
-```
-
-The script prompts for the server URL and installs Python dependencies.
 
 ---
 
@@ -301,18 +282,21 @@ pip install Pillow requests
 
 ### Usage
 
-Edit `BASE_URL` in `client/client.py` to point to your server, then:
-
 ```bash
-python3 client/client.py
+cd client
+cp .env.example .env   # optional: adjust SERVER_URL, refresh interval
+pip3 install -r requirements.txt
+python3 client.py
 ```
+
+Configuration is done via environment variables (see `client/.env.example`).
 
 For automatic updates, add a cron job:
 
 ```bash
 crontab -e
 # Example: update every 15 minutes
-*/15 * * * * cd /home/pi/E-INK-Picture && python3 client/client.py >> /tmp/eink.log 2>&1
+*/15 * * * * cd /home/pi/E-INK-Picture/client && python3 client.py >> /tmp/eink.log 2>&1
 ```
 
 ---
