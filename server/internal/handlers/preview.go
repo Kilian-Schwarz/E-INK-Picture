@@ -22,13 +22,15 @@ func (h *PreviewHandler) Preview(w http.ResponseWriter, r *http.Request) {
 	var pngData []byte
 	var err error
 
+	raw := r.URL.Query().Get("raw") == "true"
+
 	if name != "" {
 		design, getErr := h.designSvc.Get(name)
 		if getErr != nil {
 			jsonError(w, "Design not found", http.StatusNotFound)
 			return
 		}
-		pngData, err = h.svc.Render(design)
+		pngData, err = h.svc.Render(design, raw)
 	} else {
 		pngData, err = h.svc.RenderActive()
 	}

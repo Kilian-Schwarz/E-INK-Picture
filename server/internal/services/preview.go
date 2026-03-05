@@ -48,13 +48,15 @@ func NewPreviewService(d *DesignService, w *WeatherService, i *ImageService, s *
 	return &PreviewService{design: d, weather: w, image: i, settings: s, dataDir: dataDir}
 }
 
-// Render fills dynamic content and renders a design to a 1-bit PNG.
-func (s *PreviewService) Render(design *models.Design) ([]byte, error) {
+// Render fills dynamic content and renders a design to a palette-quantized PNG.
+// If raw is true, no palette quantization is applied (debug mode).
+func (s *PreviewService) Render(design *models.Design, raw bool) ([]byte, error) {
 	s.FillContent(design)
 
-	palette := color.Palette{color.White, color.Black}
-	img := image.NewPaletted(image.Rect(0, 0, einkWidth, einkHeight), palette)
-	// Fill with white (index 0)
+	displayCfg := s.settings.GetDisplayConfig()
+
+	// Render to full-color RGBA canvas first
+	img := image.NewRGBA(image.Rect(0, 0, einkWidth, einkHeight))
 	draw.Draw(img, img.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
 
 	for i := range design.Modules {
@@ -64,7 +66,6 @@ func (s *PreviewService) Render(design *models.Design) ([]byte, error) {
 		w := m.Size.Width
 		h := m.Size.Height
 
-		// Skip if outside frame
 		if x+w < 0 || x > einkWidth || y+h < 0 || y > einkHeight {
 			continue
 		}
@@ -84,23 +85,65 @@ func (s *PreviewService) Render(design *models.Design) ([]byte, error) {
 			align = *sd.TextAlign
 		}
 
+		textColor := resolveTextColor(sd.TextColor, displayCfg)
 		face := s.loadFontFace(sd.Font, fontSize)
 
 		switch m.Type {
 		case "text", "news", "weather", "datetime", "timer", "calendar":
-			s.renderText(img, x, y, w, h, m.Content, face, bold, italic, strike, align)
+			s.renderText(img, x, y, w, h, m.Content, face, bold, italic, strike, align, textColor)
 		case "image":
-			s.renderImage(img, x, y, w, h, &sd)
+			s.renderImageRGBA(img, x, y, w, h, &sd)
 		case "line":
-			s.drawFilledRect(img, x, y, w, h)
+			s.drawFilledRectRGBA(img, x, y, w, h, textColor)
 		}
 	}
 
+	// Quantize to display palette (unless raw mode)
+	var output image.Image
+	if raw {
+		output = img
+	} else {
+		output = quantizeToPalette(img, displayCfg.Colors)
+	}
+
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
+	if err := png.Encode(&buf, output); err != nil {
 		return nil, fmt.Errorf("encode png: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// resolveTextColor parses a hex color from style data, defaulting to black.
+func resolveTextColor(textColor *string, _ models.DisplayConfig) color.RGBA {
+	if textColor != nil && len(*textColor) == 7 && (*textColor)[0] == '#' {
+		return parseHexColor(*textColor)
+	}
+	return color.RGBA{0, 0, 0, 255}
+}
+
+// parseHexColor converts "#RRGGBB" to color.RGBA.
+func parseHexColor(hex string) color.RGBA {
+	var r, g, b uint8
+	fmt.Sscanf(hex[1:], "%02x%02x%02x", &r, &g, &b)
+	return color.RGBA{r, g, b, 255}
+}
+
+// quantizeToPalette reduces an image to a specific color palette using Floyd-Steinberg dithering.
+func quantizeToPalette(img image.Image, hexColors []string) *image.Paletted {
+	pal := make(color.Palette, 0, len(hexColors))
+	for _, hex := range hexColors {
+		pal = append(pal, parseHexColor(hex))
+	}
+
+	// Fallback if palette is somehow empty
+	if len(pal) == 0 {
+		pal = color.Palette{color.White, color.Black}
+	}
+
+	bounds := img.Bounds()
+	paletted := image.NewPaletted(bounds, pal)
+	draw.FloydSteinberg.Draw(paletted, bounds, img, image.Point{})
+	return paletted
 }
 
 // RenderActive renders the currently active design.
@@ -112,7 +155,7 @@ func (s *PreviewService) RenderActive() ([]byte, error) {
 	if design == nil {
 		return nil, fmt.Errorf("no active design")
 	}
-	return s.Render(design)
+	return s.Render(design, false)
 }
 
 // FillContent populates dynamic content for all modules in a design.
@@ -628,8 +671,8 @@ func (f *basicFace) Metrics() font.Metrics {
 
 // --- Text rendering ---
 
-// renderText draws word-wrapped text on a paletted image, matching Python behavior.
-func (s *PreviewService) renderText(img *image.Paletted, x, y, w, h int, text string, face font.Face, bold, italic, strike bool, align string) {
+// renderText draws word-wrapped text on an RGBA image.
+func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string, face font.Face, bold, italic, strike bool, align string, textColor color.RGBA) {
 	if text == "" {
 		return
 	}
@@ -702,7 +745,7 @@ func (s *PreviewService) renderText(img *image.Paletted, x, y, w, h int, text st
 
 		drawer := &font.Drawer{
 			Dst:  img,
-			Src:  image.NewUniform(color.Black),
+			Src:  image.NewUniform(textColor),
 			Face: face,
 			Dot:  dot,
 		}
@@ -712,7 +755,7 @@ func (s *PreviewService) renderText(img *image.Paletted, x, y, w, h int, text st
 		if bold {
 			drawer2 := &font.Drawer{
 				Dst:  img,
-				Src:  image.NewUniform(color.Black),
+				Src:  image.NewUniform(textColor),
 				Face: face,
 				Dot: fixed.Point26_6{
 					X: fixed.I(lx + 1),
@@ -727,7 +770,7 @@ func (s *PreviewService) renderText(img *image.Paletted, x, y, w, h int, text st
 			midY := iy + fontSize/2
 			for px := lx; px < lx+lineWidth; px++ {
 				if px >= 0 && px < einkWidth && midY >= 0 && midY < einkHeight {
-					img.SetColorIndex(px, midY, 1) // 1 = black in our palette
+					img.SetRGBA(px, midY, textColor)
 				}
 			}
 		}
@@ -755,15 +798,14 @@ func measureString(face font.Face, s string) fixed.Int26_6 {
 
 // --- Image rendering ---
 
-// renderImage loads, crops, resizes and pastes an image module.
-func (s *PreviewService) renderImage(img *image.Paletted, x, y, w, h int, sd *models.StyleData) {
+// renderImageRGBA loads, crops, resizes and pastes an image module onto an RGBA canvas.
+func (s *PreviewService) renderImageRGBA(img *image.RGBA, x, y, w, h int, sd *models.StyleData) {
 	if sd.Image == nil || *sd.Image == "" {
 		return
 	}
 
 	imgPath, err := s.image.GetImagePath(*sd.Image)
 	if err != nil || imgPath == "" {
-		// Fallback: try direct path
 		imgPath = filepath.Join(s.dataDir, "uploaded_images", *sd.Image)
 	}
 
@@ -782,7 +824,6 @@ func (s *PreviewService) renderImage(img *image.Paletted, x, y, w, h int, sd *mo
 
 	bounds := srcImg.Bounds()
 
-	// Crop
 	cx, cy := 0, 0
 	cw, ch := bounds.Dx(), bounds.Dy()
 	if sd.CropX != nil {
@@ -798,31 +839,13 @@ func (s *PreviewService) renderImage(img *image.Paletted, x, y, w, h int, sd *mo
 		ch = int(*sd.CropH)
 	}
 
-	// Crop by creating a sub-image
 	cropRect := image.Rect(cx, cy, cx+cw, cy+ch).Intersect(bounds)
 	cropped := cropSubImage(srcImg, cropRect)
-
-	// Resize to module dimensions using nearest-neighbor
 	resized := resizeNearest(cropped, w, h)
 
-	// Convert to 1-bit and paste
-	for py := 0; py < h; py++ {
-		for px := 0; px < w; px++ {
-			destX := x + px
-			destY := y + py
-			if destX < 0 || destX >= einkWidth || destY < 0 || destY >= einkHeight {
-				continue
-			}
-			r, g, b, _ := resized.At(px, py).RGBA()
-			// Convert to grayscale and threshold
-			gray := (r*299 + g*587 + b*114) / 1000
-			if gray < 0x8000 {
-				img.SetColorIndex(destX, destY, 1) // black
-			} else {
-				img.SetColorIndex(destX, destY, 0) // white
-			}
-		}
-	}
+	// Paste onto RGBA canvas
+	destRect := image.Rect(x, y, x+w, y+h).Intersect(img.Bounds())
+	draw.Draw(img, destRect, resized, image.Point{X: destRect.Min.X - x, Y: destRect.Min.Y - y}, draw.Over)
 }
 
 // cropSubImage extracts a rectangular region from an image.
@@ -859,13 +882,8 @@ func resizeNearest(src image.Image, dstW, dstH int) image.Image {
 
 // --- Line rendering ---
 
-// drawFilledRect draws a filled black rectangle (for line modules).
-func (s *PreviewService) drawFilledRect(img *image.Paletted, x, y, w, h int) {
-	for py := y; py <= y+h; py++ {
-		for px := x; px <= x+w; px++ {
-			if px >= 0 && px < einkWidth && py >= 0 && py < einkHeight {
-				img.SetColorIndex(px, py, 1) // black
-			}
-		}
-	}
+// drawFilledRectRGBA draws a filled rectangle on an RGBA image.
+func (s *PreviewService) drawFilledRectRGBA(img *image.RGBA, x, y, w, h int, c color.RGBA) {
+	rect := image.Rect(x, y, x+w+1, y+h+1).Intersect(img.Bounds())
+	draw.Draw(img, rect, image.NewUniform(c), image.Point{}, draw.Src)
 }
