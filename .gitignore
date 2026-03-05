@@ -18,6 +18,11 @@ server/server
 .env
 client/.env
 
+# Custom CA certs (network-specific, not tracked)
+server/certs/*.pem
+server/certs/*.crt
+!server/certs/.gitkeep
+
 # Claude local config
 CLAUDE.local.md
 
