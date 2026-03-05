@@ -1,0 +1,8 @@
+services:
+  server:
+    build:
+      args:
+        GOARCH: amd64
+    environment:
+      - DEPLOYMENT_MODE=cloud
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-*}
