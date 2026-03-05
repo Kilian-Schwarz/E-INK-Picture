@@ -16,6 +16,10 @@ server/server
 
 # Environment
 .env
+client/.env
+
+# Claude local config
+CLAUDE.local.md
 
 # Data (user content, not tracked)
 data/designs/*.json
@@ -31,6 +35,7 @@ data/weather_styles/*
 temp_files/
 output_image.bmp
 local_design.json
+preview_output.png
 
 # OS
 .DS_Store
