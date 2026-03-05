@@ -52,13 +52,20 @@ func main() {
 	designSvc := services.NewDesignService(cfg.DataDir)
 	imageSvc := services.NewImageService(cfg.DataDir)
 	weatherSvc := services.NewWeatherService(cfg.WeatherAPIKey, cfg.WeatherLocation)
+	weatherSvc.SetDataDir(cfg.DataDir)
 	previewSvc := services.NewPreviewService(designSvc, weatherSvc, imageSvc, cfg.DataDir)
 
+	// Ensure at least one design exists (like Python's ensure_active_design on startup)
+	if err := designSvc.EnsureDesignExists(); err != nil {
+		slog.Error("failed to ensure design exists", "error", err)
+		os.Exit(1)
+	}
+
 	// Create handlers
-	designH := handlers.NewDesignHandler(designSvc)
+	designH := handlers.NewDesignHandler(designSvc, previewSvc)
 	mediaH := handlers.NewMediaHandler(imageSvc)
-	weatherH := handlers.NewWeatherHandler(weatherSvc)
-	previewH := handlers.NewPreviewHandler(previewSvc)
+	weatherH := handlers.NewWeatherHandler(weatherSvc, cfg.DataDir)
+	previewH := handlers.NewPreviewHandler(previewSvc, designSvc)
 
 	// Setup router
 	mux := http.NewServeMux()
