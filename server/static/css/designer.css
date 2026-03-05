@@ -362,3 +362,44 @@
             display:flex;
             gap:10px;
         }
+
+        .color-swatch {
+            display: inline-block;
+            width: 32px;
+            height: 32px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 2px;
+            border: 2px solid transparent;
+            transition: border-color 0.2s;
+        }
+        .color-swatch:hover {
+            border-color: #666;
+        }
+        .color-swatch.selected {
+            border-color: #0066ff;
+            box-shadow: 0 0 0 2px rgba(0, 102, 255, 0.3);
+        }
+        .display-info {
+            padding: 8px;
+            background: #f5f5f5;
+            border-radius: 6px;
+            margin-top: 6px;
+            font-size: 0.85em;
+        }
+        .display-info .palette-preview {
+            display: flex;
+            gap: 4px;
+            margin-top: 6px;
+        }
+        .display-info .palette-dot {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 1px solid #ddd;
+        }
+        #display-select {
+            width: 100%;
+            padding: 4px;
+            font-size: 0.9em;
+        }

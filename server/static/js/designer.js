@@ -1,5 +1,6 @@
         let selectedElement = null;
         let currentDesign = null;
+        let currentDisplay = null;
         let isDraggingElement = false;
         let dragOffsetX, dragOffsetY;
         let isResizing = false;
@@ -299,7 +300,94 @@
             });
         }
 
-        loadActiveDesign();
+        async function loadDisplaySettings() {
+            try {
+                const res = await fetch('/settings');
+                const settings = await res.json();
+                currentDisplay = settings.display;
+                updateDisplayInfo();
+            } catch(e) {
+                console.error('Failed to load display settings:', e);
+            }
+        }
+
+        async function loadDisplayProfiles() {
+            try {
+                const res = await fetch('/display_profiles');
+                const profiles = await res.json();
+                const select = document.getElementById('display-select');
+                select.innerHTML = '';
+                profiles.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.type;
+                    opt.textContent = p.name;
+                    if (currentDisplay && p.type === currentDisplay.type) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            } catch(e) {
+                console.error('Failed to load display profiles:', e);
+            }
+        }
+
+        function updateDisplayInfo() {
+            const info = document.getElementById('display-info');
+            if (!currentDisplay) { info.innerHTML = ''; return; }
+            let dotsHtml = currentDisplay.colors.map((c, i) =>
+                `<div class="palette-dot" style="background:${c};" title="${currentDisplay.color_names[i]}"></div>`
+            ).join('');
+            info.innerHTML = `
+                <div>${currentDisplay.width}x${currentDisplay.height}px</div>
+                <div>Driver: ${currentDisplay.driver}</div>
+                <div>Refresh: ~${currentDisplay.refresh_sec}s</div>
+                <div class="palette-preview">${dotsHtml}</div>
+            `;
+        }
+
+        async function onDisplayChange() {
+            const select = document.getElementById('display-select');
+            const displayType = select.value;
+            try {
+                const res = await fetch('/update_settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({display_type: displayType})
+                });
+                const settings = await res.json();
+                currentDisplay = settings.display;
+                updateDisplayInfo();
+                if (selectedElement) showProperties(selectedElement);
+                showNotification('Display changed to ' + currentDisplay.name);
+            } catch(e) {
+                showNotification('Failed to save display settings');
+            }
+        }
+
+        function renderColorSwatches(containerId, selectedColor, onSelect) {
+            const container = document.getElementById(containerId);
+            if (!container || !currentDisplay) return;
+            container.innerHTML = '';
+            currentDisplay.colors.forEach((color, i) => {
+                const swatch = document.createElement('div');
+                swatch.className = 'color-swatch' + (color.toLowerCase() === (selectedColor||'').toLowerCase() ? ' selected' : '');
+                swatch.style.backgroundColor = color;
+                swatch.title = currentDisplay.color_names[i];
+                swatch.onclick = () => {
+                    container.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+                    swatch.classList.add('selected');
+                    onSelect(color);
+                };
+                if (color.toLowerCase() === '#ffffff') {
+                    swatch.style.border = '2px solid #ccc';
+                }
+                container.appendChild(swatch);
+            });
+        }
+
+        // Initialize: load display settings first, then design
+        loadDisplaySettings().then(() => {
+            loadDisplayProfiles();
+            loadActiveDesign();
+        });
 
         function applyTextStyles(el){
             const fontSize = el.dataset.fontSize || '18';
@@ -307,11 +395,13 @@
             const italic = (el.dataset.fontItalic==='true');
             const strike = (el.dataset.fontStrike==='true');
             const align = el.dataset.textAlign || 'left';
+            const textColor = el.dataset.textColor || '#000000';
             el.style.fontSize = fontSize+'px';
             el.style.fontWeight = bold?'bold':'normal';
             el.style.fontStyle = italic?'italic':'normal';
             el.style.textDecoration = strike?'line-through':'none';
             el.style.textAlign = align;
+            el.style.color = textColor;
 
             let fontName = el.dataset.font;
             if(fontName){
@@ -434,7 +524,7 @@
                         break;
                     case 'line':
                         content = '';
-                        element.style.background = '#ccc';
+                        element.style.background = element.dataset.textColor || '#000000';
                         break;
                     case 'calendar':
                         content = 'No Events';
@@ -693,6 +783,15 @@
             });
 
             if (['text','news','weather','datetime','timer','calendar'].includes(type)) {
+                const colorField = document.createElement('div');
+                colorField.className = 'property-field';
+                colorField.innerHTML = '<label>Text Color</label><div id="textColorSwatches"></div>';
+                propertiesPanel.appendChild(colorField);
+                renderColorSwatches('textColorSwatches', el.dataset.textColor || '#000000', (color) => {
+                    el.dataset.textColor = color;
+                    el.style.color = color;
+                });
+
                 const fontField = document.createElement('div');
                 fontField.className = 'property-field';
                 fontField.innerHTML = '<label>Font</label><select id="fontSelect"></select>';
@@ -947,6 +1046,15 @@
                 });
                 document.getElementById('maxEvents').addEventListener('input',(ev)=>{
                     el.dataset.maxEvents = ev.target.value;
+                });
+            } else if (type === 'line') {
+                const lineColorField = document.createElement('div');
+                lineColorField.className = 'property-field';
+                lineColorField.innerHTML = '<label>Color</label><div id="lineColorSwatches"></div>';
+                propertiesPanel.appendChild(lineColorField);
+                renderColorSwatches('lineColorSwatches', el.dataset.textColor || '#000000', (color) => {
+                    el.dataset.textColor = color;
+                    el.style.background = color;
                 });
             }
 
