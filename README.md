@@ -2,244 +2,330 @@
 
 ![E-Ink Picture Logo](https://github.com/Kilian-Schwarz/E-INK-Picture/blob/main/logo.png?raw=true)
 
-**E-Ink Picture** is a comprehensive solution for designing and displaying dynamic content on E-Ink displays. It features a web-based designer interface, a Flask server for managing designs, and a client application that renders the designs on E-Ink hardware. The system supports various modules like text, images, weather updates, date/time, timers, news, and customizable shapes, providing flexibility and ease of use for creating visually appealing E-Ink displays.
+Web-based designer for E-Ink picture frames with Raspberry Pi.
+
+**Go Server (~10MB RAM) + Python Client for Waveshare E-Ink Displays**
+
+Design layouts in the browser, render them server-side, and display the result on a Waveshare 7.5" E-Ink display (800x480px, 1-bit monochrome). The Go server replaces the original Python/Flask backend with a single static binary in a <20MB Docker image.
+
+---
 
 ## Table of Contents
 
-- [Features](#features)
+- [Quick Start: All-in-One (Raspberry Pi)](#quick-start-all-in-one-raspberry-pi)
+- [Quick Start: Cloud + Client](#quick-start-cloud--client)
 - [Architecture](#architecture)
-- [Installation](#installation)
-  - [Prerequisites](#prerequisites)
-  - [Using Docker](#using-docker)
-  - [Manual Setup](#manual-setup)
-- [Usage](#usage)
-  - [Running the Server](#running-the-server)
-  - [Accessing the Designer](#accessing-the-designer)
-  - [Running the Client](#running-the-client)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
 - [Directory Structure](#directory-structure)
+- [API Endpoints](#api-endpoints)
+- [Development](#development)
 - [Configuration](#configuration)
+- [Client Setup](#client-setup)
 - [License](#license)
 - [Acknowledgments](#acknowledgments)
 
-## Features
+---
 
-- **Web-Based Designer:** Intuitive drag-and-drop interface for creating and customizing E-Ink display layouts.
-- **Module Support:** Add and configure various modules including Text, Image, Weather, Date/Time, Timer, News, and Line/Shape.
-- **Image and Font Upload:** Upload custom images and fonts to enhance your designs.
-- **Weather Integration:** Fetch and display real-time weather data based on specified locations.
-- **Timer Functionality:** Set countdown timers with customizable formats.
-- **Preview Mode:** Generate and view previews of your designs before deploying them to the E-Ink display.
-- **Offline Support:** Sync date/time and timers locally when offline.
-- **Docker Support:** Easily deploy the server using Docker for streamlined setup and management.
+## Quick Start: All-in-One (Raspberry Pi)
+
+Server and client run on the same Raspberry Pi.
+
+```bash
+git clone https://github.com/Kilian-Schwarz/E-INK-Picture.git
+cd E-INK-Picture
+chmod +x scripts/*.sh
+./scripts/setup-local.sh
+```
+
+- **Designer UI:** `http://<pi-ip>:5000/designer`
+- **Start client:**
+
+```bash
+cd client && python3 client.py
+```
+
+## Quick Start: Cloud + Client
+
+Server runs on a VPS, client runs on the Pi.
+
+**Server (VPS):**
+
+```bash
+git clone https://github.com/Kilian-Schwarz/E-INK-Picture.git
+cd E-INK-Picture
+cp .env.example .env
+# Edit .env: set DEPLOYMENT_MODE=cloud, CORS_ALLOWED_ORIGINS=https://your-domain.com
+docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+```
+
+**Client (Raspberry Pi):**
+
+```bash
+git clone https://github.com/Kilian-Schwarz/E-INK-Picture.git
+cd E-INK-Picture
+./scripts/setup-cloud-client.sh
+```
+
+The script prompts for the server URL and installs Python dependencies.
+
+---
 
 ## Architecture
 
-The project consists of three main components:
+### All-in-One Mode (Raspberry Pi)
 
-1. **Flask Server (`Server.py`):** Handles API requests, manages designs, serves media files (images and fonts), and provides endpoints for the web-based designer.
+Everything runs on the Pi. The Go server runs in Docker, the Python client talks to it via localhost.
 
-2. **Web-Based Designer (`templates/designer.html`):** A frontend interface built with HTML, CSS, and JavaScript that allows users to create and manage their E-Ink display designs.
+```mermaid
+graph LR
+    subgraph Raspberry Pi
+        Browser[Browser] -->|HTTP :5000| Server[Go Server<br/>Docker Container]
+        Server -->|read/write| Data[(data/)]
+        Client[Python Client] -->|GET /preview| Server
+        Client -->|SPI| Display[E-Ink Display<br/>800x480]
+    end
+```
 
-3. **Client Application (`Client.py`):** Fetches designs from the server, processes them, and renders the content on E-Ink hardware.
+### Cloud + Client Mode
 
-![Architecture Diagram](https://github.com/Kilian-Schwarz/E-INK-Picture/blob/main/architecture.png?raw=true)
+Server runs on a VPS, client fetches the rendered preview over the internet.
 
-## Installation
+```mermaid
+graph LR
+    Browser[Browser] -->|HTTPS| Server[Go Server<br/>VPS / Docker]
+    Server -->|read/write| Data[(data/)]
 
-### Prerequisites
+    subgraph Raspberry Pi
+        Client[Python Client] -->|GET /preview| Server
+        Client -->|SPI| Display[E-Ink Display<br/>800x480]
+    end
+```
 
-Before setting up **E-Ink Picture**, ensure you have the following installed on your system:
+### Data Flow
 
-- **Python 3.7+**
-- **Pip** (Python package installer)
-- **Git** (for cloning the repository)
-- **Docker** (optional, for containerized deployment)
-- **Waveshare E-Ink Display** (compatible with the `epd7in5_V2` driver)
-- **Waveshare E-Ink Drivers:** Ensure you have the [Waveshare E-Ink Display Drivers](https://www.waveshare.com/wiki/E-Paper) installed, especially the `epd7in5_V2` module used in `Client.py`.
+```mermaid
+sequenceDiagram
+    participant User as Browser
+    participant Server as Go Server
+    participant Client as Python Client
+    participant EPD as E-Ink Display
 
-### Using Docker
+    User->>Server: Design layout in /designer
+    Server->>Server: Save design JSON to data/designs/
+    User->>Server: GET /preview
+    Server->>Server: Render PNG (800x480, 1-bit)
+    Server-->>User: Preview image
 
-For an easy and consistent setup, you can use Docker to deploy the Flask server.
+    Client->>Server: GET /preview
+    Server-->>Client: PNG image
+    Client->>EPD: Display via SPI (Waveshare driver)
+```
 
-1. **Clone the Repository:**
+---
 
-   ```bash
-   git clone https://github.com/Kilian-Schwarz/E-INK-Picture.git
-   cd E-INK-Picture
-   ```
+## Features
 
-2. **Docker Compose Setup:**
+- **Web-Based Designer** -- Drag-and-drop interface for creating E-Ink layouts
+- **Module System** -- Text, Image, Weather, Date/Time, Timer, News, Lines/Shapes
+- **Server-Side Rendering** -- PNG preview rendered by Go server (800x480, 1-bit)
+- **Weather Integration** -- Open-Meteo API (free, no API key required)
+- **Custom Fonts & Images** -- Upload TTF/OTF fonts and BMP/PNG images
+- **Weather Styles** -- Multiple configurable weather display formats
+- **Design Management** -- Create, clone, delete, switch between designs
+- **Offline Fallback** -- Client caches last design, syncs date/time locally
+- **Two Deployment Modes** -- All-in-one on Pi or cloud server + Pi client
+- **Minimal Resources** -- Server ~10MB RAM, <20MB Docker image
 
-   Ensure you have Docker and Docker Compose installed. Create a `docker-compose.yml` file with the following content (as provided):
+---
 
-   ```yaml
-   version: '3.8'
+## Tech Stack
 
-   services:
-     e-ink-picture:
-       image: kilianschwarz/e-ink-picture
-       ports:
-         - "5000:5000"
-       volumes:
-         - ./uploaded_images:/app/uploaded_images/
-         - ./designs:/app/designs/
-         - ./fonts:/app/fonts/
-   ```
+| Component | Technology |
+|-----------|-----------|
+| Server | Go 1.24, `net/http`, `go:embed`, `golang.org/x/image` |
+| Frontend | Vanilla HTML, CSS, JavaScript (embedded in Go binary) |
+| Client | Python 3, Pillow, requests, Waveshare epd7in5_V2 |
+| Deployment | Docker Compose, multi-stage Alpine build (ARM64/AMD64) |
+| Weather API | [Open-Meteo](https://open-meteo.com/) (free, no key) |
+| Target Hardware | Raspberry Pi Zero 2 W (512MB RAM), Waveshare 7.5" V2 |
 
-3. **Start the Container:**
-
-   ```bash
-   docker-compose up -d
-   ```
-
-   The Flask server will be accessible at `http://localhost:5000`.
-
-### Manual Setup
-
-If you prefer setting up the server manually without Docker:
-
-1. **Clone the Repository:**
-
-   ```bash
-   git clone https://github.com/Kilian-Schwarz/E-INK-Picture.git
-   cd E-INK-Picture
-   ```
-
-2. **Create and Activate a Virtual Environment:**
-
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
-
-3. **Install Dependencies:**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-   **Note:** Ensure that the `requirements.txt` file includes all necessary Python packages such as `Flask`, `Pillow`, `requests`, etc.
-
-4. **Set Up Directories:**
-
-   Ensure the following directories exist:
-
-   - `uploaded_images/`
-   - `designs/`
-   - `fonts/`
-   - `weather_styles/`
-
-   You can create them using:
-
-   ```bash
-   mkdir -p uploaded_images designs fonts weather_styles
-   ```
-
-5. **Run the Flask Server:**
-
-   ```bash
-   python Server.py
-   ```
-
-   The server will start on `http://0.0.0.0:5000`.
-
-## Usage
-
-### Running the Server
-
-If you've set up using Docker, the server is already running at `http://localhost:5000`. For manual setups, ensure the Flask server is running as described in the [Manual Setup](#manual-setup) section.
-
-### Accessing the Designer
-
-1. Open your web browser and navigate to `http://localhost:5000/designer`.
-2. Use the intuitive interface to drag and drop modules onto the design canvas.
-3. Customize module properties, upload images and fonts, and arrange elements as desired.
-4. Save your designs, clone existing ones, or set a design as active.
-5. Preview your design to see how it will appear on the E-Ink display.
-
-### Running the Client
-
-The client application fetches the active design from the server and renders it on the E-Ink display.
-
-1. **Ensure Dependencies:**
-
-   The client relies on the `waveshare_epd` library. Install it using:
-
-   ```bash
-   pip install waveshare-epd
-   ```
-
-2. **Configure Client Settings:**
-
-   - Verify the `BASE_URL` in `Client.py` points to your Flask server (`http://127.0.0.1:5000` if running locally).
-   - Adjust `EINK_OFFSET_X`, `EINK_OFFSET_Y`, `EINK_WIDTH`, and `EINK_HEIGHT` in `Client.py` if your E-Ink display has different dimensions.
-
-3. **Run the Client:**
-
-   ```bash
-   python Client.py
-   ```
-
-   The client will attempt to fetch the active design and display it on the connected E-Ink hardware. It also handles offline synchronization for date/time and timers.
+---
 
 ## Directory Structure
 
 ```
 E-INK-Picture/
-├── Server.py
-├── Client.py
-├── docker-compose.yml
-├── requirements.txt
-├── designs/
-│   └── design_default.json
-├── uploaded_images/
-│   └── ... (uploaded BMP images)
-├── fonts/
-│   └── ... (uploaded TTF/OTF fonts)
-├── weather_styles/
-│   └── ... (weather style JSON files)
-└── templates/
-    └── designer.html
+├── server/                        # Go HTTP server
+│   ├── main.go                    # Entrypoint, routing, middleware
+│   ├── go.mod                     # Go module definition
+│   ├── Dockerfile                 # Multi-stage Alpine build
+│   ├── internal/
+│   │   ├── config/config.go       # Environment configuration
+│   │   ├── handlers/              # HTTP request handlers
+│   │   │   ├── design.go          # Design CRUD endpoints
+│   │   │   ├── media.go           # Image/font upload & serving
+│   │   │   ├── preview.go         # PNG preview rendering
+│   │   │   ├── weather.go         # Weather data & styles
+│   │   │   ├── settings.go        # Settings endpoint
+│   │   │   └── health.go          # Health check
+│   │   ├── services/              # Business logic
+│   │   │   ├── design.go          # Design management
+│   │   │   ├── image.go           # Image processing
+│   │   │   ├── weather.go         # Open-Meteo integration
+│   │   │   └── preview.go         # PNG rendering engine
+│   │   ├── models/design.go       # Data structs
+│   │   └── middleware/            # Logging, CORS
+│   ├── static/                    # CSS, JS (embedded via go:embed)
+│   └── templates/                 # HTML templates (embedded)
+├── client/
+│   └── client.py                  # Python E-Ink display client
+├── data/                          # Persistent data (Docker volume)
+│   ├── designs/                   # Design JSON files
+│   ├── uploaded_images/           # Uploaded BMP/PNG images
+│   ├── fonts/                     # Uploaded TTF/OTF fonts
+│   └── weather_styles/            # Weather display format configs
+├── scripts/
+│   ├── setup-local.sh             # All-in-one setup script
+│   └── setup-cloud-client.sh      # Cloud client setup script
+├── docs/
+│   ├── migration-plan.md          # Python-to-Go migration details
+│   └── architecture.md            # Architecture documentation
+├── docker-compose.yml             # Base Docker Compose (all-in-one)
+├── docker-compose.cloud.yml       # Cloud mode override
+├── .env.example                   # Environment variable template
+└── LICENSE                        # GPL-3.0
 ```
 
-- **Server.py:** Flask server managing designs and serving the designer interface.
-- **Client.py:** Client application for rendering designs on E-Ink hardware.
-- **docker-compose.yml:** Docker Compose configuration for containerized deployment.
-- **requirements.txt:** Python dependencies.
-- **designs/:** JSON files representing different display designs.
-- **uploaded_images/:** Uploaded BMP images for use in designs.
-- **fonts/:** Uploaded font files (TTF/OTF) for text modules.
-- **weather_styles/:** JSON templates for weather module formatting.
-- **templates/:** HTML templates for the Flask server, including the designer interface.
+---
+
+## API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/designer` | Web-based design editor UI |
+| `GET` | `/preview` | Rendered PNG preview (800x480) |
+| `GET` | `/health` | Health check |
+| `GET` | `/design` | Get active design JSON |
+| `GET` | `/designs` | List all designs |
+| `GET` | `/get_design_by_name` | Get design by name |
+| `POST` | `/update_design` | Update design |
+| `POST` | `/set_active_design` | Set active design |
+| `POST` | `/clone_design` | Clone a design |
+| `POST` | `/delete_design` | Delete a design |
+| `POST` | `/upload_image` | Upload an image |
+| `GET` | `/images_all` | List all images |
+| `GET` | `/image/{filename}` | Serve an image |
+| `POST` | `/delete_image` | Delete an image |
+| `GET` | `/fonts_all` | List all fonts |
+| `GET` | `/font/{filename}` | Serve a font |
+| `GET` | `/weather_styles` | List weather styles |
+| `GET` | `/location_search` | Search locations (weather) |
+| `POST` | `/update_settings` | Update settings |
+
+See [docs/migration-plan.md](docs/migration-plan.md) for detailed API documentation.
+
+---
+
+## Development
+
+### Without Docker
+
+```bash
+# Start the Go server (port 5000)
+cd server && go run .
+
+# In another terminal: start the client
+cd client && python3 client.py
+```
+
+### Build the server binary
+
+```bash
+cd server && go build -ldflags="-s -w" -o server .
+```
+
+### Run tests and static analysis
+
+```bash
+cd server && go test ./...
+cd server && go vet ./...
+```
+
+### Docker
+
+```bash
+# All-in-one mode
+docker compose up --build
+
+# Cloud mode
+docker compose -f docker-compose.yml -f docker-compose.cloud.yml up --build -d
+```
+
+---
 
 ## Configuration
 
-### Server Configuration
+All configuration is done via environment variables. Copy `.env.example` to `.env` and adjust as needed.
 
-- **Port:** The Flask server runs on port `5000` by default. You can change this in `Server.py` if needed.
-- **Folders:**
-  - `uploaded_images/`: Stores uploaded images in BMP format.
-  - `designs/`: Stores design JSON files.
-  - `fonts/`: Stores uploaded font files.
-  - `weather_styles/`: Stores weather style templates.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `5000` | Server port |
+| `DATA_DIR` | `/app/data` | Path to persistent data directory |
+| `SECRET_KEY` | `change-me-in-production` | Secret key for the server |
+| `DEPLOYMENT_MODE` | `local` | `local` (all-in-one) or `cloud` |
+| `CORS_ALLOWED_ORIGINS` | `*` | CORS origins (cloud mode) |
+| `WEATHER_API_KEY` | *(empty)* | Optional weather API key |
+| `WEATHER_LOCATION` | *(empty)* | Default weather location |
+| `TZ` | `Europe/Berlin` | Timezone |
 
-### Client Configuration
+---
 
-- **E-Ink Display Settings:**
-  - Adjust `EINK_OFFSET_X`, `EINK_OFFSET_Y`, `EINK_WIDTH`, and `EINK_HEIGHT` in `Client.py` to match your display's specifications.
-- **Design Paths:**
-  - `DESIGN_PATH`: API endpoint for fetching designs.
-  - `IMAGE_PATH` and `FONT_PATH`: API endpoints for accessing images and fonts.
+## Client Setup
+
+The Python client runs on the Raspberry Pi and fetches the rendered PNG from the server's `/preview` endpoint, then displays it on the Waveshare E-Ink display via SPI.
+
+### Requirements
+
+- Raspberry Pi with SPI enabled (`raspi-config` > Interface Options > SPI)
+- Python 3.11+
+- Waveshare epd7in5_V2 driver library
+- Pillow, requests
+
+### Installation
+
+```bash
+pip install Pillow requests
+# Install Waveshare driver per their documentation
+```
+
+### Usage
+
+Edit `BASE_URL` in `client/client.py` to point to your server, then:
+
+```bash
+python3 client/client.py
+```
+
+For automatic updates, add a cron job:
+
+```bash
+crontab -e
+# Example: update every 15 minutes
+*/15 * * * * cd /home/pi/E-INK-Picture && python3 client/client.py >> /tmp/eink.log 2>&1
+```
+
+---
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
+
+---
 
 ## Acknowledgments
 
-- [Flask](https://flask.palletsprojects.com/) - Lightweight WSGI web application framework.
-- [Waveshare E-Ink Display Drivers](https://www.waveshare.com/) - Hardware integration for E-Ink displays.
-- [Open-Meteo](https://open-meteo.com/) - Free weather API used for fetching weather data.
-- [Docker](https://www.docker.com/) - Containerization platform for easy deployment.
-
----
+- [Go](https://go.dev/) -- Standard library HTTP server and image processing
+- [Waveshare](https://www.waveshare.com/) -- E-Ink display hardware and drivers
+- [Open-Meteo](https://open-meteo.com/) -- Free weather API, no key required
+- [Docker](https://www.docker.com/) -- Containerization and multi-arch builds
