@@ -66,6 +66,7 @@ func main() {
 	mediaH := handlers.NewMediaHandler(imageSvc)
 	weatherH := handlers.NewWeatherHandler(weatherSvc, cfg.DataDir)
 	previewH := handlers.NewPreviewHandler(previewSvc, designSvc)
+	displayH := handlers.NewDisplayHandler(cfg.EInkClientURL)
 
 	// Setup router
 	mux := http.NewServeMux()
@@ -101,6 +102,9 @@ func main() {
 
 	// Preview
 	mux.HandleFunc("GET /preview", previewH.Preview)
+
+	// Display
+	mux.HandleFunc("POST /refresh-display", displayH.RefreshDisplay)
 
 	// Settings
 	mux.HandleFunc("POST /update_settings", handlers.UpdateSettings)

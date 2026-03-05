@@ -1032,6 +1032,24 @@
             document.getElementById('preview-modal').style.display='none';
         });
 
+        document.getElementById('refresh-display-btn').addEventListener('click', () => {
+            const btn = document.getElementById('refresh-display-btn');
+            btn.disabled = true;
+            btn.textContent = 'Refreshing...';
+            fetch('/refresh-display', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                showNotification(data.message);
+            })
+            .catch(e => {
+                showNotification("Failed to refresh display: " + e.message);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Refresh Display';
+            });
+        });
+
         const mediaModal = document.getElementById('media-modal');
         const mediaClose = document.getElementById('media-close');
         const mediaOkBtn = document.getElementById('media-ok-btn');

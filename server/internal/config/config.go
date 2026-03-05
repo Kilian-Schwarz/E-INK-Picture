@@ -10,6 +10,7 @@ type Config struct {
 	CORSAllowedOrigins string
 	WeatherAPIKey      string
 	WeatherLocation    string
+	EInkClientURL      string
 }
 
 func Load() *Config {
@@ -21,6 +22,7 @@ func Load() *Config {
 		CORSAllowedOrigins: getEnv("CORS_ALLOWED_ORIGINS", "*"),
 		WeatherAPIKey:      getEnv("WEATHER_API_KEY", ""),
 		WeatherLocation:    getEnv("WEATHER_LOCATION", ""),
+		EInkClientURL:      getEnv("EINK_CLIENT_URL", ""),
 	}
 }
 
