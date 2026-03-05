@@ -10,7 +10,27 @@ ENV/
 env/
 .venv/
 
-# Docker
+# Go
+server/server
+*.exe
+
+# Environment
+.env
+
+# Data (user content, not tracked)
+data/designs/*.json
+data/uploaded_images/*
+data/fonts/*
+data/weather_styles/*
+!data/**/.gitkeep
+
+# Temp
 *.log
 *.pid
 *.sqlite3
+temp_files/
+output_image.bmp
+local_design.json
+
+# OS
+.DS_Store
