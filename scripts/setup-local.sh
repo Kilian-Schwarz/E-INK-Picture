@@ -12,11 +12,7 @@ fi
 # Create data directories
 mkdir -p data/designs data/uploaded_images data/fonts data/weather_styles
 
-# Copy default weather styles if data dir is empty
-if [ -z "$(ls -A data/weather_styles 2>/dev/null)" ] && [ -d app/weather_styles ]; then
-    cp app/weather_styles/*.json data/weather_styles/
-    echo "Copied default weather styles"
-fi
+# Weather styles are shipped in data/weather_styles/ (no copy needed)
 
 # Build and start server
 echo "Building and starting server..."

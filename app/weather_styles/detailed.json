@@ -1,3 +1,0 @@
-{
-    "format": "Currently: {current_temp}°C, {current_desc}\nNext days:\n{daily_forecast}\n(Sunrise/Sunset times not shown)"
-  }

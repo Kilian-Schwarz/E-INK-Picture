@@ -1,3 +1,0 @@
-{
-    "format": "Today: {current_temp}°C\n\n{daily_forecast}"
-  }
