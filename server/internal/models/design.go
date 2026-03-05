@@ -61,8 +61,8 @@ type Design struct {
 
 // DesignMeta holds lightweight metadata about a design.
 type DesignMeta struct {
-	Name     string `json:"name"`
-	IsActive bool   `json:"is_active"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
 }
 
 // FileInfo holds basic file information.
