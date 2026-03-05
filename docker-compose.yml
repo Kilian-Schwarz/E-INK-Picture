@@ -4,9 +4,25 @@ services:
       context: ./server
       dockerfile: Dockerfile
     ports:
-      - "5000:5000"
+      - "${PORT:-5000}:5000"
     volumes:
-      - ./data:/app/data
-    env_file:
-      - .env
+      - ./data/designs:/app/data/designs
+      - ./data/uploaded_images:/app/data/uploaded_images
+      - ./data/fonts:/app/data/fonts
+      - ./data/weather_styles:/app/data/weather_styles
+    environment:
+      - PORT=${PORT:-5000}
+      - DATA_DIR=${DATA_DIR:-/app/data}
+      - DEPLOYMENT_MODE=${DEPLOYMENT_MODE:-local}
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-*}
+      - SECRET_KEY=${SECRET_KEY:-default-dev-key}
+      - WEATHER_API_KEY=${WEATHER_API_KEY:-}
+      - WEATHER_LOCATION=${WEATHER_LOCATION:-}
+      - TZ=${TZ:-Europe/Berlin}
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
