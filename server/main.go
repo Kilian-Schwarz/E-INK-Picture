@@ -130,7 +130,8 @@ func main() {
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		slog.Info("server starting", "port", cfg.Port)
+		slog.Info("server starting", "port", cfg.Port, "mode", cfg.DeploymentMode, "data_dir", cfg.DataDir)
+		slog.Info("server ready", "url", "http://0.0.0.0:"+cfg.Port+"/designer")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 			os.Exit(1)
