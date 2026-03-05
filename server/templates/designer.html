@@ -1,13 +1,111 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>E-Ink Designer</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>E-Ink Display Designer</title>
     <link rel="stylesheet" href="/static/css/designer.css">
 </head>
 <body>
-    <p>Placeholder - will be replaced with extracted frontend</p>
+    <div class="sidebar">
+        <h2>Saved Designs</h2>
+        <div id="design-list"></div>
+        <div class="button-row">
+            <button id="load-design">Load</button>
+            <button id="clone-design">Clone</button>
+            <button id="delete-design">Delete</button>
+            <button id="set-active">Set Active</button>
+        </div>
+
+        <h2>Modules</h2>
+        <div id="modules">
+            <div class="module" draggable="true" data-type="text">Text</div>
+            <div class="module" draggable="true" data-type="image">Image</div>
+            <div class="module" draggable="true" data-type="weather">Weather</div>
+            <div class="module" draggable="true" data-type="datetime">Date/Time</div>
+            <div class="module" draggable="true" data-type="timer">Timer</div>
+            <div class="module" draggable="true" data-type="news">News</div>
+            <div class="module" draggable="true" data-type="line">Line/Shape</div>
+            <div class="module" draggable="true" data-type="calendar">Calendar</div> <!-- Neuer Kalender-Modul -->
+        </div>
+
+        <h2>Settings</h2>
+        <div class="property-field">
+            <label><input type="checkbox" id="keep-alive"/> Keep Alive</label>
+        </div>
+    </div>
+
+    <div class="content">
+        <h2>Current Design: <span id="current-design-name">Unnamed</span></h2>
+        <div id="display-area">
+            <div id="eink-frame"></div>
+        </div>
+        <input type="text" id="design-name" placeholder="Design Name" style="padding:4px; font-size:0.9em;"/>
+        <div class="button-row">
+            <button id="save-design">Save Overwrite</button>
+            <button id="save-as-new">Save as New</button>
+            <button id="preview-btn">Preview</button>
+        </div>
+    </div>
+
+    <div class="properties">
+        <h2>Properties</h2>
+        <div id="properties-panel">
+            <p>Select an element to view/edit its properties.</p>
+        </div>
+    </div>
+
+    <div id="notification-container"></div>
+
+    <div id="media-modal">
+        <div id="media-content">
+            <span id="media-close">X</span>
+            <h2>Media Library</h2>
+            <div class="property-field">
+                <label>Upload New Image/Font</label>
+                <input type="file" accept=".png,.jpg,.jpeg,.ttf,.otf" id="media-upload-file"/>
+                <div id="upload-progress-container"><div id="upload-progress-bar"></div></div>
+                <button id="media-upload-btn" style="margin-top:5px;padding:5px;">Upload</button>
+            </div>
+            <h2>Images</h2>
+            <div id="media-library"></div>
+            <h2>Fonts</h2>
+            <div id="fonts-library"></div>
+            <div class="button-row-media">
+                <button id="media-ok-btn">OK</button>
+                <button id="media-cancel-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="preview-modal">
+        <div id="preview-content">
+            <span id="preview-close">X</span>
+            <img id="preview-image" src="" alt="Preview"/>
+        </div>
+    </div>
+
+    <div id="crop-modal">
+        <div id="crop-content">
+            <span id="crop-close">X</span>
+            <h2>Crop Image</h2>
+            <div style="position:relative;">
+                <img id="crop-image" src="" alt="Crop" style="max-width:400px;max-height:400px;"/>
+                <div id="crop-rect" style="position:absolute;border:2px dashed #f00;width:50px;height:50px;top:0;left:0;cursor:move;">
+                    <div class="crop-resize-handle top-left"></div>
+                    <div class="crop-resize-handle top-right"></div>
+                    <div class="crop-resize-handle bottom-left"></div>
+                    <div class="crop-resize-handle bottom-right"></div>
+                </div>
+            </div>
+            <div class="button-row-crop">
+                <button id="crop-apply">Apply</button>
+                <button id="crop-reset">Reset Crop</button>
+                <button id="crop-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/designer.js"></script>
 </body>
 </html>
