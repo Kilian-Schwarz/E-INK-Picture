@@ -34,17 +34,18 @@ const (
 	einkHeight  = 480
 )
 
-// PreviewService renders design previews as 1-bit monochrome PNGs.
+// PreviewService renders design previews as PNGs with display-appropriate palette.
 type PreviewService struct {
-	design  *DesignService
-	weather *WeatherService
-	image   *ImageService
-	dataDir string
+	design   *DesignService
+	weather  *WeatherService
+	image    *ImageService
+	settings *SettingsService
+	dataDir  string
 }
 
 // NewPreviewService creates a PreviewService with access to other services.
-func NewPreviewService(d *DesignService, w *WeatherService, i *ImageService, dataDir string) *PreviewService {
-	return &PreviewService{design: d, weather: w, image: i, dataDir: dataDir}
+func NewPreviewService(d *DesignService, w *WeatherService, i *ImageService, s *SettingsService, dataDir string) *PreviewService {
+	return &PreviewService{design: d, weather: w, image: i, settings: s, dataDir: dataDir}
 }
 
 // Render fills dynamic content and renders a design to a 1-bit PNG.

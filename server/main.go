@@ -53,7 +53,8 @@ func main() {
 	imageSvc := services.NewImageService(cfg.DataDir)
 	weatherSvc := services.NewWeatherService(cfg.WeatherAPIKey, cfg.WeatherLocation)
 	weatherSvc.SetDataDir(cfg.DataDir)
-	previewSvc := services.NewPreviewService(designSvc, weatherSvc, imageSvc, cfg.DataDir)
+	settingsSvc := services.NewSettingsService(cfg.DataDir)
+	previewSvc := services.NewPreviewService(designSvc, weatherSvc, imageSvc, settingsSvc, cfg.DataDir)
 
 	// Ensure at least one design exists (like Python's ensure_active_design on startup)
 	if err := designSvc.EnsureDesignExists(); err != nil {
@@ -67,6 +68,7 @@ func main() {
 	weatherH := handlers.NewWeatherHandler(weatherSvc, cfg.DataDir)
 	previewH := handlers.NewPreviewHandler(previewSvc, designSvc)
 	displayH := handlers.NewDisplayHandler(cfg.EInkClientURL)
+	settingsH := handlers.NewSettingsHandler(settingsSvc)
 
 	// Setup router
 	mux := http.NewServeMux()
@@ -107,7 +109,9 @@ func main() {
 	mux.HandleFunc("POST /refresh-display", displayH.RefreshDisplay)
 
 	// Settings
-	mux.HandleFunc("POST /update_settings", handlers.UpdateSettings)
+	mux.HandleFunc("GET /settings", settingsH.GetSettings)
+	mux.HandleFunc("POST /update_settings", settingsH.UpdateSettings)
+	mux.HandleFunc("GET /display_profiles", settingsH.ListDisplayProfiles)
 
 	// Health
 	mux.HandleFunc("GET /health", handlers.HealthCheck)
