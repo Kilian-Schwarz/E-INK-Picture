@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"e-ink-picture/server/internal/models"
@@ -22,7 +23,8 @@ func NewSettingsHandler(s *services.SettingsService) *SettingsHandler {
 func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.settings.GetSettingsResponse()
 	if err != nil {
-		http.Error(w, "failed to load settings", http.StatusInternalServerError)
+		slog.Error("failed to load settings", "error", err)
+		jsonError(w, "failed to load settings", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -35,25 +37,27 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 		DisplayType models.DisplayType `json:"display_type"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	// Validate display type
 	if _, ok := models.DisplayProfiles[req.DisplayType]; !ok {
-		http.Error(w, "unknown display type", http.StatusBadRequest)
+		jsonError(w, "unknown display type: "+string(req.DisplayType), http.StatusBadRequest)
 		return
 	}
 
 	settings := &models.Settings{DisplayType: req.DisplayType}
 	if err := h.settings.SaveSettings(settings); err != nil {
-		http.Error(w, "failed to save settings", http.StatusInternalServerError)
+		slog.Error("failed to save settings", "error", err)
+		jsonError(w, "failed to save settings: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	resp, err := h.settings.GetSettingsResponse()
 	if err != nil {
-		http.Error(w, "failed to load settings", http.StatusInternalServerError)
+		slog.Error("failed to load settings after save", "error", err)
+		jsonError(w, "failed to load settings", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

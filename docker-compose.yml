@@ -6,10 +6,7 @@ services:
     ports:
       - "${PORT:-5000}:5000"
     volumes:
-      - ./data/designs:/app/data/designs
-      - ./data/uploaded_images:/app/data/uploaded_images
-      - ./data/fonts:/app/data/fonts
-      - ./data/weather_styles:/app/data/weather_styles
+      - ./data:/app/data
     environment:
       - PORT=${PORT:-5000}
       - DATA_DIR=${DATA_DIR:-/app/data}

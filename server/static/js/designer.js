@@ -343,6 +343,8 @@
             `;
         }
 
+        document.getElementById('display-select').addEventListener('change', onDisplayChange);
+
         async function onDisplayChange() {
             const select = document.getElementById('display-select');
             const displayType = select.value;
@@ -352,13 +354,17 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({display_type: displayType})
                 });
-                const settings = await res.json();
-                currentDisplay = settings.display;
+                const data = await res.json();
+                if (!res.ok) {
+                    showNotification('Error: ' + (data.message || 'Unknown error'));
+                    return;
+                }
+                currentDisplay = data.display;
                 updateDisplayInfo();
                 if (selectedElement) showProperties(selectedElement);
                 showNotification('Display changed to ' + currentDisplay.name);
             } catch(e) {
-                showNotification('Failed to save display settings');
+                showNotification('Failed to save display settings: ' + e.message);
             }
         }
 
