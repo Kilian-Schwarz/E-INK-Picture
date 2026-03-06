@@ -8,10 +8,8 @@ import (
 	"image/draw"
 	_ "image/jpeg"
 	"image/png"
-	"io"
 	"log/slog"
 	"math"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -47,53 +45,113 @@ func NewPreviewService(d *DesignService, w *WeatherService, i *ImageService, s *
 	return &PreviewService{design: d, weather: w, image: i, settings: s, dataDir: dataDir}
 }
 
-// Render fills dynamic content and renders a design to a palette-quantized PNG.
+// Render fills dynamic content and renders a v2 design to a palette-quantized PNG.
 // If raw is true, no palette quantization is applied (debug mode).
-func (s *PreviewService) Render(design *models.Design, raw bool) ([]byte, error) {
-	s.FillContent(design)
-
+func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, error) {
 	displayCfg := s.settings.GetDisplayConfig()
 
-	// Render to full-color RGBA canvas first
-	img := image.NewRGBA(image.Rect(0, 0, einkWidth, einkHeight))
-	draw.Draw(img, img.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+	canvasW := design.Canvas.Width
+	canvasH := design.Canvas.Height
+	if canvasW == 0 {
+		canvasW = einkWidth
+	}
+	if canvasH == 0 {
+		canvasH = einkHeight
+	}
 
-	for i := range design.Modules {
-		m := &design.Modules[i]
-		x := m.Position.X - einkOffsetX
-		y := m.Position.Y - einkOffsetY
-		w := m.Size.Width
-		h := m.Size.Height
+	// Render to full-color RGBA canvas
+	img := image.NewRGBA(image.Rect(0, 0, canvasW, canvasH))
 
-		if x+w < 0 || x > einkWidth || y+h < 0 || y > einkHeight {
+	// Background color
+	var bgColor color.Color = color.White
+	if design.Canvas.Background != "" && design.Canvas.Background != "#FFFFFF" {
+		bgColor = parseHexColor(design.Canvas.Background)
+	}
+	draw.Draw(img, img.Bounds(), image.NewUniform(bgColor), image.Point{}, draw.Src)
+
+	// Sort elements by zIndex
+	sorted := make([]models.Element, len(design.Elements))
+	copy(sorted, design.Elements)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].ZIndex < sorted[j].ZIndex
+	})
+
+	for i := range sorted {
+		elem := &sorted[i]
+		if !elem.Visible {
 			continue
 		}
 
-		sd := m.StyleData
-		fontSize := 18
-		if sd.FontSize != nil {
-			if v, err := strconv.Atoi(*sd.FontSize); err == nil {
-				fontSize = v
-			}
-		}
-		bold := sd.FontBold != nil && *sd.FontBold == "true"
-		italic := sd.FontItalic != nil && *sd.FontItalic == "true"
-		strike := sd.FontStrike != nil && *sd.FontStrike == "true"
-		align := "left"
-		if sd.TextAlign != nil {
-			align = *sd.TextAlign
+		x := int(elem.X)
+		y := int(elem.Y)
+		w := int(elem.Width)
+		h := int(elem.Height)
+
+		if x+w < 0 || x > canvasW || y+h < 0 || y > canvasH {
+			continue
 		}
 
-		textColor := resolveTextColor(sd.TextColor, displayCfg)
-		face := s.loadFontFace(sd.Font, fontSize)
+		props := elem.Properties
+		if props == nil {
+			props = make(map[string]any)
+		}
 
-		switch m.Type {
-		case "text", "news", "weather", "datetime", "timer", "calendar":
-			s.renderText(img, x, y, w, h, m.Content, face, bold, italic, strike, align, textColor)
+		fontSize := GetPropInt(props, "fontSize", 18)
+		bold := GetPropBool(props, "bold", false)
+		italic := GetPropBool(props, "italic", false)
+		strike := GetPropBool(props, "strikethrough", false)
+		align := GetPropString(props, "textAlign", "left")
+		colorStr := GetPropString(props, "color", "#000000")
+		textColor := parseHexColor(colorStr)
+		fontFamily := GetPropString(props, "fontFamily", "")
+		var fontPtr *string
+		if fontFamily != "" {
+			fontPtr = &fontFamily
+		}
+		face := s.loadFontFace(fontPtr, fontSize)
+
+		switch elem.Type {
+		case "text":
+			content := s.fillTextContent(props)
+			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+
 		case "image":
-			s.renderImageRGBA(img, x, y, w, h, &sd)
-		case "line":
-			s.drawFilledRectRGBA(img, x, y, w, h, textColor)
+			s.renderImageElement(img, x, y, w, h, props)
+
+		case "shape":
+			s.renderShapeElement(img, x, y, w, h, props, textColor)
+
+		case "widget_clock":
+			content := s.fillClockContent(props)
+			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+
+		case "widget_weather":
+			content := s.fillWeatherContent(props)
+			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+
+		case "widget_forecast":
+			content := s.fillForecastContent(props)
+			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+
+		case "widget_calendar":
+			content := s.fillCalendarContent(props)
+			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+
+		case "widget_news":
+			content := s.fillNewsContent(props)
+			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+
+		case "widget_timer":
+			content := s.fillTimerContent(props)
+			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+
+		case "widget_custom":
+			content := s.fillCustomContent(props)
+			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+
+		case "widget_system":
+			content := s.fillSystemContent(props)
+			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
 		}
 	}
 
@@ -112,6 +170,198 @@ func (s *PreviewService) Render(design *models.Design, raw bool) ([]byte, error)
 	return buf.Bytes(), nil
 }
 
+// --- Content filling methods for v2 elements ---
+
+func (s *PreviewService) fillTextContent(props map[string]any) string {
+	return GetPropString(props, "content", "")
+}
+
+func (s *PreviewService) fillClockContent(props map[string]any) string {
+	format := GetPropString(props, "format", "YYYY-MM-DD HH:mm")
+	tz := GetPropString(props, "timezone", "")
+
+	loc := time.Now().Location()
+	if tz != "" {
+		if l, err := time.LoadLocation(tz); err == nil {
+			loc = l
+		}
+	}
+
+	r := strings.NewReplacer(
+		"YYYY", "2006",
+		"MM", "01",
+		"DD", "02",
+		"HH", "15",
+		"mm", "04",
+		"ss", "05",
+	)
+	goFmt := r.Replace(format)
+	return time.Now().In(loc).Format(goFmt)
+}
+
+func (s *PreviewService) fillWeatherContent(props map[string]any) string {
+	lat := GetPropString(props, "latitude", "52.52")
+	lon := GetPropString(props, "longitude", "13.41")
+	style := GetPropString(props, "style", "compact")
+
+	wdata, err := s.weather.FetchForLocation(lat, lon)
+	if err != nil || wdata == nil {
+		return "No data"
+	}
+
+	switch style {
+	case "detailed":
+		return fmt.Sprintf("%.0f°C %s\nHumidity: --%%\nWind: -- km/h", wdata.CurrentTemp, wdata.CurrentDesc)
+	case "minimal":
+		return fmt.Sprintf("%.0f°C", wdata.CurrentTemp)
+	case "icon_only":
+		return wdata.CurrentIcon
+	default: // compact
+		return fmt.Sprintf("%.0f°C %s", wdata.CurrentTemp, wdata.CurrentDesc)
+	}
+}
+
+func (s *PreviewService) fillForecastContent(props map[string]any) string {
+	lat := GetPropString(props, "latitude", "52.52")
+	lon := GetPropString(props, "longitude", "13.41")
+	days := GetPropInt(props, "days", 3)
+
+	wdata, err := s.weather.FetchForLocation(lat, lon)
+	if err != nil || wdata == nil {
+		return "No forecast data"
+	}
+
+	var lines []string
+	for i, day := range wdata.Daily {
+		if i >= days {
+			break
+		}
+		lines = append(lines, fmt.Sprintf("%s: %d-%d°C %s",
+			day.Weekday, int(day.Min), int(day.Max), day.Desc))
+	}
+	if len(lines) == 0 {
+		return "No forecast data"
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *PreviewService) fillCalendarContent(props map[string]any) string {
+	calURL := GetPropString(props, "icalUrl", "")
+	maxEvents := GetPropInt(props, "maxEvents", 5)
+	return fetchCalendarContent(calURL, maxEvents)
+}
+
+func (s *PreviewService) fillNewsContent(props map[string]any) string {
+	feedURL := GetPropString(props, "feedUrl", "")
+	maxItems := GetPropInt(props, "maxItems", 5)
+	title := GetPropString(props, "title", "")
+
+	if feedURL == "" {
+		return "No feed URL"
+	}
+
+	items := fetchRSSFeed(feedURL, maxItems)
+	if len(items) == 0 {
+		return "No news"
+	}
+
+	var lines []string
+	if title != "" {
+		lines = append(lines, title)
+	}
+	for _, item := range items {
+		lines = append(lines, "- "+item.Title)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *PreviewService) fillTimerContent(props map[string]any) string {
+	target := GetPropString(props, "targetDate", "2025-01-01 00:00:00")
+	format := GetPropString(props, "format", "D days, HH:MM:SS")
+	finishedText := GetPropString(props, "finishedText", "Time's up!")
+
+	targetDT, err := time.ParseInLocation("2006-01-02 15:04:05", target, time.Now().Location())
+	if err != nil {
+		return "Invalid timer target"
+	}
+
+	diff := targetDT.Sub(time.Now())
+	if diff < 0 {
+		return finishedText
+	}
+
+	totalSecs := int(diff.Seconds())
+	days := totalSecs / 86400
+	remainder := totalSecs % 86400
+	hours := remainder / 3600
+	minutes := (remainder % 3600) / 60
+	seconds := remainder % 60
+
+	display := strings.Replace(format, "D", strconv.Itoa(days), 1)
+	display = strings.Replace(display, "HH", fmt.Sprintf("%02d", hours), 1)
+	display = strings.Replace(display, "MM", fmt.Sprintf("%02d", minutes), 1)
+	display = strings.Replace(display, "SS", fmt.Sprintf("%02d", seconds), 1)
+	return display
+}
+
+func (s *PreviewService) fillCustomContent(props map[string]any) string {
+	url := GetPropString(props, "url", "")
+	if url == "" {
+		return "No URL configured"
+	}
+	result := fetchCustomAPI(url, props)
+	prefix := GetPropString(props, "prefix", "")
+	suffix := GetPropString(props, "suffix", "")
+	return prefix + result + suffix
+}
+
+func (s *PreviewService) fillSystemContent(props map[string]any) string {
+	return fetchSystemInfo(props)
+}
+
+// renderImageElement renders an image element from v2 properties.
+func (s *PreviewService) renderImageElement(img *image.RGBA, x, y, w, h int, props map[string]any) {
+	src := GetPropString(props, "src", "")
+	if src == "" {
+		return
+	}
+
+	// Build a minimal StyleData for the existing renderImageRGBA method
+	sd := &models.StyleData{
+		Image: &src,
+	}
+	if cropX, ok := props["cropX"]; ok {
+		if v, vok := cropX.(float64); vok {
+			sd.CropX = &v
+		}
+	}
+	if cropY, ok := props["cropY"]; ok {
+		if v, vok := cropY.(float64); vok {
+			sd.CropY = &v
+		}
+	}
+	if cropW, ok := props["cropW"]; ok {
+		if v, vok := cropW.(float64); vok {
+			sd.CropW = &v
+		}
+	}
+	if cropH, ok := props["cropH"]; ok {
+		if v, vok := cropH.(float64); vok {
+			sd.CropH = &v
+		}
+	}
+	s.renderImageRGBA(img, x, y, w, h, sd)
+}
+
+// renderShapeElement renders a shape element.
+func (s *PreviewService) renderShapeElement(img *image.RGBA, x, y, w, h int, props map[string]any, defaultColor color.RGBA) {
+	fillColor := defaultColor
+	if c := GetPropString(props, "fillColor", ""); c != "" {
+		fillColor = parseHexColor(c)
+	}
+	s.drawFilledRectRGBA(img, x, y, w, h, fillColor)
+}
+
 // resolveTextColor parses a hex color from style data, defaulting to black.
 func resolveTextColor(textColor *string, _ models.DisplayConfig) color.RGBA {
 	if textColor != nil && len(*textColor) == 7 && (*textColor)[0] == '#' {
@@ -122,6 +372,9 @@ func resolveTextColor(textColor *string, _ models.DisplayConfig) color.RGBA {
 
 // parseHexColor converts "#RRGGBB" to color.RGBA.
 func parseHexColor(hex string) color.RGBA {
+	if len(hex) < 7 || hex[0] != '#' {
+		return color.RGBA{0, 0, 0, 255}
+	}
 	var r, g, b uint8
 	fmt.Sscanf(hex[1:], "%02x%02x%02x", &r, &g, &b)
 	return color.RGBA{r, g, b, 255}
@@ -134,7 +387,6 @@ func quantizeToPalette(img image.Image, hexColors []string) *image.Paletted {
 		pal = append(pal, parseHexColor(hex))
 	}
 
-	// Fallback if palette is somehow empty
 	if len(pal) == 0 {
 		pal = color.Palette{color.White, color.Black}
 	}
@@ -157,113 +409,9 @@ func (s *PreviewService) RenderActive() ([]byte, error) {
 	return s.Render(design, false)
 }
 
-// FillContent populates dynamic content for all modules in a design.
-func (s *PreviewService) FillContent(design *models.Design) {
-	for i := range design.Modules {
-		m := &design.Modules[i]
-		sd := m.StyleData
-
-		switch m.Type {
-		case "datetime":
-			dtFmt := "YYYY-MM-DD HH:mm"
-			if sd.DatetimeFormat != nil {
-				dtFmt = *sd.DatetimeFormat
-			}
-			m.Content = formatDateTime(dtFmt)
-
-		case "weather":
-			lat := "52.52"
-			lon := "13.41"
-			if sd.Latitude != nil {
-				lat = *sd.Latitude
-			}
-			if sd.Longitude != nil {
-				lon = *sd.Longitude
-			}
-			wdata, err := s.weather.FetchForLocation(lat, lon)
-			if err != nil || wdata == nil {
-				m.Content = "No data"
-			} else {
-				ws := "default"
-				if sd.WeatherStyle != nil {
-					ws = *sd.WeatherStyle
-				}
-				m.Content = s.weather.ApplyStyle(ws, wdata)
-			}
-
-		case "timer":
-			target := "2025-01-01 00:00:00"
-			if sd.TimerTarget != nil {
-				target = *sd.TimerTarget
-			}
-			tfmt := "D days, HH:MM:SS"
-			if sd.TimerFormat != nil {
-				tfmt = *sd.TimerFormat
-			}
-			m.Content = formatTimer(target, tfmt)
-
-		case "calendar":
-			calURL := ""
-			if sd.CalendarURL != nil {
-				calURL = *sd.CalendarURL
-			}
-			maxEvents := 5
-			if sd.MaxEvents != nil {
-				if v, err := strconv.Atoi(*sd.MaxEvents); err == nil {
-					maxEvents = v
-				}
-			}
-			m.Content = fetchCalendarContent(calURL, maxEvents)
-		}
-	}
-}
-
-// --- Content filling helpers ---
-
-// formatDateTime converts a user-facing date format to Go time format and returns the current time.
-func formatDateTime(format string) string {
-	// Replace user tokens with Go time reference values.
-	// Order matters: YYYY before MM (to avoid partial replacement of MM inside other tokens).
-	r := strings.NewReplacer(
-		"YYYY", "2006",
-		"MM", "01",
-		"DD", "02",
-		"HH", "15",
-		"mm", "04",
-		"ss", "05",
-	)
-	goFmt := r.Replace(format)
-	return time.Now().Format(goFmt)
-}
-
-// formatTimer calculates countdown from now to target and formats it.
-func formatTimer(target, format string) string {
-	targetDT, err := time.ParseInLocation("2006-01-02 15:04:05", target, time.Now().Location())
-	if err != nil {
-		return "Invalid timer target"
-	}
-
-	diff := targetDT.Sub(time.Now())
-	if diff < 0 {
-		return "Time's up!"
-	}
-
-	totalSecs := int(diff.Seconds())
-	days := totalSecs / 86400
-	remainder := totalSecs % 86400
-	hours := remainder / 3600
-	minutes := (remainder % 3600) / 60
-	seconds := remainder % 60
-
-	display := strings.Replace(format, "D", strconv.Itoa(days), 1)
-	display = strings.Replace(display, "HH", fmt.Sprintf("%02d", hours), 1)
-	display = strings.Replace(display, "MM", fmt.Sprintf("%02d", minutes), 1)
-	display = strings.Replace(display, "SS", fmt.Sprintf("%02d", seconds), 1)
-	return display
-}
+// --- Content filling helpers (legacy, used by v2 fill methods) ---
 
 // fetchCalendarContent fetches iCal events and formats them.
-// NOTE: Full iCal parsing without external deps is limited; we do a best-effort parse.
 func fetchCalendarContent(calURL string, maxEvents int) string {
 	if calURL == "" {
 		return "No events"
@@ -274,7 +422,7 @@ func fetchCalendarContent(calURL string, maxEvents int) string {
 		calURL = "https://" + calURL[len("webcal://"):]
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client := &defaultHTTPClient
 	resp, err := client.Get(calURL)
 	if err != nil {
 		slog.Error("failed to fetch calendar", "error", err)
@@ -282,11 +430,11 @@ func fetchCalendarContent(calURL string, maxEvents int) string {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != 200 {
 		return "No events"
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := readLimitedBody(resp.Body, 1<<20) // 1MB limit
 	if err != nil {
 		return "No events"
 	}
@@ -314,7 +462,6 @@ func parseICalEvents(ical string, maxEvents int) []calEvent {
 	now := time.Now()
 
 	lines := strings.Split(strings.ReplaceAll(ical, "\r\n", "\n"), "\n")
-	// Handle line folding (lines starting with space/tab are continuations)
 	var unfolded []string
 	for _, line := range lines {
 		if len(line) > 0 && (line[0] == ' ' || line[0] == '\t') && len(unfolded) > 0 {
@@ -354,7 +501,6 @@ func parseICalEvents(ical string, maxEvents int) []calEvent {
 		}
 	}
 
-	// Sort by start time
 	sort.Slice(events, func(i, j int) bool {
 		return events[i].Start.Before(events[j].Start)
 	})
@@ -367,10 +513,6 @@ func parseICalEvents(ical string, maxEvents int) []calEvent {
 
 // parseICalDate parses an iCal DTSTART line.
 func parseICalDate(line string) time.Time {
-	// Examples:
-	// DTSTART:20250315T100000Z
-	// DTSTART;VALUE=DATE:20250315
-	// DTSTART;TZID=Europe/Berlin:20250315T100000
 	parts := strings.SplitN(line, ":", 2)
 	if len(parts) != 2 {
 		return time.Time{}
@@ -395,7 +537,6 @@ func parseICalDate(line string) time.Time {
 
 // loadFontFace loads a TrueType font face, falling back to system fonts then a basic built-in face.
 func (s *PreviewService) loadFontFace(fontName *string, size int) font.Face {
-	// Try custom font from fonts directory
 	if fontName != nil && *fontName != "" {
 		fontPath, err := s.image.GetFontPath(*fontName)
 		if err == nil && fontPath != "" {
@@ -405,7 +546,6 @@ func (s *PreviewService) loadFontFace(fontName *string, size int) font.Face {
 		}
 	}
 
-	// Fallback: DejaVuSans-Bold (common on Linux/Raspberry Pi)
 	defaultPaths := []string{
 		"/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -417,7 +557,6 @@ func (s *PreviewService) loadFontFace(fontName *string, size int) font.Face {
 		}
 	}
 
-	// Ultimate fallback: basic 7x13 font from x/image
 	return newBasicFace(size)
 }
 
@@ -446,7 +585,6 @@ func loadTTFFace(path string, size int) font.Face {
 
 // --- Basic fallback font ---
 
-// basicFace implements font.Face with a simple monospace bitmap for fallback.
 type basicFace struct {
 	size    int
 	advance fixed.Int26_6
@@ -456,7 +594,7 @@ type basicFace struct {
 func newBasicFace(size int) font.Face {
 	return &basicFace{
 		size:    size,
-		advance: fixed.I(size * 3 / 5), // approximate char width
+		advance: fixed.I(size * 3 / 5),
 		height:  fixed.I(size),
 	}
 }
@@ -464,7 +602,6 @@ func newBasicFace(size int) font.Face {
 func (f *basicFace) Close() error { return nil }
 
 func (f *basicFace) Glyph(dot fixed.Point26_6, r rune) (dr image.Rectangle, mask image.Image, maskp image.Point, advance fixed.Int26_6, ok bool) {
-	// Simple rectangle glyph for each character
 	x := dot.X.Floor()
 	y := dot.Y.Floor() - f.size + f.size/5
 	w := f.advance.Floor()
@@ -472,13 +609,10 @@ func (f *basicFace) Glyph(dot fixed.Point26_6, r rune) (dr image.Rectangle, mask
 
 	dr = image.Rect(x, y, x+w, y+h)
 
-	// Create a simple mask - all opaque for visible chars, empty for space
 	if r == ' ' {
 		mask = image.NewAlpha(image.Rect(0, 0, w, h))
 	} else {
-		// Draw a simple filled rectangle as glyph placeholder
 		m := image.NewAlpha(image.Rect(0, 0, w, h))
-		// Fill interior pixels, leaving 1px border for spacing
 		for py := 1; py < h-1; py++ {
 			for px := 0; px < w-1; px++ {
 				m.SetAlpha(px, py, color.Alpha{A: 255})
@@ -515,7 +649,6 @@ func (f *basicFace) Metrics() font.Metrics {
 
 // --- Text rendering ---
 
-// renderText draws word-wrapped text on an RGBA image.
 func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string, face font.Face, bold, italic, strike bool, align string, textColor color.RGBA) {
 	if text == "" {
 		return
@@ -555,7 +688,6 @@ func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string
 		}
 	}
 
-	// Line height matches Python: font.size + 2
 	metrics := face.Metrics()
 	fontSize := (metrics.Ascent + metrics.Descent).Ceil()
 	lineHeight := fontSize + 2
@@ -581,7 +713,6 @@ func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string
 			lx++
 		}
 
-		// Draw text using font.Drawer
 		dot := fixed.Point26_6{
 			X: fixed.I(lx),
 			Y: fixed.I(iy) + metrics.Ascent,
@@ -595,7 +726,6 @@ func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string
 		}
 		drawer.DrawString(line)
 
-		// Bold: draw again shifted 1px right
 		if bold {
 			drawer2 := &font.Drawer{
 				Dst:  img,
@@ -609,7 +739,6 @@ func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string
 			drawer2.DrawString(line)
 		}
 
-		// Strikethrough: line through middle
 		if strike {
 			midY := iy + fontSize/2
 			for px := lx; px < lx+lineWidth; px++ {
@@ -642,7 +771,6 @@ func measureString(face font.Face, s string) fixed.Int26_6 {
 
 // --- Image rendering ---
 
-// renderImageRGBA loads, crops, resizes and pastes an image module onto an RGBA canvas.
 func (s *PreviewService) renderImageRGBA(img *image.RGBA, x, y, w, h int, sd *models.StyleData) {
 	if sd.Image == nil || *sd.Image == "" {
 		return
@@ -687,23 +815,19 @@ func (s *PreviewService) renderImageRGBA(img *image.RGBA, x, y, w, h int, sd *mo
 	cropped := cropSubImage(srcImg, cropRect)
 	resized := resizeNearest(cropped, w, h)
 
-	// Paste onto RGBA canvas
 	destRect := image.Rect(x, y, x+w, y+h).Intersect(img.Bounds())
 	draw.Draw(img, destRect, resized, image.Point{X: destRect.Min.X - x, Y: destRect.Min.Y - y}, draw.Over)
 }
 
-// cropSubImage extracts a rectangular region from an image.
 func cropSubImage(src image.Image, r image.Rectangle) image.Image {
 	if si, ok := src.(interface{ SubImage(image.Rectangle) image.Image }); ok {
 		return si.SubImage(r)
 	}
-	// Manual crop fallback
 	dst := image.NewRGBA(image.Rect(0, 0, r.Dx(), r.Dy()))
 	draw.Draw(dst, dst.Bounds(), src, r.Min, draw.Src)
 	return dst
 }
 
-// resizeNearest performs nearest-neighbor resize.
 func resizeNearest(src image.Image, dstW, dstH int) image.Image {
 	srcBounds := src.Bounds()
 	srcW := srcBounds.Dx()
@@ -726,7 +850,6 @@ func resizeNearest(src image.Image, dstW, dstH int) image.Image {
 
 // --- Line rendering ---
 
-// drawFilledRectRGBA draws a filled rectangle on an RGBA image.
 func (s *PreviewService) drawFilledRectRGBA(img *image.RGBA, x, y, w, h int, c color.RGBA) {
 	rect := image.Rect(x, y, x+w+1, y+h+1).Intersect(img.Bounds())
 	draw.Draw(img, rect, image.NewUniform(c), image.Point{}, draw.Src)
