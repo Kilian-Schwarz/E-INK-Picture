@@ -146,8 +146,15 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		}
 		face := s.loadFontFace(fontPtr, fontSize)
 
+		// Widget padding for consistent positioning with designer
+		px, py := 0, 0
+		if strings.HasPrefix(elem.Type, "widget_") {
+			px = 8
+			py = 4
+		}
+
 		switch elem.Type {
-		case "text":
+		case "text", "i-text", "textbox":
 			content := s.fillTextContent(props)
 			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
 
@@ -159,35 +166,35 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 
 		case "widget_clock":
 			content := s.fillClockContent(props)
-			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
 
 		case "widget_weather":
 			content := s.fillWeatherContent(props)
-			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
 
 		case "widget_forecast":
 			content := s.fillForecastContent(props)
-			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
 
 		case "widget_calendar":
 			content := s.fillCalendarContent(props)
-			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
 
 		case "widget_news":
 			content := s.fillNewsContent(props)
-			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
 
 		case "widget_timer":
 			content := s.fillTimerContent(props)
-			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
 
 		case "widget_custom":
 			content := s.fillCustomContent(props)
-			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
 
 		case "widget_system":
 			content := s.fillSystemContent(props)
-			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
 		}
 	}
 
