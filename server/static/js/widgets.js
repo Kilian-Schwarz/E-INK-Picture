@@ -132,17 +132,19 @@ var WidgetPreview = {
 
     // --- Weather ---
     buildWeatherContent(layout, props, data) {
-        if (!data || (!data.CurrentTemp && data.CurrentTemp !== 0)) {
-            // Fallback to placeholder
+        // API returns snake_case JSON fields
+        var temp = data ? (data.current_temp || data.CurrentTemp) : null;
+        if (temp === null && temp !== 0) {
             return '22\u00B0C Sunny';
         }
-        var temp = Math.round(data.CurrentTemp);
-        var desc = data.CurrentDesc || '';
-        var icon = data.CurrentIcon || '';
+        temp = Math.round(temp);
+        var desc = (data.current_desc || data.CurrentDesc || '');
+        var icon = (data.current_icon || data.CurrentIcon || '');
+        var daily = data.daily || data.Daily || [];
         var tempMin = '--', tempMax = '--';
-        if (data.Daily && data.Daily.length > 0) {
-            tempMin = Math.round(data.Daily[0].Min);
-            tempMax = Math.round(data.Daily[0].Max);
+        if (daily.length > 0) {
+            tempMin = Math.round(daily[0].min || daily[0].Min || 0);
+            tempMax = Math.round(daily[0].max || daily[0].Max || 0);
         }
         if (layout === 'custom') {
             var template = props.customTemplate || '%temperature%\u00B0C %description%';
@@ -172,38 +174,42 @@ var WidgetPreview = {
     buildForecastContent(layout, props, data) {
         var daily = (data && data.daily) ? data.daily : null;
         if (!daily || daily.length === 0) {
-            // Fallback
-            var days = props.days || 3;
-            var lines = [];
+            var daysCount = props.days || 3;
+            var fallbackLines = [];
             var dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
             var today = new Date().getDay();
-            for (var i = 0; i < days; i++) {
-                var d = dayNames[(today + i) % 7];
-                lines.push(d + ': 12-20\u00B0C');
+            for (var i = 0; i < daysCount; i++) {
+                var dn = dayNames[(today + i) % 7];
+                fallbackLines.push(dn + ': 12-20\u00B0C');
             }
-            return lines.join('\n');
+            return fallbackLines.join('\n');
         }
         var lines = [];
         for (var i = 0; i < daily.length; i++) {
             var day = daily[i];
+            // API uses lowercase field names
+            var weekday = day.weekday || day.Weekday || '';
+            var min = Math.round(day.min || day.Min || 0);
+            var max = Math.round(day.max || day.Max || 0);
+            var desc = day.desc || day.Desc || '';
             switch (layout) {
                 case 'compact_row':
-                    lines.push((day.Weekday || '').substring(0, 3) + ' ' + Math.round(day.Min) + '/' + Math.round(day.Max) + '\u00B0');
+                    lines.push(weekday.substring(0, 3) + ' ' + min + '/' + max + '\u00B0');
                     break;
                 case 'detailed_list':
-                    lines.push((day.Weekday || '') + ': ' + Math.round(day.Min) + '\u00B0/' + Math.round(day.Max) + '\u00B0 ' + (day.Desc || ''));
+                    lines.push(weekday + ': ' + min + '\u00B0/' + max + '\u00B0 ' + desc);
                     break;
                 case 'custom': {
                     var template = props.customTemplate || '%day_name%: %temp_min%-%temp_max%\u00B0C';
                     lines.push(template
-                        .replace(/%day_name%/g, day.Weekday || '')
-                        .replace(/%temp_min%/g, Math.round(day.Min))
-                        .replace(/%temp_max%/g, Math.round(day.Max))
-                        .replace(/%description%/g, day.Desc || ''));
+                        .replace(/%day_name%/g, weekday)
+                        .replace(/%temp_min%/g, min)
+                        .replace(/%temp_max%/g, max)
+                        .replace(/%description%/g, desc));
                     break;
                 }
                 default: // vertical
-                    lines.push((day.Weekday || '') + ': ' + Math.round(day.Min) + '-' + Math.round(day.Max) + '\u00B0C ' + (day.Desc || ''));
+                    lines.push(weekday + ': ' + min + '-' + max + '\u00B0C ' + desc);
             }
         }
         return lines.join('\n');
