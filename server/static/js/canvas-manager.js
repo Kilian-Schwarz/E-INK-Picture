@@ -91,7 +91,66 @@ const CanvasManager = {
             PropertiesPanel.hide();
             LayersPanel.refresh();
         });
-        this.canvas.on('object:modified', () => {
+        this.canvas.on('object:modified', (e) => {
+            var obj = e.target;
+            if (obj) {
+                var type = obj.get('elementType');
+
+                // For widget groups: absorb scale into dimensions, re-render text
+                if (type && type.startsWith('widget_') && obj.type === 'group') {
+                    var sx = obj.scaleX || 1;
+                    var sy = obj.scaleY || 1;
+                    if (sx !== 1 || sy !== 1) {
+                        var bgObj = obj._objects[0];
+                        var labelObj = obj._objects[1];
+                        var newW = Math.round((bgObj ? bgObj.width : obj.width) * sx);
+                        var newH = Math.round((bgObj ? bgObj.height : obj.height) * sy);
+
+                        if (bgObj) {
+                            bgObj.set({ width: newW, height: newH, scaleX: 1, scaleY: 1 });
+                        }
+                        if (labelObj) {
+                            labelObj.set({
+                                width: newW - 16,
+                                left: -newW / 2 + 8,
+                                top: -newH / 2 + 4,
+                                scaleX: 1,
+                                scaleY: 1,
+                            });
+                        }
+                        // Update clip path
+                        if (obj.clipPath) {
+                            obj.clipPath.set({
+                                width: newW,
+                                height: newH,
+                                left: -newW / 2,
+                                top: -newH / 2,
+                            });
+                        }
+                        obj.set({ scaleX: 1, scaleY: 1 });
+                        obj.addWithUpdate();
+                        WidgetPreview.updatePreview(obj);
+                    }
+                }
+
+                // For text: absorb scaleY into fontSize, scaleX into width
+                if (type === 'text' && (obj.type === 'textbox' || obj.type === 'i-text' || obj.type === 'text')) {
+                    var tSx = obj.scaleX || 1;
+                    var tSy = obj.scaleY || 1;
+                    if (tSx !== 1 || tSy !== 1) {
+                        var newFontSize = Math.round(obj.fontSize * tSy);
+                        var newWidth = Math.round(obj.width * tSx);
+                        obj.set({
+                            fontSize: newFontSize,
+                            width: newWidth,
+                            scaleX: 1,
+                            scaleY: 1,
+                        });
+                        obj.setCoords();
+                    }
+                }
+            }
+
             HistoryManager.saveState();
             PropertiesPanel.updateFromCanvas();
             LayersPanel.refresh();

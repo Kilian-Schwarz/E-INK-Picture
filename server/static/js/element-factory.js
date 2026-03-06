@@ -132,19 +132,32 @@ const ElementFactory = {
         var previewText = WidgetPreview.getPreviewContent(type, widgetProps, null);
         var previewFontSize = WidgetPreview.getPreviewFontSize(type, widgetProps);
 
-        var label = new fabric.Text(previewText, {
+        var label = new fabric.Textbox(previewText, {
+            width: w - 16,
             fontSize: previewFontSize,
             fill: widgetProps.color || '#333333',
             fontFamily: widgetProps.fontFamily || 'monospace',
-            originX: 'center',
-            originY: 'center',
-            textAlign: widgetProps.textAlign || 'center',
+            left: -w / 2 + 8,
+            top: -h / 2 + 4,
+            originX: 'left',
+            originY: 'top',
+            textAlign: widgetProps.textAlign || 'left',
+            splitByGrapheme: false,
+        });
+
+        var clipRect = new fabric.Rect({
+            width: w,
+            height: h,
+            left: -w / 2,
+            top: -h / 2,
+            absolutePositioned: false,
         });
 
         var group = new fabric.Group([bg, label], {
             left: options.x || 50,
             top: options.y || 50,
-            lockUniScaling: true,
+            lockUniScaling: false,
+            clipPath: clipRect,
         });
 
         group.set('elementId', id);

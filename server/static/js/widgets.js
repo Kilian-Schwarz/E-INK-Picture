@@ -355,14 +355,25 @@ var WidgetPreview = {
         var fontSize = this.getPreviewFontSize(type, props);
 
         if (fabricObj.type === 'group' && fabricObj._objects && fabricObj._objects.length >= 2) {
+            var bg = fabricObj._objects[0];
             var label = fabricObj._objects[1];
+            var w = bg ? bg.width : fabricObj.width;
+            var h = bg ? bg.height : fabricObj.height;
+
             if (label && label.set) {
                 label.set('text', displayText);
                 label.set('fontSize', fontSize);
                 label.set('fill', props.color || '#333333');
                 label.set('fontFamily', props.fontFamily || 'monospace');
-                label.set('textAlign', props.textAlign || 'center');
+                label.set('textAlign', props.textAlign || 'left');
+                label.set('width', w - 16);
+                label.set('left', -w / 2 + 8);
+                label.set('top', -h / 2 + 4);
+                label.set('originX', 'left');
+                label.set('originY', 'top');
             }
+
+            fabricObj.dirty = true;
         }
 
         CanvasManager.getCanvas().renderAll();
@@ -393,6 +404,17 @@ var WidgetPreview = {
             });
             if (changed) canvas.renderAll();
         }, 60000);
+    },
+
+    // Invalidate cache for a specific widget type (e.g. on URL change)
+    invalidateCache(type) {
+        var keysToRemove = [];
+        for (var k in this._dataCache) {
+            if (k.indexOf(type) === 0) {
+                keysToRemove.push(k);
+            }
+        }
+        keysToRemove.forEach(function(k) { delete this._dataCache[k]; }.bind(this));
     },
 
     // Start periodic data refresh for all widgets
