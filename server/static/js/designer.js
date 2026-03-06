@@ -244,12 +244,25 @@ document.addEventListener('DOMContentLoaded', async function() {
     var themeToggle = document.getElementById('theme-toggle');
     if (themeToggle) themeToggle.addEventListener('click', function() { ThemeManager.toggle(); });
 
-    // Grid toggle
+    // Grid toggle (checkbox in right panel)
     var gridToggle = document.getElementById('grid-toggle');
     if (gridToggle) {
         gridToggle.addEventListener('change', function() {
             CanvasManager.gridEnabled = gridToggle.checked;
             CanvasManager.renderGrid();
+            var gridBtn = document.getElementById('grid-toggle-btn');
+            if (gridBtn) gridBtn.classList.toggle('active', gridToggle.checked);
+        });
+    }
+
+    // Grid toggle button in toolbar
+    var gridToggleBtn = document.getElementById('grid-toggle-btn');
+    if (gridToggleBtn) {
+        gridToggleBtn.addEventListener('click', function() {
+            CanvasManager.gridEnabled = !CanvasManager.gridEnabled;
+            CanvasManager.renderGrid();
+            gridToggleBtn.classList.toggle('active', CanvasManager.gridEnabled);
+            if (gridToggle) gridToggle.checked = CanvasManager.gridEnabled;
         });
     }
 

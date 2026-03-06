@@ -29,6 +29,7 @@
                 <span id="zoom-level">100%</span>
                 <button id="zoom-in-btn">+</button>
                 <button id="zoom-reset-btn">Reset</button>
+                <button id="grid-toggle-btn" class="toolbar-btn" title="Toggle Grid">Grid</button>
             </div>
         </div>
         <div class="topbar-right">
@@ -253,6 +254,40 @@
                 <div class="modal-actions">
                     <button id="media-ok-btn" class="btn-primary">Select</button>
                     <button id="media-cancel-btn" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Crop Modal -->
+    <div id="crop-modal" class="modal" style="display:none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Crop Image</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="property-group">
+                    <label>Crop X</label>
+                    <input type="number" id="crop-x" class="prop-input" value="0" min="0">
+                </div>
+                <div class="property-group">
+                    <label>Crop Y</label>
+                    <input type="number" id="crop-y" class="prop-input" value="0" min="0">
+                </div>
+                <div class="property-group">
+                    <label>Crop Width</label>
+                    <input type="number" id="crop-w" class="prop-input" value="0" min="0">
+                </div>
+                <div class="property-group">
+                    <label>Crop Height</label>
+                    <input type="number" id="crop-h" class="prop-input" value="0" min="0">
+                </div>
+                <div class="modal-actions">
+                    <button id="crop-apply-btn" class="btn-primary">Apply Crop</button>
+                    <button id="crop-reset-btn" class="btn-secondary">Reset</button>
+                    <button id="crop-cancel-btn" class="btn-secondary">Cancel</button>
                 </div>
             </div>
         </div>
