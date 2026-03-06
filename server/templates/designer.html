@@ -1,117 +1,265 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>E-Ink Display Designer</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Ink Designer</title>
     <link rel="stylesheet" href="/static/css/designer.css">
+    <link rel="stylesheet" href="/static/css/panels.css">
+    <link rel="stylesheet" href="/static/css/widgets.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="sidebar">
-        <h2>Saved Designs</h2>
-        <div id="design-list"></div>
-        <div class="button-row">
-            <button id="load-design">Load</button>
-            <button id="clone-design">Clone</button>
-            <button id="delete-design">Delete</button>
-            <button id="set-active">Set Active</button>
-        </div>
-
-        <h2>Modules</h2>
-        <div id="modules">
-            <div class="module" draggable="true" data-type="text">Text</div>
-            <div class="module" draggable="true" data-type="image">Image</div>
-            <div class="module" draggable="true" data-type="weather">Weather</div>
-            <div class="module" draggable="true" data-type="datetime">Date/Time</div>
-            <div class="module" draggable="true" data-type="timer">Timer</div>
-            <div class="module" draggable="true" data-type="news">News</div>
-            <div class="module" draggable="true" data-type="line">Line/Shape</div>
-            <div class="module" draggable="true" data-type="calendar">Calendar</div> <!-- Neuer Kalender-Modul -->
-        </div>
-
-        <h2>Settings</h2>
-        <div class="property-field">
-            <label><input type="checkbox" id="keep-alive"/> Keep Alive</label>
-        </div>
-        <div class="property-field">
-            <label>Display</label>
-            <select id="display-select"></select>
-            <div class="display-info" id="display-info"></div>
-        </div>
-    </div>
-
-    <div class="content">
-        <h2>Current Design: <span id="current-design-name">Unnamed</span></h2>
-        <div id="display-area">
-            <div id="eink-frame"></div>
-        </div>
-        <input type="text" id="design-name" placeholder="Design Name" style="padding:4px; font-size:0.9em;"/>
-        <div class="button-row">
-            <button id="save-design">Save Overwrite</button>
-            <button id="save-as-new">Save as New</button>
-            <button id="preview-btn">Preview</button>
-            <button id="refresh-display-btn" title="Update E-Ink display now">Refresh Display</button>
-        </div>
-    </div>
-
-    <div class="properties">
-        <h2>Properties</h2>
-        <div id="properties-panel">
-            <p>Select an element to view/edit its properties.</p>
-        </div>
-    </div>
-
-    <div id="notification-container"></div>
-
-    <div id="media-modal">
-        <div id="media-content">
-            <span id="media-close">X</span>
-            <h2>Media Library</h2>
-            <div class="property-field">
-                <label>Upload New Image/Font</label>
-                <input type="file" accept=".png,.jpg,.jpeg,.ttf,.otf" id="media-upload-file"/>
-                <div id="upload-progress-container"><div id="upload-progress-bar"></div></div>
-                <button id="media-upload-btn" style="margin-top:5px;padding:5px;">Upload</button>
-            </div>
-            <h2>Images</h2>
-            <div id="media-library"></div>
-            <h2>Fonts</h2>
-            <div id="fonts-library"></div>
-            <div class="button-row-media">
-                <button id="media-ok-btn">OK</button>
-                <button id="media-cancel-btn">Cancel</button>
+    <!-- TOP BAR -->
+    <header class="topbar">
+        <div class="topbar-left">
+            <span class="logo">E-Ink Designer</span>
+            <div class="design-selector">
+                <select id="design-select"></select>
+                <button id="new-design-btn" title="New Design">+</button>
+                <button id="clone-design-btn" title="Clone Design">Clone</button>
+                <button id="delete-design-btn" title="Delete Design">Del</button>
             </div>
         </div>
-    </div>
-
-    <div id="preview-modal">
-        <div id="preview-content">
-            <span id="preview-close">X</span>
-            <img id="preview-image" src="" alt="Preview"/>
+        <div class="topbar-center">
+            <button id="undo-btn" title="Undo (Ctrl+Z)" disabled>Undo</button>
+            <button id="redo-btn" title="Redo (Ctrl+Y)" disabled>Redo</button>
+            <div class="zoom-controls">
+                <button id="zoom-out-btn">-</button>
+                <span id="zoom-level">100%</span>
+                <button id="zoom-in-btn">+</button>
+                <button id="zoom-reset-btn">Reset</button>
+            </div>
         </div>
-    </div>
+        <div class="topbar-right">
+            <button id="preview-btn" class="btn-secondary">Preview</button>
+            <button id="save-btn" class="btn-primary">Save</button>
+            <button id="settings-btn" title="Settings">Settings</button>
+            <button id="theme-toggle" title="Toggle Theme">Theme</button>
+        </div>
+    </header>
 
-    <div id="crop-modal">
-        <div id="crop-content">
-            <span id="crop-close">X</span>
-            <h2>Crop Image</h2>
-            <div style="position:relative;">
-                <img id="crop-image" src="" alt="Crop" style="max-width:400px;max-height:400px;"/>
-                <div id="crop-rect" style="position:absolute;border:2px dashed #f00;width:50px;height:50px;top:0;left:0;cursor:move;">
-                    <div class="crop-resize-handle top-left"></div>
-                    <div class="crop-resize-handle top-right"></div>
-                    <div class="crop-resize-handle bottom-left"></div>
-                    <div class="crop-resize-handle bottom-right"></div>
+    <!-- MAIN LAYOUT -->
+    <div class="designer-layout">
+        <!-- LEFT PANEL -->
+        <aside class="panel panel-left">
+            <div class="panel-section">
+                <h3 class="panel-title">Widgets</h3>
+                <div class="widget-list" id="widget-list">
+                    <div class="widget-item" data-type="text">
+                        <span class="widget-icon">T</span>
+                        <span>Text</span>
+                    </div>
+                    <div class="widget-item" data-type="image">
+                        <span class="widget-icon">Img</span>
+                        <span>Image</span>
+                    </div>
+                    <div class="widget-item" data-type="shape">
+                        <span class="widget-icon">[]</span>
+                        <span>Shape</span>
+                    </div>
+                    <div class="widget-item" data-type="widget_clock">
+                        <span class="widget-icon">Clk</span>
+                        <span>Clock</span>
+                    </div>
+                    <div class="widget-item" data-type="widget_weather">
+                        <span class="widget-icon">W</span>
+                        <span>Weather</span>
+                    </div>
+                    <div class="widget-item" data-type="widget_forecast">
+                        <span class="widget-icon">Fc</span>
+                        <span>Forecast</span>
+                    </div>
+                    <div class="widget-item" data-type="widget_calendar">
+                        <span class="widget-icon">Cal</span>
+                        <span>Calendar</span>
+                    </div>
+                    <div class="widget-item" data-type="widget_news">
+                        <span class="widget-icon">RSS</span>
+                        <span>News</span>
+                    </div>
+                    <div class="widget-item" data-type="widget_timer">
+                        <span class="widget-icon">Tmr</span>
+                        <span>Timer</span>
+                    </div>
+                    <div class="widget-item" data-type="widget_custom">
+                        <span class="widget-icon">API</span>
+                        <span>Custom</span>
+                    </div>
+                    <div class="widget-item" data-type="widget_system">
+                        <span class="widget-icon">Sys</span>
+                        <span>System</span>
+                    </div>
                 </div>
             </div>
-            <div class="button-row-crop">
-                <button id="crop-apply">Apply</button>
-                <button id="crop-reset">Reset Crop</button>
-                <button id="crop-cancel">Cancel</button>
+            <div class="panel-section">
+                <h3 class="panel-title">Layers</h3>
+                <div id="layers-panel"></div>
+            </div>
+        </aside>
+
+        <!-- CANVAS AREA -->
+        <main class="canvas-area" id="canvas-area">
+            <div class="canvas-wrapper" id="canvas-wrapper">
+                <canvas id="design-canvas"></canvas>
+            </div>
+        </main>
+
+        <!-- RIGHT PANEL -->
+        <aside class="panel panel-right">
+            <div id="properties-panel">
+                <div class="panel-section" id="canvas-properties">
+                    <h3 class="panel-title">Canvas</h3>
+                    <p class="text-muted">Select an element to edit properties</p>
+                    <div class="property-group">
+                        <label>Background</label>
+                        <div id="canvas-bg-swatches" class="color-swatches"></div>
+                    </div>
+                    <div class="property-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="grid-toggle"> Show Grid
+                        </label>
+                    </div>
+                </div>
+                <div class="panel-section" id="element-properties" style="display:none;">
+                    <h3 class="panel-title">Properties</h3>
+                    <!-- Position & Size -->
+                    <div class="property-group">
+                        <label>Position</label>
+                        <div class="input-row">
+                            <div class="input-field">
+                                <label>X</label>
+                                <input type="number" id="prop-x" step="1">
+                            </div>
+                            <div class="input-field">
+                                <label>Y</label>
+                                <input type="number" id="prop-y" step="1">
+                            </div>
+                        </div>
+                        <div class="input-row">
+                            <div class="input-field">
+                                <label>W</label>
+                                <input type="number" id="prop-w" step="1">
+                            </div>
+                            <div class="input-field">
+                                <label>H</label>
+                                <input type="number" id="prop-h" step="1">
+                            </div>
+                        </div>
+                        <div class="input-row">
+                            <div class="input-field">
+                                <label>Rotation</label>
+                                <input type="number" id="prop-rotation" step="1" min="0" max="360">
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Dynamic properties container -->
+                    <div id="type-specific-properties"></div>
+                    <!-- Layer Actions -->
+                    <div class="property-group">
+                        <label>Layer</label>
+                        <div class="button-group">
+                            <button id="layer-up" title="Move Up">Up</button>
+                            <button id="layer-down" title="Move Down">Down</button>
+                            <button id="layer-front" title="Bring to Front">Front</button>
+                            <button id="layer-back" title="Send to Back">Back</button>
+                        </div>
+                    </div>
+                    <div class="property-group">
+                        <div class="button-group">
+                            <button id="duplicate-btn">Duplicate</button>
+                            <button id="lock-btn">Lock</button>
+                            <button id="delete-btn" class="btn-danger">Delete</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- STATUS BAR -->
+    <footer class="statusbar">
+        <span id="status-selection">No selection</span>
+        <span id="status-display">800x480 | Waveshare 7.5" V2</span>
+    </footer>
+
+    <!-- MODALS -->
+    <div id="settings-modal" class="modal" style="display:none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="property-group">
+                    <label>Display Profile</label>
+                    <select id="display-select"></select>
+                    <div id="display-info" class="display-info"></div>
+                </div>
+                <div class="property-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="keep-alive"> Keep Alive Mode
+                    </label>
+                </div>
             </div>
         </div>
     </div>
 
+    <div id="preview-modal" class="modal" style="display:none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content modal-content-lg">
+            <div class="modal-header">
+                <h2>Preview</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body" style="text-align:center;">
+                <img id="preview-image" src="" alt="Preview" style="max-width:100%; image-rendering:pixelated; border:2px solid var(--border);">
+            </div>
+        </div>
+    </div>
+
+    <div id="media-modal" class="modal" style="display:none;">
+        <div class="modal-overlay"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Media Library</h2>
+                <button class="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="property-group">
+                    <label>Upload</label>
+                    <input type="file" id="media-upload-file" accept=".png,.jpg,.jpeg,.ttf,.otf">
+                    <button id="media-upload-btn" class="btn-primary" style="margin-top:8px;">Upload</button>
+                </div>
+                <h3>Images</h3>
+                <div id="media-library" class="media-grid"></div>
+                <h3>Fonts</h3>
+                <div id="fonts-library" class="media-grid"></div>
+                <div class="modal-actions">
+                    <button id="media-ok-btn" class="btn-primary">Select</button>
+                    <button id="media-cancel-btn" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Container -->
+    <div id="notification-container"></div>
+
+    <!-- SCRIPTS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="/static/js/theme.js"></script>
+    <script src="/static/js/history.js"></script>
+    <script src="/static/js/canvas-manager.js"></script>
+    <script src="/static/js/element-factory.js"></script>
+    <script src="/static/js/widgets.js"></script>
+    <script src="/static/js/properties-panel.js"></script>
+    <script src="/static/js/layers-panel.js"></script>
+    <script src="/static/js/toolbar.js"></script>
+    <script src="/static/js/conditions.js"></script>
+    <script src="/static/js/storage.js"></script>
+    <script src="/static/js/shortcuts.js"></script>
     <script src="/static/js/designer.js"></script>
 </body>
 </html>

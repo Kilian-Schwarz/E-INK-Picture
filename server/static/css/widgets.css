@@ -1,0 +1,99 @@
+/* Widget preview styles for the canvas */
+
+/* Widget placeholder styling within Fabric.js groups */
+/* These styles apply to widget containers when rendered as HTML overlays */
+
+.widget-preview-container {
+    position: absolute;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Inter', Arial, sans-serif;
+}
+
+.widget-preview-label {
+    font-size: 12px;
+    color: #888888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    text-align: center;
+}
+
+/* Widget type indicators for the layer panel */
+.widget-type-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.widget-type-badge.clock {
+    background: rgba(137, 180, 250, 0.2);
+    color: var(--accent);
+}
+
+.widget-type-badge.weather {
+    background: rgba(166, 227, 161, 0.2);
+    color: var(--success);
+}
+
+.widget-type-badge.forecast {
+    background: rgba(166, 227, 161, 0.2);
+    color: var(--success);
+}
+
+.widget-type-badge.calendar {
+    background: rgba(249, 226, 175, 0.2);
+    color: var(--warning);
+}
+
+.widget-type-badge.news {
+    background: rgba(243, 139, 168, 0.2);
+    color: var(--danger);
+}
+
+.widget-type-badge.timer {
+    background: rgba(137, 180, 250, 0.2);
+    color: var(--accent);
+}
+
+.widget-type-badge.custom {
+    background: rgba(203, 166, 247, 0.2);
+    color: #cba6f7;
+}
+
+.widget-type-badge.system {
+    background: rgba(166, 173, 200, 0.2);
+    color: var(--text-secondary);
+}
+
+/* Condition items */
+.condition-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    margin-bottom: 4px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.condition-remove {
+    background: none;
+    border: none;
+    color: var(--danger);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 0 4px;
+}
+
+.condition-remove:hover {
+    color: var(--text-primary);
+}
