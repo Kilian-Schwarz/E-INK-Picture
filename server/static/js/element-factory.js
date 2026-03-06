@@ -124,11 +124,17 @@ const ElementFactory = {
             originY: 'center',
         });
 
-        var label = new fabric.Text(type.replace('widget_', '').toUpperCase(), {
-            fontSize: 14,
-            fill: '#666666',
+        var widgetProps = options.properties || ElementFactory.getDefaultProperties(type);
+        var previewText = WidgetPreview.getPreviewContent(type, widgetProps);
+        var previewFontSize = WidgetPreview.getPreviewFontSize(type, widgetProps);
+
+        var label = new fabric.Text(previewText, {
+            fontSize: previewFontSize,
+            fill: widgetProps.color || '#333333',
+            fontFamily: widgetProps.fontFamily || 'monospace',
             originX: 'center',
             originY: 'center',
+            textAlign: 'center',
         });
 
         var group = new fabric.Group([bg, label], {

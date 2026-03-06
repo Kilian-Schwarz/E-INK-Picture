@@ -446,5 +446,8 @@ document.addEventListener('DOMContentLoaded', async function() {
     updateClientStatus();
     setInterval(updateClientStatus, 15000);
 
+    // Start live clock updates for clock widgets
+    WidgetPreview.startClockUpdates();
+
     showNotification('Designer loaded!', 'success');
 });
