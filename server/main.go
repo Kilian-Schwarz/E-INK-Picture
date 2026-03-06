@@ -113,6 +113,11 @@ func main() {
 	mux.HandleFunc("POST /update_settings", settingsH.UpdateSettings)
 	mux.HandleFunc("GET /display_profiles", settingsH.ListDisplayProfiles)
 
+	// Refresh control API
+	mux.HandleFunc("POST /api/trigger_refresh", settingsH.TriggerRefresh)
+	mux.HandleFunc("GET /api/refresh_status", settingsH.RefreshStatus)
+	mux.HandleFunc("POST /api/client_heartbeat", settingsH.ClientHeartbeat)
+
 	// Widget API endpoints
 	mux.HandleFunc("GET /api/widgets/weather", widgetH.Weather)
 	mux.HandleFunc("GET /api/widgets/forecast", widgetH.Forecast)
