@@ -1010,7 +1010,7 @@ func newBasicFace(_ int) font.Face {
 // --- Text rendering ---
 
 func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string, face font.Face, bold, italic, strike bool, align string, textColor color.RGBA) {
-	if text == "" {
+	if text == "" || w <= 0 || h <= 0 {
 		return
 	}
 
@@ -1049,12 +1049,15 @@ func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string
 	}
 
 	metrics := face.Metrics()
-	fontSize := (metrics.Ascent + metrics.Descent).Ceil()
-	lineHeight := fontSize + 2
+	fSize := (metrics.Ascent + metrics.Descent).Ceil()
+	lineHeight := fSize + 2
 
-	iy := y
+	// Render text to a temporary clipped buffer to prevent overflow
+	buf := image.NewRGBA(image.Rect(0, 0, w, h))
+
+	iy := 0
 	for _, line := range wrapped {
-		if iy+lineHeight > y+h {
+		if iy+lineHeight > h {
 			break
 		}
 
@@ -1062,11 +1065,11 @@ func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string
 		var lx int
 		switch align {
 		case "center":
-			lx = x + (w-lineWidth)/2
+			lx = (w - lineWidth) / 2
 		case "right":
-			lx = x + (w - lineWidth)
+			lx = w - lineWidth
 		default:
-			lx = x
+			lx = 0
 		}
 
 		if italic {
@@ -1079,7 +1082,7 @@ func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string
 		}
 
 		drawer := &font.Drawer{
-			Dst:  img,
+			Dst:  buf,
 			Src:  image.NewUniform(textColor),
 			Face: face,
 			Dot:  dot,
@@ -1088,7 +1091,7 @@ func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string
 
 		if bold {
 			drawer2 := &font.Drawer{
-				Dst:  img,
+				Dst:  buf,
 				Src:  image.NewUniform(textColor),
 				Face: face,
 				Dot: fixed.Point26_6{
@@ -1100,17 +1103,22 @@ func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string
 		}
 
 		if strike {
-			midY := iy + fontSize/2
-			imgBounds := img.Bounds()
-			for px := lx; px < lx+lineWidth; px++ {
-				if px >= imgBounds.Min.X && px < imgBounds.Max.X && midY >= imgBounds.Min.Y && midY < imgBounds.Max.Y {
-					img.SetRGBA(px, midY, textColor)
+			midY := iy + fSize/2
+			if midY >= 0 && midY < h {
+				for px := lx; px < lx+lineWidth && px < w; px++ {
+					if px >= 0 {
+						buf.SetRGBA(px, midY, textColor)
+					}
 				}
 			}
 		}
 
 		iy += lineHeight
 	}
+
+	// Composite clipped text onto main image
+	destRect := image.Rect(x, y, x+w, y+h).Intersect(img.Bounds())
+	draw.Draw(img, destRect, buf, image.Point{X: destRect.Min.X - x, Y: destRect.Min.Y - y}, draw.Over)
 }
 
 // measureString measures the width of a string using a font face.
