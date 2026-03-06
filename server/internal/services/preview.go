@@ -666,38 +666,46 @@ func (s *PreviewService) renderImageElement(img *image.RGBA, x, y, w, h int, pro
 	s.renderImageRGBA(img, x, y, w, h, sd)
 }
 
-// renderShapeElement renders a shape element with fill and stroke.
+// renderShapeElement renders a shape element with fill, stroke, and rounded corners.
 func (s *PreviewService) renderShapeElement(img *image.RGBA, x, y, w, h int, props map[string]any, defaultColor color.RGBA) {
 	// Read fill color: try "fill" (v2 frontend), then "fillColor" (legacy)
-	fillColor := defaultColor
-	if c := GetPropString(props, "fill", ""); c != "" && c != "transparent" {
-		fillColor = parseHexColor(c)
-	} else if c := GetPropString(props, "fillColor", ""); c != "" && c != "transparent" {
-		fillColor = parseHexColor(c)
+	fillStr := GetPropString(props, "fill", "")
+	if fillStr == "" {
+		fillStr = GetPropString(props, "fillColor", "")
 	}
-	s.drawFilledRectRGBA(img, x, y, w, h, fillColor)
+	hasFill := fillStr != "" && fillStr != "transparent"
 
-	// Stroke
-	strokeColor := GetPropString(props, "stroke", "")
-	strokeWidth := GetPropInt(props, "strokeWidth", 0)
-	if strokeColor != "" && strokeColor != "transparent" && strokeWidth > 0 {
-		sc := parseHexColor(strokeColor)
-		s.drawStrokeRectRGBA(img, x, y, w, h, strokeWidth, sc)
+	var fillColor color.RGBA
+	if hasFill {
+		fillColor = parseHexColor(fillStr)
+	} else {
+		fillColor = defaultColor
+		hasFill = true
+	}
+
+	strokeStr := GetPropString(props, "stroke", "")
+	sw := GetPropInt(props, "strokeWidth", 0)
+	hasStroke := strokeStr != "" && strokeStr != "transparent" && sw > 0
+
+	rx := GetPropInt(props, "rx", 0)
+
+	if hasStroke {
+		sc := parseHexColor(strokeStr)
+		// Draw outer shape with stroke color
+		drawRoundedRectFilled(img, x, y, w, h, rx, sc)
+		// Draw inner shape with fill color
+		innerRx := rx - sw
+		if innerRx < 0 {
+			innerRx = 0
+		}
+		if hasFill {
+			drawRoundedRectFilled(img, x+sw, y+sw, w-2*sw, h-2*sw, innerRx, fillColor)
+		}
+	} else if hasFill {
+		drawRoundedRectFilled(img, x, y, w, h, rx, fillColor)
 	}
 }
 
-// drawStrokeRectRGBA draws a rectangular stroke outline.
-func (s *PreviewService) drawStrokeRectRGBA(img *image.RGBA, x, y, w, h, strokeWidth int, c color.RGBA) {
-	uni := image.NewUniform(c)
-	// Top edge
-	draw.Draw(img, image.Rect(x, y, x+w, y+strokeWidth).Intersect(img.Bounds()), uni, image.Point{}, draw.Src)
-	// Bottom edge
-	draw.Draw(img, image.Rect(x, y+h-strokeWidth, x+w, y+h).Intersect(img.Bounds()), uni, image.Point{}, draw.Src)
-	// Left edge
-	draw.Draw(img, image.Rect(x, y, x+strokeWidth, y+h).Intersect(img.Bounds()), uni, image.Point{}, draw.Src)
-	// Right edge
-	draw.Draw(img, image.Rect(x+w-strokeWidth, y, x+w, y+h).Intersect(img.Bounds()), uni, image.Point{}, draw.Src)
-}
 
 // resolveTextColor parses a hex color from style data, defaulting to black.
 func resolveTextColor(textColor *string, _ models.DisplayConfig) color.RGBA {
@@ -1093,8 +1101,9 @@ func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string
 
 		if strike {
 			midY := iy + fontSize/2
+			imgBounds := img.Bounds()
 			for px := lx; px < lx+lineWidth; px++ {
-				if px >= 0 && px < einkWidth && midY >= 0 && midY < einkHeight {
+				if px >= imgBounds.Min.X && px < imgBounds.Max.X && midY >= imgBounds.Min.Y && midY < imgBounds.Max.Y {
 					img.SetRGBA(px, midY, textColor)
 				}
 			}
@@ -1200,9 +1209,69 @@ func resizeNearest(src image.Image, dstW, dstH int) image.Image {
 	return dst
 }
 
-// --- Line rendering ---
+// --- Shape rendering helpers ---
 
 func (s *PreviewService) drawFilledRectRGBA(img *image.RGBA, x, y, w, h int, c color.RGBA) {
-	rect := image.Rect(x, y, x+w+1, y+h+1).Intersect(img.Bounds())
+	rect := image.Rect(x, y, x+w, y+h).Intersect(img.Bounds())
 	draw.Draw(img, rect, image.NewUniform(c), image.Point{}, draw.Src)
+}
+
+// drawRoundedRectFilled draws a filled rectangle with rounded corners.
+func drawRoundedRectFilled(img *image.RGBA, x, y, w, h, r int, c color.RGBA) {
+	if w <= 0 || h <= 0 {
+		return
+	}
+	if r <= 0 {
+		rect := image.Rect(x, y, x+w, y+h).Intersect(img.Bounds())
+		draw.Draw(img, rect, image.NewUniform(c), image.Point{}, draw.Src)
+		return
+	}
+	if r > w/2 {
+		r = w / 2
+	}
+	if r > h/2 {
+		r = h / 2
+	}
+
+	uni := image.NewUniform(c)
+	bounds := img.Bounds()
+
+	// Center horizontal strip
+	draw.Draw(img, image.Rect(x+r, y, x+w-r, y+h).Intersect(bounds), uni, image.Point{}, draw.Src)
+	// Left vertical strip (between corners)
+	draw.Draw(img, image.Rect(x, y+r, x+r, y+h-r).Intersect(bounds), uni, image.Point{}, draw.Src)
+	// Right vertical strip (between corners)
+	draw.Draw(img, image.Rect(x+w-r, y+r, x+w, y+h-r).Intersect(bounds), uni, image.Point{}, draw.Src)
+
+	// Draw four corner arcs
+	rr := float64(r)
+	for py := 0; py < r; py++ {
+		for px := 0; px < r; px++ {
+			dx := float64(r-1-px) + 0.5
+			dy := float64(r-1-py) + 0.5
+			if dx*dx+dy*dy <= rr*rr {
+				// Top-left
+				ix, iy := x+px, y+py
+				if ix >= bounds.Min.X && ix < bounds.Max.X && iy >= bounds.Min.Y && iy < bounds.Max.Y {
+					img.SetRGBA(ix, iy, c)
+				}
+				// Top-right
+				ix = x + w - 1 - px
+				if ix >= bounds.Min.X && ix < bounds.Max.X && iy >= bounds.Min.Y && iy < bounds.Max.Y {
+					img.SetRGBA(ix, iy, c)
+				}
+				// Bottom-left
+				ix = x + px
+				iy = y + h - 1 - py
+				if ix >= bounds.Min.X && ix < bounds.Max.X && iy >= bounds.Min.Y && iy < bounds.Max.Y {
+					img.SetRGBA(ix, iy, c)
+				}
+				// Bottom-right
+				ix = x + w - 1 - px
+				if ix >= bounds.Min.X && ix < bounds.Max.X && iy >= bounds.Min.Y && iy < bounds.Max.Y {
+					img.SetRGBA(ix, iy, c)
+				}
+			}
+		}
+	}
 }

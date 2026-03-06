@@ -104,12 +104,13 @@ var Storage = {
     },
 
     extractProperties(type, obj, savedProps) {
+        var scaleY = obj.scaleY || 1;
         switch (type) {
             case 'text':
                 return {
                     text: obj.text || '',
                     fontFamily: obj.fontFamily || 'Arial',
-                    fontSize: obj.fontSize || 24,
+                    fontSize: Math.round((obj.fontSize || 24) * scaleY),
                     fontWeight: obj.fontWeight || 'normal',
                     fontStyle: obj.fontStyle || 'normal',
                     color: obj.fill || '#000000',
@@ -120,8 +121,8 @@ var Storage = {
                     fill: obj.fill || '#000000',
                     stroke: obj.stroke || '#000000',
                     strokeWidth: obj.strokeWidth || 1,
-                    rx: obj.rx || 0,
-                    ry: obj.ry || 0,
+                    rx: Math.round((obj.rx || 0) * Math.min(obj.scaleX || 1, scaleY)),
+                    ry: Math.round((obj.ry || 0) * Math.min(obj.scaleX || 1, scaleY)),
                 };
             case 'image':
                 return {
@@ -133,8 +134,14 @@ var Storage = {
                     cropW: savedProps.cropW,
                     cropH: savedProps.cropH,
                 };
-            default:
-                return savedProps;
+            default: {
+                // Widgets: scale fontSize if present
+                var result = Object.assign({}, savedProps);
+                if (result.fontSize && scaleY !== 1) {
+                    result.fontSize = Math.round(result.fontSize * scaleY);
+                }
+                return result;
+            }
         }
     },
 
