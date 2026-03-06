@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"sync"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -31,6 +32,13 @@ const (
 	einkHeight  = 480
 )
 
+const maxFontCacheEntries = 10
+
+type fontCacheKey struct {
+	path string
+	size int
+}
+
 // PreviewService renders design previews as PNGs with display-appropriate palette.
 type PreviewService struct {
 	design   *DesignService
@@ -38,11 +46,20 @@ type PreviewService struct {
 	image    *ImageService
 	settings *SettingsService
 	dataDir  string
+	fontMu   sync.RWMutex
+	fontCache map[fontCacheKey]font.Face
 }
 
 // NewPreviewService creates a PreviewService with access to other services.
 func NewPreviewService(d *DesignService, w *WeatherService, i *ImageService, s *SettingsService, dataDir string) *PreviewService {
-	return &PreviewService{design: d, weather: w, image: i, settings: s, dataDir: dataDir}
+	return &PreviewService{
+		design:    d,
+		weather:   w,
+		image:     i,
+		settings:  s,
+		dataDir:   dataDir,
+		fontCache: make(map[fontCacheKey]font.Face),
+	}
 }
 
 // Render fills dynamic content and renders a v2 design to a palette-quantized PNG.
@@ -540,7 +557,7 @@ func (s *PreviewService) loadFontFace(fontName *string, size int) font.Face {
 	if fontName != nil && *fontName != "" {
 		fontPath, err := s.image.GetFontPath(*fontName)
 		if err == nil && fontPath != "" {
-			if face := loadTTFFace(fontPath, size); face != nil {
+			if face := s.loadTTFFace(fontPath, size); face != nil {
 				return face
 			}
 		}
@@ -552,7 +569,7 @@ func (s *PreviewService) loadFontFace(fontName *string, size int) font.Face {
 		"/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
 	}
 	for _, p := range defaultPaths {
-		if face := loadTTFFace(p, size); face != nil {
+		if face := s.loadTTFFace(p, size); face != nil {
 			return face
 		}
 	}
@@ -560,8 +577,17 @@ func (s *PreviewService) loadFontFace(fontName *string, size int) font.Face {
 	return newBasicFace(size)
 }
 
-// loadTTFFace loads a TrueType font file and returns a font.Face.
-func loadTTFFace(path string, size int) font.Face {
+// loadTTFFace loads a TrueType font file and returns a font.Face, using cache.
+func (s *PreviewService) loadTTFFace(path string, size int) font.Face {
+	key := fontCacheKey{path: path, size: size}
+
+	s.fontMu.RLock()
+	if f, ok := s.fontCache[key]; ok {
+		s.fontMu.RUnlock()
+		return f
+	}
+	s.fontMu.RUnlock()
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -580,6 +606,18 @@ func loadTTFFace(path string, size int) font.Face {
 	if err != nil {
 		return nil
 	}
+
+	s.fontMu.Lock()
+	if len(s.fontCache) >= maxFontCacheEntries {
+		// Evict a random entry
+		for k := range s.fontCache {
+			delete(s.fontCache, k)
+			break
+		}
+	}
+	s.fontCache[key] = face
+	s.fontMu.Unlock()
+
 	return face
 }
 

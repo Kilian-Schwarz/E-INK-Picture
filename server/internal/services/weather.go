@@ -79,6 +79,8 @@ type openMeteoResponse struct {
 	} `json:"hourly"`
 }
 
+const maxWeatherCacheEntries = 50
+
 type WeatherService struct {
 	apiKey    string
 	location  string
@@ -97,6 +99,25 @@ func NewWeatherService(apiKey, location, dataDir string) *WeatherService {
 			Timeout: 10 * time.Second,
 		},
 		cache: make(map[string]*weatherCacheEntry),
+	}
+}
+
+// evictOldestCache removes the oldest cache entry when cache exceeds max size.
+// Must be called with write lock held.
+func (s *WeatherService) evictOldestCache() {
+	if len(s.cache) <= maxWeatherCacheEntries {
+		return
+	}
+	var oldestKey string
+	var oldestTime time.Time
+	for k, v := range s.cache {
+		if oldestKey == "" || v.cachedAt.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = v.cachedAt
+		}
+	}
+	if oldestKey != "" {
+		delete(s.cache, oldestKey)
 	}
 }
 
@@ -237,6 +258,7 @@ func (s *WeatherService) FetchForLocation(lat, lon string) (*WeatherData, error)
 	// Cache the result
 	s.mu.Lock()
 	s.cache[cacheKey] = &weatherCacheEntry{data: data, cachedAt: time.Now()}
+	s.evictOldestCache()
 	s.mu.Unlock()
 
 	return data, nil
