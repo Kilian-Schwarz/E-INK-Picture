@@ -557,12 +557,20 @@ var PropertiesPanel = {
         // Color for widgets
         html += '<div class="property-group"><label>Color</label><div class="color-swatches" id="widget-color-swatches"></div></div>';
 
-        // Text alignment for widgets
+        // Text alignment for widgets (horizontal)
         var currentAlign = props.textAlign || 'center';
-        html += '<div class="property-group"><label>Align</label><div class="button-group">' +
+        html += '<div class="property-group"><label>Horizontal</label><div class="button-group">' +
             '<button class="align-btn widget-align' + (currentAlign === 'left' ? ' active' : '') + '" data-align="left">L</button>' +
             '<button class="align-btn widget-align' + (currentAlign === 'center' ? ' active' : '') + '" data-align="center">C</button>' +
             '<button class="align-btn widget-align' + (currentAlign === 'right' ? ' active' : '') + '" data-align="right">R</button>' +
+            '</div></div>';
+
+        // Vertical alignment for widgets
+        var currentVAlign = props.verticalAlign || 'top';
+        html += '<div class="property-group"><label>Vertical</label><div class="button-group">' +
+            '<button class="align-btn widget-valign' + (currentVAlign === 'top' ? ' active' : '') + '" data-valign="top">T</button>' +
+            '<button class="align-btn widget-valign' + (currentVAlign === 'middle' ? ' active' : '') + '" data-valign="middle">M</button>' +
+            '<button class="align-btn widget-valign' + (currentVAlign === 'bottom' ? ' active' : '') + '" data-valign="bottom">B</button>' +
             '</div></div>';
 
         container.innerHTML = html;
@@ -593,7 +601,7 @@ var PropertiesPanel = {
             HistoryManager.saveState();
         });
 
-        // Widget alignment buttons
+        // Widget horizontal alignment buttons
         container.querySelectorAll('.widget-align').forEach(function(btn) {
             btn.addEventListener('click', function() {
                 container.querySelectorAll('.widget-align').forEach(function(b) { b.classList.remove('active'); });
@@ -601,6 +609,20 @@ var PropertiesPanel = {
                 var data = obj.get('elementData') || {};
                 data.properties = data.properties || {};
                 data.properties.textAlign = btn.dataset.align;
+                obj.set('elementData', data);
+                WidgetPreview.updatePreview(obj);
+                HistoryManager.saveState();
+            });
+        });
+
+        // Widget vertical alignment buttons
+        container.querySelectorAll('.widget-valign').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                container.querySelectorAll('.widget-valign').forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                var data = obj.get('elementData') || {};
+                data.properties = data.properties || {};
+                data.properties.verticalAlign = btn.dataset.valign;
                 obj.set('elementData', data);
                 WidgetPreview.updatePreview(obj);
                 HistoryManager.saveState();

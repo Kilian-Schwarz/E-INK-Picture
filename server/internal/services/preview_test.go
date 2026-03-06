@@ -454,6 +454,123 @@ func TestRenderDesignPosition(t *testing.T) {
 	}
 }
 
+func TestVerticalAlignMiddle(t *testing.T) {
+	previewSvc, _ := setupTestServices(t)
+
+	vis := true
+	design := &models.DesignV2{
+		Name:    "test-valign-middle",
+		Version: 2,
+		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
+		Elements: []models.Element{
+			{
+				ID:     "vm1",
+				Type:   "text",
+				X:      0,
+				Y:      0,
+				Width:  200,
+				Height: 200,
+				ZIndex: 0,
+				Visible: &vis,
+				Properties: map[string]any{
+					"text":          "X",
+					"fontSize":      24,
+					"color":         "#000000",
+					"textAlign":     "center",
+					"verticalAlign": "middle",
+				},
+			},
+		},
+	}
+
+	pngData, err := previewSvc.Render(design, true)
+	if err != nil {
+		t.Fatalf("Render failed: %v", err)
+	}
+
+	img, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		t.Fatalf("Failed to decode PNG: %v", err)
+	}
+
+	// For vertical middle alignment in a 200px tall box, text should be roughly at y=80-120
+	topMost := 200
+	for y := 0; y < 200; y++ {
+		for x := 0; x < 200; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if r < 0xffff || g < 0xffff || b < 0xffff {
+				if y < topMost {
+					topMost = y
+				}
+			}
+		}
+	}
+
+	if topMost < 60 {
+		t.Errorf("Vertically middle-aligned text starts too high at y=%d, expected > 60", topMost)
+	}
+	if topMost > 140 {
+		t.Errorf("Vertically middle-aligned text starts too low at y=%d, expected < 140", topMost)
+	}
+}
+
+func TestVerticalAlignBottom(t *testing.T) {
+	previewSvc, _ := setupTestServices(t)
+
+	vis := true
+	design := &models.DesignV2{
+		Name:    "test-valign-bottom",
+		Version: 2,
+		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
+		Elements: []models.Element{
+			{
+				ID:     "vb1",
+				Type:   "text",
+				X:      0,
+				Y:      0,
+				Width:  200,
+				Height: 200,
+				ZIndex: 0,
+				Visible: &vis,
+				Properties: map[string]any{
+					"text":          "X",
+					"fontSize":      24,
+					"color":         "#000000",
+					"textAlign":     "left",
+					"verticalAlign": "bottom",
+				},
+			},
+		},
+	}
+
+	pngData, err := previewSvc.Render(design, true)
+	if err != nil {
+		t.Fatalf("Render failed: %v", err)
+	}
+
+	img, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		t.Fatalf("Failed to decode PNG: %v", err)
+	}
+
+	// For bottom alignment in a 200px tall box, text should be near the bottom
+	topMost := 200
+	for y := 0; y < 200; y++ {
+		for x := 0; x < 200; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if r < 0xffff || g < 0xffff || b < 0xffff {
+				if y < topMost {
+					topMost = y
+				}
+			}
+		}
+	}
+
+	if topMost < 150 {
+		t.Errorf("Bottom-aligned text starts too high at y=%d, expected > 150", topMost)
+	}
+}
+
 func TestMultipleWidgetZOrder(t *testing.T) {
 	previewSvc, _ := setupTestServices(t)
 

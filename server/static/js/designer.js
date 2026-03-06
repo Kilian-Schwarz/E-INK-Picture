@@ -271,9 +271,19 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (gridToggleBtn) {
         gridToggleBtn.addEventListener('click', function() {
             CanvasManager.gridEnabled = !CanvasManager.gridEnabled;
+            localStorage.setItem('eink_grid_enabled', CanvasManager.gridEnabled);
             CanvasManager.renderGrid();
             gridToggleBtn.classList.toggle('active', CanvasManager.gridEnabled);
             if (gridToggle) gridToggle.checked = CanvasManager.gridEnabled;
+        });
+    }
+
+    // Grid size input
+    var gridSizeInput = document.getElementById('grid-size-input');
+    if (gridSizeInput) {
+        gridSizeInput.value = CanvasManager.GRID_SIZE;
+        gridSizeInput.addEventListener('change', function() {
+            CanvasManager.setGridSize(parseInt(gridSizeInput.value) || 10);
         });
     }
 

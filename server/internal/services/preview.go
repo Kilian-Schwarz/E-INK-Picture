@@ -137,6 +137,7 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		italic := GetPropString(props, "fontStyle", "normal") == "italic" || GetPropBool(props, "italic", false)
 		strike := GetPropBool(props, "strikethrough", false)
 		align := GetPropString(props, "textAlign", "left")
+		vAlign := GetPropString(props, "verticalAlign", "top")
 		colorStr := GetPropString(props, "color", "#000000")
 		textColor := parseHexColor(colorStr)
 		fontFamily := GetPropString(props, "fontFamily", "")
@@ -156,7 +157,7 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		switch elem.Type {
 		case "text", "i-text", "textbox":
 			content := s.fillTextContent(props)
-			s.renderText(img, x, y, w, h, content, face, bold, italic, strike, align, textColor)
+			s.renderTextV(img, x, y, w, h, content, face, bold, italic, strike, align, vAlign, textColor)
 
 		case "image":
 			s.renderImageElement(img, x, y, w, h, props)
@@ -166,35 +167,35 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 
 		case "widget_clock":
 			content := s.fillClockContent(props)
-			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_weather":
 			content := s.fillWeatherContent(props)
-			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_forecast":
 			content := s.fillForecastContent(props)
-			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_calendar":
 			content := s.fillCalendarContent(props)
-			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_news":
 			content := s.fillNewsContent(props)
-			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_timer":
 			content := s.fillTimerContent(props)
-			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_custom":
 			content := s.fillCustomContent(props)
-			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_system":
 			content := s.fillSystemContent(props)
-			s.renderText(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
 		}
 	}
 
@@ -1042,6 +1043,10 @@ func newBasicFace(_ int) font.Face {
 // --- Text rendering ---
 
 func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string, face font.Face, bold, italic, strike bool, align string, textColor color.RGBA) {
+	s.renderTextV(img, x, y, w, h, text, face, bold, italic, strike, align, "top", textColor)
+}
+
+func (s *PreviewService) renderTextV(img *image.RGBA, x, y, w, h int, text string, face font.Face, bold, italic, strike bool, align, vAlign string, textColor color.RGBA) {
 	if text == "" || w <= 0 || h <= 0 {
 		return
 	}
@@ -1087,7 +1092,25 @@ func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string
 	// Render text to a temporary clipped buffer to prevent overflow
 	buf := image.NewRGBA(image.Rect(0, 0, w, h))
 
+	// Calculate vertical offset for vertical alignment
+	totalTextHeight := len(wrapped) * lineHeight
+	if totalTextHeight > h {
+		totalTextHeight = h
+	}
 	iy := 0
+	switch vAlign {
+	case "middle":
+		iy = (h - totalTextHeight) / 2
+		if iy < 0 {
+			iy = 0
+		}
+	case "bottom":
+		iy = h - totalTextHeight
+		if iy < 0 {
+			iy = 0
+		}
+	}
+
 	for _, line := range wrapped {
 		if iy+lineHeight > h {
 			break
