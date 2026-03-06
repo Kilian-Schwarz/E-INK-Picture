@@ -29,7 +29,6 @@ func (h *DesignHandler) GetActive(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	h.preview.FillContent(design)
 	jsonResponse(w, http.StatusOK, design)
 }
 
@@ -57,7 +56,6 @@ func (h *DesignHandler) GetByName(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	h.preview.FillContent(d)
 	jsonResponse(w, http.StatusOK, d)
 }
 
@@ -94,16 +92,21 @@ func (h *DesignHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	keepAlive, _ := data["keep_alive"].(bool)
 
-	// Re-marshal the full data into a Design struct
+	// Re-marshal the full data into a DesignV2 struct
 	raw, err := json.Marshal(data)
 	if err != nil {
 		jsonError(w, "Invalid request data", http.StatusBadRequest)
 		return
 	}
-	var design models.Design
+	var design models.DesignV2
 	if err := json.Unmarshal(raw, &design); err != nil {
 		jsonError(w, "Invalid design data", http.StatusBadRequest)
 		return
+	}
+
+	// Ensure version is set
+	if design.Version < 2 {
+		design.Version = 2
 	}
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
@@ -190,18 +193,4 @@ func (h *DesignHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, http.StatusOK, map[string]string{"message": "Design deleted"})
-}
-
-// jsonResponse writes a JSON response with the given status code.
-func jsonResponse(w http.ResponseWriter, status int, data any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
-}
-
-// jsonError writes a JSON error response.
-func jsonError(w http.ResponseWriter, message string, status int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"message": message})
 }

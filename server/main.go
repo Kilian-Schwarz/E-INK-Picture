@@ -68,6 +68,7 @@ func main() {
 	previewH := handlers.NewPreviewHandler(previewSvc, designSvc)
 	displayH := handlers.NewDisplayHandler(cfg.EInkClientURL)
 	settingsH := handlers.NewSettingsHandler(settingsSvc)
+	widgetH := handlers.NewWidgetHandler(weatherSvc)
 
 	// Setup router
 	mux := http.NewServeMux()
@@ -111,6 +112,14 @@ func main() {
 	mux.HandleFunc("GET /settings", settingsH.GetSettings)
 	mux.HandleFunc("POST /update_settings", settingsH.UpdateSettings)
 	mux.HandleFunc("GET /display_profiles", settingsH.ListDisplayProfiles)
+
+	// Widget API endpoints
+	mux.HandleFunc("GET /api/widgets/weather", widgetH.Weather)
+	mux.HandleFunc("GET /api/widgets/forecast", widgetH.Forecast)
+	mux.HandleFunc("GET /api/widgets/calendar", widgetH.Calendar)
+	mux.HandleFunc("GET /api/widgets/news", widgetH.News)
+	mux.HandleFunc("GET /api/widgets/system", widgetH.System)
+	mux.HandleFunc("GET /api/widgets/custom", widgetH.Custom)
 
 	// Health
 	mux.HandleFunc("GET /health", handlers.HealthCheck)
