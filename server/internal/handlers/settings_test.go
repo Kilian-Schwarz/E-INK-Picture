@@ -96,7 +96,7 @@ func TestClientHeartbeat(t *testing.T) {
 	}
 }
 
-func TestClientHeartbeat_MissingTimestamp(t *testing.T) {
+func TestClientHeartbeat_NoTimestampRequired(t *testing.T) {
 	h := newTestSettingsHandler(t)
 	body := `{"status":"refreshed"}`
 	req := httptest.NewRequest("POST", "/api/client_heartbeat", strings.NewReader(body))
@@ -105,8 +105,8 @@ func TestClientHeartbeat_MissingTimestamp(t *testing.T) {
 
 	h.ClientHeartbeat(w, req)
 
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
 }
 

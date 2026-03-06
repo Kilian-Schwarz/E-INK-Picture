@@ -102,19 +102,12 @@ func (h *SettingsHandler) RefreshStatus(w http.ResponseWriter, r *http.Request) 
 
 // ClientHeartbeat records a client refresh and returns ok.
 func (h *SettingsHandler) ClientHeartbeat(w http.ResponseWriter, r *http.Request) {
+	// Accept body but don't require timestamp - server uses its own UTC time
 	var req struct {
-		Status    string `json:"status"`
-		Timestamp string `json:"timestamp"`
+		Status string `json:"status"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		jsonError(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.Timestamp == "" {
-		jsonError(w, "timestamp required", http.StatusBadRequest)
-		return
-	}
-	if err := h.settings.RecordClientRefresh(req.Timestamp); err != nil {
+	json.NewDecoder(r.Body).Decode(&req)
+	if err := h.settings.RecordClientRefresh(""); err != nil {
 		slog.Error("failed to record client heartbeat", "error", err)
 		jsonError(w, "failed to record heartbeat", http.StatusInternalServerError)
 		return

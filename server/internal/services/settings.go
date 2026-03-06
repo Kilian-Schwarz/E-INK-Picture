@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -97,26 +98,53 @@ func (s *SettingsService) GetSettingsResponse() (*models.SettingsResponse, error
 
 // TriggerRefresh sets the last refresh trigger timestamp.
 func (s *SettingsService) TriggerRefresh() (string, error) {
-	settings, err := s.GetSettings()
-	if err != nil {
-		return "", err
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := os.ReadFile(s.filePath())
+	var settings models.Settings
+	if err == nil {
+		json.Unmarshal(data, &settings)
+	}
+	if settings.DisplayType == "" {
+		settings.DisplayType = models.DisplayWaveshare75V2
+	}
+	if settings.RefreshInterval <= 0 {
+		settings.RefreshInterval = defaultRefreshInterval
 	}
 	ts := time.Now().UTC().Format(time.RFC3339)
 	settings.LastRefreshTrigger = ts
-	if err := s.SaveSettings(settings); err != nil {
+
+	out, err := json.MarshalIndent(&settings, "", "  ")
+	if err != nil {
 		return "", err
 	}
-	return ts, nil
+	return ts, os.WriteFile(s.filePath(), out, 0644)
 }
 
 // RecordClientRefresh records when the client last refreshed the display.
-func (s *SettingsService) RecordClientRefresh(ts string) error {
-	settings, err := s.GetSettings()
+func (s *SettingsService) RecordClientRefresh(_ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := os.ReadFile(s.filePath())
+	var settings models.Settings
+	if err == nil {
+		json.Unmarshal(data, &settings)
+	}
+	if settings.DisplayType == "" {
+		settings.DisplayType = models.DisplayWaveshare75V2
+	}
+	if settings.RefreshInterval <= 0 {
+		settings.RefreshInterval = defaultRefreshInterval
+	}
+	settings.LastClientRefresh = time.Now().UTC().Format(time.RFC3339)
+
+	out, err := json.MarshalIndent(&settings, "", "  ")
 	if err != nil {
 		return err
 	}
-	settings.LastClientRefresh = ts
-	return s.SaveSettings(settings)
+	return os.WriteFile(s.filePath(), out, 0644)
 }
 
 // GetRefreshStatus determines if the client should refresh.
@@ -152,6 +180,13 @@ func (s *SettingsService) GetRefreshStatus() (*models.RefreshStatus, error) {
 			}
 		}
 	}
+
+	slog.Debug("refresh_status",
+		"should_refresh", shouldRefresh,
+		"refresh_interval", settings.RefreshInterval,
+		"last_client_refresh", settings.LastClientRefresh,
+		"last_trigger", settings.LastRefreshTrigger,
+	)
 
 	return &models.RefreshStatus{
 		ShouldRefresh:     shouldRefresh,

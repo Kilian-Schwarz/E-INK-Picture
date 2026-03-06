@@ -1,10 +1,13 @@
 package services
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"e-ink-picture/server/internal/models"
 )
 
 func TestSettingsService_DefaultRefreshInterval(t *testing.T) {
@@ -61,11 +64,15 @@ func TestSettingsService_RefreshStatus_ShouldRefreshOnTrigger(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewSettingsService(dir)
 
-	// Record a client refresh in the past
+	// Write settings with a past client refresh directly to avoid time.Now() in RecordClientRefresh
 	pastTime := time.Now().Add(-5 * time.Minute).UTC().Format(time.RFC3339)
-	if err := svc.RecordClientRefresh(pastTime); err != nil {
-		t.Fatalf("RecordClientRefresh: %v", err)
+	s := models.Settings{
+		DisplayType:       models.DisplayWaveshare75V2,
+		RefreshInterval:   defaultRefreshInterval,
+		LastClientRefresh: pastTime,
 	}
+	data, _ := json.MarshalIndent(&s, "", "  ")
+	os.WriteFile(filepath.Join(dir, "settings.json"), data, 0644)
 
 	// Trigger refresh (now)
 	if _, err := svc.TriggerRefresh(); err != nil {
@@ -104,14 +111,15 @@ func TestSettingsService_RefreshStatus_IntervalElapsed(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewSettingsService(dir)
 
-	// Set very short interval
-	settings, _ := svc.GetSettings()
-	settings.RefreshInterval = 1 // 1 second
-	svc.SaveSettings(settings)
-
-	// Record a past client refresh
+	// Write settings with short interval and a past client refresh directly
 	pastTime := time.Now().Add(-5 * time.Second).UTC().Format(time.RFC3339)
-	svc.RecordClientRefresh(pastTime)
+	s := models.Settings{
+		DisplayType:       models.DisplayWaveshare75V2,
+		RefreshInterval:   1, // 1 second
+		LastClientRefresh: pastTime,
+	}
+	data, _ := json.MarshalIndent(&s, "", "  ")
+	os.WriteFile(filepath.Join(dir, "settings.json"), data, 0644)
 
 	status, err := svc.GetRefreshStatus()
 	if err != nil {
