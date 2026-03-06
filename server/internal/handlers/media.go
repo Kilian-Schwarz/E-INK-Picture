@@ -24,11 +24,7 @@ func (h *MediaHandler) ListImages(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	names := make([]string, 0, len(files))
-	for _, f := range files {
-		names = append(names, f.Name)
-	}
-	jsonResponse(w, http.StatusOK, names)
+	jsonResponse(w, http.StatusOK, files)
 }
 
 func (h *MediaHandler) GetImage(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +42,15 @@ func (h *MediaHandler) GetImage(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "image/png")
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".jpg", ".jpeg":
+		w.Header().Set("Content-Type", "image/jpeg")
+	case ".bmp":
+		w.Header().Set("Content-Type", "image/bmp")
+	default:
+		w.Header().Set("Content-Type", "image/png")
+	}
 	http.ServeFile(w, r, path)
 }
 
@@ -132,11 +136,7 @@ func (h *MediaHandler) ListFonts(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "Server error", http.StatusInternalServerError)
 		return
 	}
-	names := make([]string, 0, len(files))
-	for _, f := range files {
-		names = append(names, f.Name)
-	}
-	jsonResponse(w, http.StatusOK, names)
+	jsonResponse(w, http.StatusOK, files)
 }
 
 func (h *MediaHandler) GetFont(w http.ResponseWriter, r *http.Request) {
