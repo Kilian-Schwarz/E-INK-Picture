@@ -326,24 +326,55 @@ document.addEventListener('DOMContentLoaded', async function() {
     if (refreshNowBtn) {
         refreshNowBtn.addEventListener('click', async function() {
             refreshNowBtn.disabled = true;
-            refreshNowBtn.textContent = 'Refreshing...';
+            refreshNowBtn.textContent = 'Triggering...';
             try {
                 var res = await fetch('/api/trigger_refresh', { method: 'POST' });
                 if (res.ok) {
-                    refreshNowBtn.textContent = 'Triggered!';
-                    showNotification('Display refresh triggered', 'success');
+                    refreshNowBtn.textContent = 'Triggered (updating within 30s)';
+                    showNotification('Display refresh triggered — client will update on next poll', 'success');
+                    // Poll for client update
+                    var triggerTime = Date.now();
+                    var pollId = setInterval(async function() {
+                        try {
+                            var statusRes = await fetch('/api/refresh_status');
+                            var statusData = await statusRes.json();
+                            if (statusData.last_client_refresh) {
+                                var lastRefresh = new Date(statusData.last_client_refresh).getTime();
+                                if (lastRefresh > triggerTime) {
+                                    clearInterval(pollId);
+                                    refreshNowBtn.textContent = 'Updated!';
+                                    showNotification('Display updated successfully', 'success');
+                                    updateClientStatus();
+                                    setTimeout(function() {
+                                        refreshNowBtn.textContent = 'Refresh Display';
+                                        refreshNowBtn.disabled = false;
+                                    }, 2000);
+                                    return;
+                                }
+                            }
+                        } catch (ignored) {}
+                        if (Date.now() - triggerTime > 120000) {
+                            clearInterval(pollId);
+                            refreshNowBtn.textContent = 'Refresh Display';
+                            refreshNowBtn.disabled = false;
+                        }
+                    }, 5000);
                 } else {
                     refreshNowBtn.textContent = 'Error';
                     showNotification('Failed to trigger refresh', 'error');
+                    setTimeout(function() {
+                        refreshNowBtn.textContent = 'Refresh Display';
+                        refreshNowBtn.disabled = false;
+                    }, 3000);
                 }
             } catch (e) {
                 refreshNowBtn.textContent = 'Error';
                 showNotification('Failed to trigger refresh', 'error');
+                setTimeout(function() {
+                    refreshNowBtn.textContent = 'Refresh Display';
+                    refreshNowBtn.disabled = false;
+                }, 3000);
             }
-            setTimeout(function() {
-                refreshNowBtn.textContent = 'Refresh Display';
-                refreshNowBtn.disabled = false;
-            }, 3000);
         });
     }
 
@@ -380,24 +411,40 @@ document.addEventListener('DOMContentLoaded', async function() {
             var data = await res.json();
             var statusEl = document.getElementById('client-status');
             var statusBarEl = document.getElementById('status-client');
-            if (data.last_client_refresh) {
-                var ago = Math.round((Date.now() - new Date(data.last_client_refresh).getTime()) / 60000);
-                var text = ago < 1 ? 'Display: just updated' : 'Display: updated ' + ago + 'min ago';
-                if (statusEl) { statusEl.textContent = text; statusEl.className = 'status-info status-ok'; }
+            if (data.last_client_refresh && data.last_client_refresh !== '0001-01-01T00:00:00Z' && data.last_client_refresh !== '') {
+                var lastUpdate = new Date(data.last_client_refresh);
+                var diffMs = Date.now() - lastUpdate.getTime();
+                var diffMin = Math.floor(diffMs / 60000);
+                var diffHours = Math.floor(diffMin / 60);
+                var text, cls;
+                if (diffMin < 1) {
+                    text = 'Display: just updated';
+                    cls = 'status-info status-ok';
+                } else if (diffMin < 60) {
+                    text = 'Display: updated ' + diffMin + 'min ago';
+                    cls = 'status-info status-ok';
+                } else if (diffHours < 24) {
+                    text = 'Display: updated ' + diffHours + 'h ago';
+                    cls = 'status-info status-warning';
+                } else {
+                    text = 'Display: updated ' + Math.floor(diffHours / 24) + 'd ago';
+                    cls = 'status-info status-error';
+                }
+                if (statusEl) { statusEl.textContent = text; statusEl.className = cls; }
                 if (statusBarEl) statusBarEl.textContent = text;
             } else {
-                if (statusEl) { statusEl.textContent = 'Display: no updates yet'; statusEl.className = 'status-info status-warning'; }
+                if (statusEl) { statusEl.textContent = 'Display: never updated'; statusEl.className = 'status-info status-warning'; }
                 if (statusBarEl) statusBarEl.textContent = 'Display: waiting';
             }
         } catch (e) {
             var statusEl2 = document.getElementById('client-status');
             var statusBarEl2 = document.getElementById('status-client');
-            if (statusEl2) { statusEl2.textContent = 'Client: offline'; statusEl2.className = 'status-info status-error'; }
+            if (statusEl2) { statusEl2.textContent = 'Server: offline'; statusEl2.className = 'status-info status-error'; }
             if (statusBarEl2) statusBarEl2.textContent = '';
         }
     }
     updateClientStatus();
-    setInterval(updateClientStatus, 10000);
+    setInterval(updateClientStatus, 15000);
 
     showNotification('Designer loaded!', 'success');
 });
