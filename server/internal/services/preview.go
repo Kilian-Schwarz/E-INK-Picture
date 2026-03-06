@@ -115,7 +115,23 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 			props = make(map[string]any)
 		}
 
-		fontSize := GetPropInt(props, "fontSize", 18)
+		// Per-type fontSize defaults matching the frontend designer
+		defaultFontSize := 18
+		switch elem.Type {
+		case "widget_clock":
+			defaultFontSize = 48
+		case "widget_forecast", "widget_calendar", "widget_news":
+			defaultFontSize = 13
+		case "widget_system":
+			defaultFontSize = 12
+		case "widget_custom":
+			defaultFontSize = 24
+		case "widget_timer":
+			defaultFontSize = 24
+		case "text":
+			defaultFontSize = 24
+		}
+		fontSize := GetPropInt(props, "fontSize", defaultFontSize)
 		bold := GetPropBool(props, "bold", false)
 		italic := GetPropBool(props, "italic", false)
 		strike := GetPropBool(props, "strikethrough", false)

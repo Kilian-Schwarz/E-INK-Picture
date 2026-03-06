@@ -176,6 +176,7 @@ const ElementFactory = {
                 layout: 'compact',
                 latitude: 52.3759,
                 longitude: 9.7320,
+                fontSize: 18,
                 color: '#000000',
                 textAlign: 'left'
             },
@@ -184,6 +185,7 @@ const ElementFactory = {
                 latitude: 52.3759,
                 longitude: 9.7320,
                 days: 3,
+                fontSize: 13,
                 color: '#000000',
                 textAlign: 'left'
             },
@@ -194,6 +196,7 @@ const ElementFactory = {
                 showTime: true,
                 daysAhead: 7,
                 title: 'Events',
+                fontSize: 13,
                 color: '#000000',
                 textAlign: 'left'
             },
@@ -203,6 +206,7 @@ const ElementFactory = {
                 maxItems: 3,
                 showDescription: false,
                 title: 'News',
+                fontSize: 13,
                 color: '#000000',
                 textAlign: 'left'
             },
@@ -227,6 +231,7 @@ const ElementFactory = {
             widget_system: {
                 layout: 'vertical',
                 showLabels: true,
+                fontSize: 12,
                 color: '#000000',
                 textAlign: 'left'
             },
