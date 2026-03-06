@@ -2,7 +2,6 @@ package services
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -10,12 +9,12 @@ import (
 	_ "image/jpeg"
 	"image/png"
 	"io"
-	"log"
+	"log/slog"
 	"math"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -181,7 +180,7 @@ func (s *PreviewService) FillContent(design *models.Design) {
 			if sd.Longitude != nil {
 				lon = *sd.Longitude
 			}
-			wdata, err := fetchWeather(lat, lon)
+			wdata, err := s.weather.FetchForLocation(lat, lon)
 			if err != nil || wdata == nil {
 				m.Content = "No data"
 			} else {
@@ -189,8 +188,7 @@ func (s *PreviewService) FillContent(design *models.Design) {
 				if sd.WeatherStyle != nil {
 					ws = *sd.WeatherStyle
 				}
-				stylesDir := filepath.Join(s.dataDir, "weather_styles")
-				m.Content = applyWeatherStyle(ws, wdata, stylesDir)
+				m.Content = s.weather.ApplyStyle(ws, wdata)
 			}
 
 		case "timer":
@@ -223,7 +221,7 @@ func (s *PreviewService) FillContent(design *models.Design) {
 // --- Content filling helpers ---
 
 // formatDateTime converts a user-facing date format to Go time format and returns the current time.
-func formatDateTime(fmt string) string {
+func formatDateTime(format string) string {
 	// Replace user tokens with Go time reference values.
 	// Order matters: YYYY before MM (to avoid partial replacement of MM inside other tokens).
 	r := strings.NewReplacer(
@@ -234,7 +232,7 @@ func formatDateTime(fmt string) string {
 		"mm", "04",
 		"ss", "05",
 	)
-	goFmt := r.Replace(fmt)
+	goFmt := r.Replace(format)
 	return time.Now().Format(goFmt)
 }
 
@@ -264,156 +262,6 @@ func formatTimer(target, format string) string {
 	return display
 }
 
-// weatherData holds parsed weather information from open-meteo API.
-type weatherData struct {
-	CurrentTemp float64         `json:"current_temp"`
-	CurrentDesc string          `json:"current_desc"`
-	Daily       []weatherDaily  `json:"daily"`
-	Hourly      []weatherHourly `json:"hourly"`
-}
-
-type weatherDaily struct {
-	Min     float64 `json:"min"`
-	Max     float64 `json:"max"`
-	Desc    string  `json:"desc"`
-	Weekday string  `json:"weekday"`
-}
-
-type weatherHourly struct {
-	Time   string  `json:"time"`
-	Temp   float64 `json:"temp"`
-	Desc   string  `json:"desc"`
-	Precip float64 `json:"precip"`
-}
-
-// weathercodeToDesc maps WMO weather codes to descriptions.
-func weathercodeToDesc(code int) string {
-	m := map[int]string{
-		0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
-		45: "Fog", 48: "Rime fog", 51: "Light drizzle",
-		61: "Slight rain", 63: "Moderate rain", 65: "Heavy rain", 80: "Rain showers",
-	}
-	if d, ok := m[code]; ok {
-		return d
-	}
-	return "Unknown"
-}
-
-// fetchWeather fetches current weather from open-meteo API.
-func fetchWeather(lat, lon string) (*weatherData, error) {
-	apiURL := fmt.Sprintf(
-		"https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s&hourly=temperature_2m,weathercode,precipitation&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset&current_weather=true&forecast_days=4&timezone=Europe%%2FBerlin",
-		url.QueryEscape(lat), url.QueryEscape(lon),
-	)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(apiURL)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("weather API returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var raw struct {
-		CurrentWeather struct {
-			Temperature float64 `json:"temperature"`
-			Weathercode int     `json:"weathercode"`
-		} `json:"current_weather"`
-		Daily struct {
-			Weathercode []int     `json:"weathercode"`
-			TempMax     []float64 `json:"temperature_2m_max"`
-			TempMin     []float64 `json:"temperature_2m_min"`
-			Time        []string  `json:"time"`
-		} `json:"daily"`
-		Hourly struct {
-			Time          []string  `json:"time"`
-			Temperature2m []float64 `json:"temperature_2m"`
-			Weathercode   []int     `json:"weathercode"`
-			Precipitation []float64 `json:"precipitation"`
-		} `json:"hourly"`
-	}
-
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, err
-	}
-
-	wd := &weatherData{
-		CurrentTemp: raw.CurrentWeather.Temperature,
-		CurrentDesc: weathercodeToDesc(raw.CurrentWeather.Weathercode),
-	}
-
-	// Parse daily forecast
-	for i := 0; i < len(raw.Daily.Time) && i < 4; i++ {
-		t, _ := time.Parse("2006-01-02", raw.Daily.Time[i])
-		wd.Daily = append(wd.Daily, weatherDaily{
-			Min:     raw.Daily.TempMin[i],
-			Max:     raw.Daily.TempMax[i],
-			Desc:    weathercodeToDesc(raw.Daily.Weathercode[i]),
-			Weekday: t.Weekday().String(),
-		})
-	}
-
-	// Parse hourly (every 2 hours like Python)
-	for i := 0; i < len(raw.Hourly.Time); i += 2 {
-		htime := ""
-		if len(raw.Hourly.Time[i]) > 15 {
-			htime = raw.Hourly.Time[i][11:16]
-		}
-		wd.Hourly = append(wd.Hourly, weatherHourly{
-			Time:   htime,
-			Temp:   raw.Hourly.Temperature2m[i],
-			Desc:   weathercodeToDesc(raw.Hourly.Weathercode[i]),
-			Precip: raw.Hourly.Precipitation[i],
-		})
-	}
-
-	return wd, nil
-}
-
-// weatherStyleTemplate represents a weather style JSON file.
-type weatherStyleTemplate struct {
-	Format string `json:"format"`
-}
-
-// applyWeatherStyle applies a named weather style template to weather data.
-func applyWeatherStyle(style string, wdata *weatherData, stylesDir string) string {
-	styleFile := filepath.Join(stylesDir, style+".json")
-	data, err := os.ReadFile(styleFile)
-	if err != nil {
-		return "No data"
-	}
-
-	var tmpl weatherStyleTemplate
-	if err := json.Unmarshal(data, &tmpl); err != nil {
-		return "No data"
-	}
-
-	text := tmpl.Format
-	if text == "" {
-		text = "No format"
-	}
-
-	text = strings.ReplaceAll(text, "{current_temp}", fmt.Sprintf("%.1f", wdata.CurrentTemp))
-	text = strings.ReplaceAll(text, "{current_desc}", wdata.CurrentDesc)
-
-	var dfLines []string
-	for _, day := range wdata.Daily {
-		line := fmt.Sprintf("%s: %d-%d\u00b0C %s", day.Weekday, int(day.Min), int(day.Max), day.Desc)
-		dfLines = append(dfLines, line)
-	}
-	text = strings.ReplaceAll(text, "{daily_forecast}", strings.Join(dfLines, "\n"))
-
-	return text
-}
-
 // fetchCalendarContent fetches iCal events and formats them.
 // NOTE: Full iCal parsing without external deps is limited; we do a best-effort parse.
 func fetchCalendarContent(calURL string, maxEvents int) string {
@@ -429,7 +277,7 @@ func fetchCalendarContent(calURL string, maxEvents int) string {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get(calURL)
 	if err != nil {
-		log.Printf("Error fetching calendar: %v", err)
+		slog.Error("failed to fetch calendar", "error", err)
 		return "No events"
 	}
 	defer resp.Body.Close()
@@ -507,13 +355,9 @@ func parseICalEvents(ical string, maxEvents int) []calEvent {
 	}
 
 	// Sort by start time
-	for i := 0; i < len(events); i++ {
-		for j := i + 1; j < len(events); j++ {
-			if events[j].Start.Before(events[i].Start) {
-				events[i], events[j] = events[j], events[i]
-			}
-		}
-	}
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].Start.Before(events[j].Start)
+	})
 
 	if len(events) > maxEvents {
 		events = events[:maxEvents]
@@ -811,14 +655,14 @@ func (s *PreviewService) renderImageRGBA(img *image.RGBA, x, y, w, h int, sd *mo
 
 	f, err := os.Open(imgPath)
 	if err != nil {
-		log.Printf("Failed to open image %s: %v", imgPath, err)
+		slog.Error("failed to open image", "path", imgPath, "error", err)
 		return
 	}
 	defer f.Close()
 
 	srcImg, _, err := image.Decode(f)
 	if err != nil {
-		log.Printf("Failed to decode image %s: %v", imgPath, err)
+		slog.Error("failed to decode image", "path", imgPath, "error", err)
 		return
 	}
 

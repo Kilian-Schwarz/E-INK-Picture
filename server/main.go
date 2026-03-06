@@ -51,8 +51,7 @@ func main() {
 	// Create services
 	designSvc := services.NewDesignService(cfg.DataDir)
 	imageSvc := services.NewImageService(cfg.DataDir)
-	weatherSvc := services.NewWeatherService(cfg.WeatherAPIKey, cfg.WeatherLocation)
-	weatherSvc.SetDataDir(cfg.DataDir)
+	weatherSvc := services.NewWeatherService(cfg.WeatherAPIKey, cfg.WeatherLocation, cfg.DataDir)
 	settingsSvc := services.NewSettingsService(cfg.DataDir)
 	previewSvc := services.NewPreviewService(designSvc, weatherSvc, imageSvc, settingsSvc, cfg.DataDir)
 
@@ -65,7 +64,7 @@ func main() {
 	// Create handlers
 	designH := handlers.NewDesignHandler(designSvc, previewSvc)
 	mediaH := handlers.NewMediaHandler(imageSvc)
-	weatherH := handlers.NewWeatherHandler(weatherSvc, cfg.DataDir)
+	weatherH := handlers.NewWeatherHandler(weatherSvc)
 	previewH := handlers.NewPreviewHandler(previewSvc, designSvc)
 	displayH := handlers.NewDisplayHandler(cfg.EInkClientURL)
 	settingsH := handlers.NewSettingsHandler(settingsSvc)

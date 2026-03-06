@@ -27,8 +27,7 @@ func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "failed to load settings", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	jsonResponse(w, http.StatusOK, resp)
 }
 
 // UpdateSettings saves new settings and returns the updated state.
@@ -60,12 +59,10 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 		jsonError(w, "failed to load settings", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	jsonResponse(w, http.StatusOK, resp)
 }
 
 // ListDisplayProfiles returns all available display profiles.
 func (h *SettingsHandler) ListDisplayProfiles(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(models.DisplayProfileList())
+	jsonResponse(w, http.StatusOK, models.DisplayProfileList())
 }

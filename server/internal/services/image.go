@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"bytes"
 	"image"
 	"image/png"
 	"io"
@@ -90,11 +91,7 @@ func (s *ImageService) GetImagePath(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p := filepath.Join(s.imagesDir, safe)
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		return "", ErrFileNotFound
-	}
-	return p, nil
+	return filepath.Join(s.imagesDir, safe), nil
 }
 
 // SaveImage decodes an image from reader, re-encodes as PNG, and saves it.
@@ -121,7 +118,7 @@ func (s *ImageService) SaveImage(name string, r io.Reader) error {
 	}
 
 	// Decode the image (supports PNG, JPEG via registered decoders)
-	img, _, err := image.Decode(strings.NewReader(string(data)))
+	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return ErrInvalidFileType
 	}
@@ -144,10 +141,13 @@ func (s *ImageService) DeleteImage(name string) error {
 		return err
 	}
 	p := filepath.Join(s.imagesDir, safe)
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		return ErrFileNotFound
+	if err := os.Remove(p); err != nil {
+		if os.IsNotExist(err) {
+			return ErrFileNotFound
+		}
+		return err
 	}
-	return os.Remove(p)
+	return nil
 }
 
 // ListFonts returns metadata for all .ttf/.otf files in the fonts directory.
@@ -183,11 +183,7 @@ func (s *ImageService) GetFontPath(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p := filepath.Join(s.fontsDir, safe)
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		return "", ErrFileNotFound
-	}
-	return p, nil
+	return filepath.Join(s.fontsDir, safe), nil
 }
 
 // SaveFont saves a font file (.ttf or .otf) from the reader.
@@ -223,8 +219,11 @@ func (s *ImageService) DeleteFont(name string) error {
 		return err
 	}
 	p := filepath.Join(s.fontsDir, safe)
-	if _, err := os.Stat(p); os.IsNotExist(err) {
-		return ErrFileNotFound
+	if err := os.Remove(p); err != nil {
+		if os.IsNotExist(err) {
+			return ErrFileNotFound
+		}
+		return err
 	}
-	return os.Remove(p)
+	return nil
 }

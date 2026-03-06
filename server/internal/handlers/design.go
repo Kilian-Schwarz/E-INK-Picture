@@ -95,24 +95,20 @@ func (h *DesignHandler) Update(w http.ResponseWriter, r *http.Request) {
 	keepAlive, _ := data["keep_alive"].(bool)
 
 	// Re-marshal the full data into a Design struct
-	raw, _ := json.Marshal(data)
+	raw, err := json.Marshal(data)
+	if err != nil {
+		jsonError(w, "Invalid request data", http.StatusBadRequest)
+		return
+	}
 	var design models.Design
-	json.Unmarshal(raw, &design)
+	if err := json.Unmarshal(raw, &design); err != nil {
+		jsonError(w, "Invalid design data", http.StatusBadRequest)
+		return
+	}
 
 	timestamp := time.Now().Format("2006-01-02_15-04-05")
 
 	if saveAsNew {
-		// Deactivate all existing designs
-		allDesigns, err := h.svc.ListFull()
-		if err != nil {
-			jsonError(w, "Server error", http.StatusInternalServerError)
-			return
-		}
-		for i := range allDesigns {
-			allDesigns[i].Active = false
-			h.svc.Save(allDesigns[i].Name, &allDesigns[i])
-		}
-
 		design.Timestamp = timestamp
 		design.Active = true
 		design.Name = designName
@@ -120,6 +116,10 @@ func (h *DesignHandler) Update(w http.ResponseWriter, r *http.Request) {
 		design.Filename = "design_" + timestamp + ".json"
 
 		if err := h.svc.Save(designName, &design); err != nil {
+			jsonError(w, "Server error", http.StatusInternalServerError)
+			return
+		}
+		if err := h.svc.SetActive(designName); err != nil {
 			jsonError(w, "Server error", http.StatusInternalServerError)
 			return
 		}
@@ -141,16 +141,11 @@ func (h *DesignHandler) Update(w http.ResponseWriter, r *http.Request) {
 		design.KeepAlive = keepAlive
 		design.Filename = active.Filename
 
-		// Ensure all others are inactive
-		allDesigns, _ := h.svc.ListFull()
-		for i := range allDesigns {
-			if allDesigns[i].Filename != active.Filename {
-				allDesigns[i].Active = false
-				h.svc.Save(allDesigns[i].Name, &allDesigns[i])
-			}
-		}
-
 		if err := h.svc.Save(designName, &design); err != nil {
+			jsonError(w, "Server error", http.StatusInternalServerError)
+			return
+		}
+		if err := h.svc.SetActive(designName); err != nil {
 			jsonError(w, "Server error", http.StatusInternalServerError)
 			return
 		}

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -17,14 +16,8 @@ func NewDisplayHandler(clientURL string) *DisplayHandler {
 }
 
 func (h *DisplayHandler) RefreshDisplay(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
 	if h.clientURL == "" {
-		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "error",
-			"message": "E-Ink client not configured (set EINK_CLIENT_URL)",
-		})
+		jsonError(w, "E-Ink client not configured (set EINK_CLIENT_URL)", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -32,25 +25,17 @@ func (h *DisplayHandler) RefreshDisplay(w http.ResponseWriter, r *http.Request) 
 	resp, err := client.Post(h.clientURL+"/refresh", "application/json", nil)
 	if err != nil {
 		slog.Error("failed to reach e-ink client", "url", h.clientURL, "error", err)
-		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "error",
-			"message": fmt.Sprintf("Failed to reach E-Ink client: %v", err),
-		})
+		jsonError(w, fmt.Sprintf("Failed to reach E-Ink client: %v", err), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		w.WriteHeader(http.StatusBadGateway)
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "error",
-			"message": fmt.Sprintf("E-Ink client returned status %d", resp.StatusCode),
-		})
+		jsonError(w, fmt.Sprintf("E-Ink client returned status %d", resp.StatusCode), http.StatusBadGateway)
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{
+	jsonResponse(w, http.StatusOK, map[string]string{
 		"status":  "ok",
 		"message": "Display refresh triggered",
 	})

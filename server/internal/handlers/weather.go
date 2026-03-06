@@ -2,23 +2,20 @@ package handlers
 
 import (
 	"net/http"
-	"path/filepath"
 
 	"e-ink-picture/server/internal/services"
 )
 
 type WeatherHandler struct {
-	svc     *services.WeatherService
-	dataDir string
+	svc *services.WeatherService
 }
 
-func NewWeatherHandler(svc *services.WeatherService, dataDir string) *WeatherHandler {
-	return &WeatherHandler{svc: svc, dataDir: dataDir}
+func NewWeatherHandler(svc *services.WeatherService) *WeatherHandler {
+	return &WeatherHandler{svc: svc}
 }
 
 func (h *WeatherHandler) ListStyles(w http.ResponseWriter, r *http.Request) {
-	stylesDir := filepath.Join(h.dataDir, "weather_styles")
-	styles, err := h.svc.ListStyles(stylesDir)
+	styles, err := h.svc.ListStyles()
 	if err != nil {
 		jsonError(w, "Server error", http.StatusInternalServerError)
 		return

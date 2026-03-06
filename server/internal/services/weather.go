@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -79,28 +80,24 @@ type openMeteoResponse struct {
 }
 
 type WeatherService struct {
-	apiKey   string
-	location string
-	dataDir  string
-	mu       sync.RWMutex
-	cache    map[string]*weatherCacheEntry
-	client   *http.Client
+	apiKey    string
+	location  string
+	stylesDir string
+	mu        sync.RWMutex
+	cache     map[string]*weatherCacheEntry
+	client    *http.Client
 }
 
-func NewWeatherService(apiKey, location string) *WeatherService {
+func NewWeatherService(apiKey, location, dataDir string) *WeatherService {
 	return &WeatherService{
-		apiKey:   apiKey,
-		location: location,
+		apiKey:    apiKey,
+		location:  location,
+		stylesDir: filepath.Join(dataDir, "weather_styles"),
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 		cache: make(map[string]*weatherCacheEntry),
 	}
-}
-
-// SetDataDir sets the data directory for weather styles.
-func (s *WeatherService) SetDataDir(dir string) {
-	s.dataDir = dir
 }
 
 // Fetch uses the configured location (if set) to fetch weather data.
@@ -159,14 +156,12 @@ func (s *WeatherService) FetchForLocation(lat, lon string) (*WeatherData, error)
 		return s.returnCachedOrError(cacheKey, err)
 	}
 
-	// Check for current_weather presence (like Python: if 'current_weather' not in data)
-	// If the struct fields are zero-valued we assume it's missing; we verify via raw JSON.
-	var rawMap map[string]json.RawMessage
-	if err := json.Unmarshal(body, &rawMap); err != nil {
-		return s.returnCachedOrError(cacheKey, err)
-	}
-	if _, hasCurrent := rawMap["current_weather"]; !hasCurrent {
-		return s.returnCachedOrError(cacheKey, fmt.Errorf("no current_weather in response"))
+	// Check for current_weather presence: if both fields are zero, the key was likely absent.
+	if raw.CurrentWeather.Temperature == 0 && raw.CurrentWeather.WeatherCode == 0 {
+		// Verify via raw JSON check (0°C with code 0 "Clear sky" is a valid combo)
+		if !bytes.Contains(body, []byte(`"current_weather"`)) {
+			return s.returnCachedOrError(cacheKey, fmt.Errorf("no current_weather in response"))
+		}
 	}
 
 	currentTemp := raw.CurrentWeather.Temperature
@@ -260,8 +255,8 @@ func (s *WeatherService) returnCachedOrError(cacheKey string, origErr error) (*W
 
 // ApplyStyle loads a weather style JSON template and replaces placeholders.
 // Matches the Python apply_weather_style function exactly.
-func (s *WeatherService) ApplyStyle(styleName string, data *WeatherData, stylesDir string) string {
-	styleFile := filepath.Join(stylesDir, styleName+".json")
+func (s *WeatherService) ApplyStyle(styleName string, data *WeatherData) string {
+	styleFile := filepath.Join(s.stylesDir, styleName+".json")
 	raw, err := os.ReadFile(styleFile)
 	if err != nil {
 		return "No data"
@@ -294,8 +289,8 @@ func (s *WeatherService) ApplyStyle(styleName string, data *WeatherData, stylesD
 
 // ListStyles lists available weather style files (JSON) in the given directory.
 // Returns basenames without the .json extension.
-func (s *WeatherService) ListStyles(stylesDir string) ([]string, error) {
-	entries, err := os.ReadDir(stylesDir)
+func (s *WeatherService) ListStyles() ([]string, error) {
+	entries, err := os.ReadDir(s.stylesDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []string{}, nil
@@ -375,48 +370,47 @@ func (s *WeatherService) SearchLocation(query string) ([]LocationResult, error) 
 	return results, nil
 }
 
+type descIcon struct {
+	desc string
+	icon string
+}
+
+var weatherDayMap = map[int]descIcon{
+	0:  {"Clear sky", "clear_day.png"},
+	1:  {"Mainly clear", "clear_day.png"},
+	2:  {"Partly cloudy", "cloudy_day.png"},
+	3:  {"Overcast", "cloudy_day.png"},
+	45: {"Fog", "fog_day.png"},
+	48: {"Rime fog", "fog_day.png"},
+	51: {"Light drizzle", "drizzle_day.png"},
+	61: {"Slight rain", "rain_day.png"},
+	63: {"Moderate rain", "rain_day.png"},
+	65: {"Heavy rain", "rain_day.png"},
+	80: {"Rain showers", "shower_day.png"},
+}
+
+var weatherNightMap = map[int]descIcon{
+	0:  {"Clear sky", "clear_night.png"},
+	1:  {"Mainly clear", "clear_night.png"},
+	2:  {"Partly cloudy", "cloudy_night.png"},
+	3:  {"Overcast", "cloudy_night.png"},
+	45: {"Fog", "fog_night.png"},
+	48: {"Rime fog", "fog_night.png"},
+	51: {"Light drizzle", "drizzle_night.png"},
+	61: {"Slight rain", "rain_night.png"},
+	63: {"Moderate rain", "rain_night.png"},
+	65: {"Heavy rain", "rain_night.png"},
+	80: {"Rain showers", "shower_night.png"},
+}
+
 // weatherCodeToDescIcon maps WMO weather codes to description and icon filename.
-// Matches the Python weathercode_to_desc_icon function exactly.
 func weatherCodeToDescIcon(code int, isNight bool) (string, string) {
-	type descIcon struct {
-		desc string
-		icon string
-	}
-
-	dayMap := map[int]descIcon{
-		0:  {"Clear sky", "clear_day.png"},
-		1:  {"Mainly clear", "clear_day.png"},
-		2:  {"Partly cloudy", "cloudy_day.png"},
-		3:  {"Overcast", "cloudy_day.png"},
-		45: {"Fog", "fog_day.png"},
-		48: {"Rime fog", "fog_day.png"},
-		51: {"Light drizzle", "drizzle_day.png"},
-		61: {"Slight rain", "rain_day.png"},
-		63: {"Moderate rain", "rain_day.png"},
-		65: {"Heavy rain", "rain_day.png"},
-		80: {"Rain showers", "shower_day.png"},
-	}
-
-	nightMap := map[int]descIcon{
-		0:  {"Clear sky", "clear_night.png"},
-		1:  {"Mainly clear", "clear_night.png"},
-		2:  {"Partly cloudy", "cloudy_night.png"},
-		3:  {"Overcast", "cloudy_night.png"},
-		45: {"Fog", "fog_night.png"},
-		48: {"Rime fog", "fog_night.png"},
-		51: {"Light drizzle", "drizzle_night.png"},
-		61: {"Slight rain", "rain_night.png"},
-		63: {"Moderate rain", "rain_night.png"},
-		65: {"Heavy rain", "rain_night.png"},
-		80: {"Rain showers", "shower_night.png"},
-	}
-
 	if isNight {
-		if di, ok := nightMap[code]; ok {
+		if di, ok := weatherNightMap[code]; ok {
 			return di.desc, di.icon
 		}
 	}
-	if di, ok := dayMap[code]; ok {
+	if di, ok := weatherDayMap[code]; ok {
 		return di.desc, di.icon
 	}
 	return "Unknown", "cloudy_day.png"
