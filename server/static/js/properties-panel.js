@@ -212,6 +212,7 @@ var PropertiesPanel = {
     renderImageProperties(container, obj, props) {
         var self = this;
         var resizeMode = props.resizeMode || 'proportional';
+        var hasCrop = props.cropX || props.cropY || props.cropW || props.cropH;
         container.innerHTML = '' +
             '<div class="property-group">' +
             '    <label>Image</label>' +
@@ -225,6 +226,9 @@ var PropertiesPanel = {
             '        <button class="style-btn resize-mode-btn' + (resizeMode === 'free' ? ' active' : '') + '" data-mode="free" title="Free transform">Free</button>' +
             '        <button class="style-btn resize-mode-btn' + (resizeMode === 'crop' ? ' active' : '') + '" data-mode="crop" title="Crop">Crop</button>' +
             '    </div>' +
+            '</div>' +
+            '<div class="property-group">' +
+            '    <button id="open-crop-btn" class="btn-secondary" style="width:100%;">Crop Settings' + (hasCrop ? ' (active)' : '') + '</button>' +
             '</div>';
 
         document.getElementById('select-image-btn').addEventListener('click', function() {
@@ -279,6 +283,66 @@ var PropertiesPanel = {
                 HistoryManager.saveState();
             });
         });
+
+        // Crop button
+        var cropBtn = document.getElementById('open-crop-btn');
+        if (cropBtn) {
+            cropBtn.addEventListener('click', function() {
+                var data = obj.get('elementData') || {};
+                var p = data.properties || {};
+                document.getElementById('crop-x').value = p.cropX || 0;
+                document.getElementById('crop-y').value = p.cropY || 0;
+                document.getElementById('crop-w').value = p.cropW || 0;
+                document.getElementById('crop-h').value = p.cropH || 0;
+                document.getElementById('crop-modal').style.display = 'flex';
+
+                var applyBtn = document.getElementById('crop-apply-btn');
+                var resetBtn = document.getElementById('crop-reset-btn');
+                var cancelBtn = document.getElementById('crop-cancel-btn');
+
+                var applyHandler = function() {
+                    var d = obj.get('elementData') || {};
+                    d.properties = d.properties || {};
+                    var cx = parseInt(document.getElementById('crop-x').value) || 0;
+                    var cy = parseInt(document.getElementById('crop-y').value) || 0;
+                    var cw = parseInt(document.getElementById('crop-w').value) || 0;
+                    var ch = parseInt(document.getElementById('crop-h').value) || 0;
+                    if (cw > 0 && ch > 0) {
+                        d.properties.cropX = cx;
+                        d.properties.cropY = cy;
+                        d.properties.cropW = cw;
+                        d.properties.cropH = ch;
+                    } else {
+                        delete d.properties.cropX;
+                        delete d.properties.cropY;
+                        delete d.properties.cropW;
+                        delete d.properties.cropH;
+                    }
+                    obj.set('elementData', d);
+                    document.getElementById('crop-modal').style.display = 'none';
+                    HistoryManager.saveState();
+                    cleanup();
+                };
+                var resetHandler = function() {
+                    document.getElementById('crop-x').value = 0;
+                    document.getElementById('crop-y').value = 0;
+                    document.getElementById('crop-w').value = 0;
+                    document.getElementById('crop-h').value = 0;
+                };
+                var cancelHandler = function() {
+                    document.getElementById('crop-modal').style.display = 'none';
+                    cleanup();
+                };
+                var cleanup = function() {
+                    applyBtn.removeEventListener('click', applyHandler);
+                    resetBtn.removeEventListener('click', resetHandler);
+                    cancelBtn.removeEventListener('click', cancelHandler);
+                };
+                applyBtn.addEventListener('click', applyHandler);
+                resetBtn.addEventListener('click', resetHandler);
+                cancelBtn.addEventListener('click', cancelHandler);
+            });
+        }
     },
 
     renderShapeProperties(container, obj, props) {
@@ -426,6 +490,7 @@ var PropertiesPanel = {
         });
 
         // Listen for widget property changes
+        var urlProps = ['icalUrl', 'feedUrl', 'url'];
         container.querySelectorAll('.widget-prop').forEach(function(input) {
             input.addEventListener('change', function() {
                 var data = obj.get('elementData') || {};
@@ -439,6 +504,10 @@ var PropertiesPanel = {
                     data.properties[propKey] = input.value;
                 }
                 obj.set('elementData', data);
+                // Invalidate cache when URL properties change
+                if (urlProps.indexOf(propKey) >= 0) {
+                    WidgetPreview.invalidateCache(type);
+                }
                 WidgetPreview.updatePreview(obj);
                 HistoryManager.saveState();
             });
