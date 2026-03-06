@@ -132,8 +132,9 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 			defaultFontSize = 24
 		}
 		fontSize := GetPropInt(props, "fontSize", defaultFontSize)
-		bold := GetPropBool(props, "bold", false)
-		italic := GetPropBool(props, "italic", false)
+		// Frontend exports fontWeight:"bold" and fontStyle:"italic" as strings
+		bold := GetPropString(props, "fontWeight", "normal") == "bold" || GetPropBool(props, "bold", false)
+		italic := GetPropString(props, "fontStyle", "normal") == "italic" || GetPropBool(props, "italic", false)
 		strike := GetPropBool(props, "strikethrough", false)
 		align := GetPropString(props, "textAlign", "left")
 		colorStr := GetPropString(props, "color", "#000000")
