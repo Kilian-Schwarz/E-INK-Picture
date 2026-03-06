@@ -35,14 +35,20 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 	data, err := os.ReadFile(s.filePath())
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &models.Settings{DisplayType: models.DisplayWaveshare75V2}, nil
+			return &models.Settings{
+				DisplayType:     models.DisplayWaveshare75V2,
+				RefreshInterval: defaultRefreshInterval,
+			}, nil
 		}
 		return nil, err
 	}
 
 	var settings models.Settings
 	if err := json.Unmarshal(data, &settings); err != nil {
-		return &models.Settings{DisplayType: models.DisplayWaveshare75V2}, nil
+		return &models.Settings{
+			DisplayType:     models.DisplayWaveshare75V2,
+			RefreshInterval: defaultRefreshInterval,
+		}, nil
 	}
 
 	if settings.DisplayType == "" {
