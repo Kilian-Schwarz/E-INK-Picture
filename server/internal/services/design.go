@@ -208,7 +208,7 @@ func migrateV1ToV2(v1 *models.Design) *models.DesignV2 {
 			Rotation:   0,
 			ZIndex:     i,
 			Locked:     false,
-			Visible:    true,
+			Visible:    boolPtr(true),
 			Properties: props,
 		}
 		elements = append(elements, elem)
@@ -475,6 +475,8 @@ func (s *DesignService) EnsureDesignExists() error {
 	}
 	return s.EnsureActive()
 }
+
+func boolPtr(v bool) *bool { return &v }
 
 // GetPropString extracts a string property from element properties.
 func GetPropString(props map[string]any, key, fallback string) string {

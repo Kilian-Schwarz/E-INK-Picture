@@ -97,7 +97,7 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 
 	for i := range sorted {
 		elem := &sorted[i]
-		if !elem.Visible {
+		if elem.Visible != nil && !*elem.Visible {
 			continue
 		}
 
@@ -732,13 +732,21 @@ func resolveTextColor(textColor *string, _ models.DisplayConfig) color.RGBA {
 	return color.RGBA{0, 0, 0, 255}
 }
 
-// parseHexColor converts "#RRGGBB" to color.RGBA.
+// parseHexColor converts "#RRGGBB" or "#RGB" to color.RGBA.
 func parseHexColor(hex string) color.RGBA {
-	if len(hex) < 7 || hex[0] != '#' {
+	if len(hex) == 0 || hex[0] != '#' {
 		return color.RGBA{0, 0, 0, 255}
 	}
 	var r, g, b uint8
-	fmt.Sscanf(hex[1:], "%02x%02x%02x", &r, &g, &b)
+	switch len(hex) {
+	case 7: // #RRGGBB
+		fmt.Sscanf(hex[1:], "%02x%02x%02x", &r, &g, &b)
+	case 4: // #RGB
+		fmt.Sscanf(hex[1:], "%1x%1x%1x", &r, &g, &b)
+		r, g, b = r*17, g*17, b*17
+	default:
+		return color.RGBA{0, 0, 0, 255}
+	}
 	return color.RGBA{r, g, b, 255}
 }
 

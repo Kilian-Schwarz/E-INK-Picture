@@ -84,7 +84,7 @@ type Element struct {
 	Rotation   float64        `json:"rotation"`
 	ZIndex     int            `json:"zIndex"`
 	Locked     bool           `json:"locked"`
-	Visible    bool           `json:"visible"`
+	Visible    *bool          `json:"visible,omitempty"`
 	GroupID    *string        `json:"groupId"`
 	Properties map[string]any `json:"properties"`
 	Conditions []Condition    `json:"conditions,omitempty"`
