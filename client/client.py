@@ -179,10 +179,10 @@ def main() -> None:
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    # Initial setup: fetch config and load driver
+    # Initial setup: load driver and fetch config
+    load_display_driver(config.DISPLAY_DRIVER)
     display_config = fetch_display_config()
     if not display_config:
-        load_display_driver(config.DISPLAY_DRIVER)
         display_config = {}
 
     # Initial display update
