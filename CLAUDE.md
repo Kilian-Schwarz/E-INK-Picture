@@ -3,7 +3,7 @@
 ## Stack
 - Server: Go 1.24, net/http, go:embed, golang.org/x/image
 - Frontend: Vanilla HTML/CSS/JS (embedded in Go binary)
-- Client: Python 3.11, Waveshare epd7in5_V2, Pillow, requests
+- Client: Python 3.11, Waveshare epd7in3e/epd7in5_V2, Pillow, requests
 - Deploy: Docker Compose, Multi-stage ARM64/AMD64 Build
 - Target: Raspberry Pi Zero 2 W (512MB RAM)
 
@@ -39,9 +39,17 @@
 - server/static/ (extracted from HTML, treat as generated)
 - node_modules/, dist/, .next/ (don't exist but standard rule)
 
+## Refresh API
+- POST /api/trigger_refresh -- trigger immediate display refresh
+- GET /api/refresh_status -- client polls for refresh_needed
+- POST /api/client_heartbeat -- client reports display updated
+- GET /settings -- includes refresh_interval
+- POST /update_settings -- accepts refresh_interval
+
 ## Important
 - Environment: see .env.example
-- Display: 800x480px, Waveshare epd7in5_V2
+- Display: 800x480px, Waveshare epd7in3e (6-color) or epd7in5_V2 (B/W)
 - Weather API: open-meteo.com (free, no key)
 - Two deployment modes: local (all-in-one) and cloud
+- RAM: Server ~10MB + Client ~17MB = ~27MB total
 - License: GPL-3.0
