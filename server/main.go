@@ -125,6 +125,7 @@ func main() {
 	mux.HandleFunc("GET /api/widgets/news", widgetH.News)
 	mux.HandleFunc("GET /api/widgets/system", widgetH.System)
 	mux.HandleFunc("GET /api/widgets/custom", widgetH.Custom)
+	mux.HandleFunc("GET /api/widget_layouts/{type}", widgetH.Layouts)
 
 	// Health
 	mux.HandleFunc("GET /health", handlers.HealthCheck)

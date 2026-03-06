@@ -154,6 +154,7 @@ document.addEventListener('DOMContentLoaded', async function() {
                 var design = await Storage.loadDesign(name);
                 Storage.currentDesignName = name;
                 Storage.loadDesignToCanvas(design);
+                setTimeout(function() { WidgetPreview.refreshAllWidgets(); }, 500);
                 showNotification('Design loaded: ' + name);
             } catch (err) {
                 showNotification('Failed to load design', 'error');
@@ -446,8 +447,14 @@ document.addEventListener('DOMContentLoaded', async function() {
     updateClientStatus();
     setInterval(updateClientStatus, 15000);
 
-    // Start live clock updates for clock widgets
+    // Start live clock updates and periodic data refresh
     WidgetPreview.startClockUpdates();
+    WidgetPreview.startDataRefresh();
+
+    // Refresh all widget data after design load
+    setTimeout(function() {
+        WidgetPreview.refreshAllWidgets();
+    }, 500);
 
     showNotification('Designer loaded!', 'success');
 });

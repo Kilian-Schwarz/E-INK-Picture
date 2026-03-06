@@ -30,6 +30,7 @@ const ElementFactory = {
     createImage(options) {
         options = options || {};
         const id = this.generateId();
+        var resizeMode = (options.properties && options.properties.resizeMode) || 'proportional';
         const rect = new fabric.Rect({
             left: options.x || 50,
             top: options.y || 50,
@@ -38,6 +39,7 @@ const ElementFactory = {
             fill: '#e0e0e0',
             stroke: '#999999',
             strokeWidth: 1,
+            lockUniScaling: resizeMode !== 'free',
         });
         rect.set('elementId', id);
         rect.set('elementType', 'image');
@@ -61,6 +63,7 @@ const ElementFactory = {
                     top: top,
                     scaleX: w / img.width,
                     scaleY: h / img.height,
+                    lockUniScaling: resizeMode !== 'free',
                 });
                 img.set('elementId', targetRect.get('elementId'));
                 img.set('elementType', 'image');
@@ -111,6 +114,8 @@ const ElementFactory = {
         var w = options.width || size.w;
         var h = options.height || size.h;
 
+        var widgetProps = options.properties || ElementFactory.getDefaultProperties(type);
+
         var bg = new fabric.Rect({
             width: w,
             height: h,
@@ -124,8 +129,7 @@ const ElementFactory = {
             originY: 'center',
         });
 
-        var widgetProps = options.properties || ElementFactory.getDefaultProperties(type);
-        var previewText = WidgetPreview.getPreviewContent(type, widgetProps);
+        var previewText = WidgetPreview.getPreviewContent(type, widgetProps, null);
         var previewFontSize = WidgetPreview.getPreviewFontSize(type, widgetProps);
 
         var label = new fabric.Text(previewText, {
@@ -134,27 +138,34 @@ const ElementFactory = {
             fontFamily: widgetProps.fontFamily || 'monospace',
             originX: 'center',
             originY: 'center',
-            textAlign: 'center',
+            textAlign: widgetProps.textAlign || 'center',
         });
 
         var group = new fabric.Group([bg, label], {
             left: options.x || 50,
             top: options.y || 50,
+            lockUniScaling: true,
         });
 
         group.set('elementId', id);
         group.set('elementType', type);
         group.set('elementData', {
             type: type,
-            properties: options.properties || ElementFactory.getDefaultProperties(type)
+            properties: widgetProps
         });
+
+        // Fetch live data asynchronously
+        setTimeout(function() {
+            WidgetPreview.updatePreview(group);
+        }, 100);
+
         return group;
     },
 
     getDefaultProperties(type) {
         var defaults = {
             widget_clock: {
-                format: 'HH:mm',
+                layout: 'digital_large',
                 timezone: 'Europe/Berlin',
                 fontFamily: 'Arial',
                 fontSize: 48,
@@ -162,40 +173,46 @@ const ElementFactory = {
                 textAlign: 'center'
             },
             widget_weather: {
+                layout: 'compact',
                 latitude: 52.3759,
                 longitude: 9.7320,
-                units: 'metric',
-                style: 'compact',
-                showTemperature: true,
-                showCondition: true
+                color: '#000000',
+                textAlign: 'left'
             },
             widget_forecast: {
+                layout: 'vertical',
                 latitude: 52.3759,
                 longitude: 9.7320,
                 days: 3,
-                layout: 'horizontal',
-                showHighLow: true,
-                showIcons: true
+                color: '#000000',
+                textAlign: 'left'
             },
             widget_calendar: {
+                layout: 'list',
                 icalUrl: '',
                 maxEvents: 5,
                 showTime: true,
                 daysAhead: 7,
-                title: 'Events'
+                title: 'Events',
+                color: '#000000',
+                textAlign: 'left'
             },
             widget_news: {
+                layout: 'headlines',
                 feedUrl: '',
                 maxItems: 3,
-                showDescription: true,
-                layout: 'list',
-                title: 'News'
+                showDescription: false,
+                title: 'News',
+                color: '#000000',
+                textAlign: 'left'
             },
             widget_timer: {
+                layout: 'countdown_large',
                 targetDate: '2026-12-25T00:00:00',
                 label: 'Countdown',
-                format: 'days',
-                finishedText: "Time's up!"
+                finishedText: "Time's up!",
+                color: '#000000',
+                textAlign: 'center'
             },
             widget_custom: {
                 url: '',
@@ -204,12 +221,14 @@ const ElementFactory = {
                 prefix: '',
                 suffix: '',
                 fontFamily: 'Arial',
-                fontSize: 24
+                fontSize: 24,
+                color: '#000000'
             },
             widget_system: {
-                metrics: ['cpu', 'memory', 'temperature'],
-                layout: 'horizontal',
-                showLabels: true
+                layout: 'vertical',
+                showLabels: true,
+                color: '#000000',
+                textAlign: 'left'
             },
         };
         return defaults[type] || {};

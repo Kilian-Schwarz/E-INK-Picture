@@ -147,6 +147,20 @@ func (h *WidgetHandler) System(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Layouts returns available layouts for a widget type.
+func (h *WidgetHandler) Layouts(w http.ResponseWriter, r *http.Request) {
+	widgetType := r.PathValue("type")
+	if widgetType == "" {
+		jsonError(w, "Missing widget type", http.StatusBadRequest)
+		return
+	}
+	layouts := widgets.GetLayouts(widgetType)
+	jsonResponse(w, http.StatusOK, map[string]any{
+		"layouts":      layouts,
+		"placeholders": widgets.Placeholders(widgetType),
+	})
+}
+
 // Custom fetches data from a custom API and returns it.
 func (h *WidgetHandler) Custom(w http.ResponseWriter, r *http.Request) {
 	apiURL := r.URL.Query().Get("url")

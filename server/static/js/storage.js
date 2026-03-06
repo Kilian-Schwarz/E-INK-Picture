@@ -127,6 +127,11 @@ var Storage = {
                 return {
                     image: savedProps.image || '',
                     opacity: obj.opacity || 1,
+                    resizeMode: savedProps.resizeMode || 'proportional',
+                    cropX: savedProps.cropX,
+                    cropY: savedProps.cropY,
+                    cropW: savedProps.cropW,
+                    cropH: savedProps.cropH,
                 };
             default:
                 return savedProps;

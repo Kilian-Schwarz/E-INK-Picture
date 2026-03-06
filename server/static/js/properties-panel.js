@@ -3,6 +3,7 @@
 var PropertiesPanel = {
     currentObject: null,
     displayColors: ['#000000', '#FFFFFF'],
+    _layoutCache: {},
 
     init(colors) {
         if (colors) this.displayColors = colors;
@@ -98,6 +99,23 @@ var PropertiesPanel = {
                     this.renderWidgetProperties(container, type, obj, props);
                 }
         }
+
+        // Lock aspect ratio for all types
+        this.renderLockAspectRatio(container, obj, type);
+    },
+
+    renderLockAspectRatio(container, obj, type) {
+        var defaultLocked = (type === 'image' || (type && type.startsWith('widget_')));
+        var isLocked = obj.lockUniScaling !== undefined ? obj.lockUniScaling : defaultLocked;
+
+        var html = '<div class="property-group" style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">' +
+            '<label class="checkbox-label"><input type="checkbox" id="prop-lock-aspect"' + (isLocked ? ' checked' : '') + '> Lock Aspect Ratio</label></div>';
+        container.insertAdjacentHTML('beforeend', html);
+
+        document.getElementById('prop-lock-aspect').addEventListener('change', function(e) {
+            obj.set('lockUniScaling', e.target.checked);
+            CanvasManager.getCanvas().renderAll();
+        });
     },
 
     renderTextProperties(container, obj, props) {
@@ -193,11 +211,20 @@ var PropertiesPanel = {
 
     renderImageProperties(container, obj, props) {
         var self = this;
+        var resizeMode = props.resizeMode || 'proportional';
         container.innerHTML = '' +
             '<div class="property-group">' +
             '    <label>Image</label>' +
             '    <button id="select-image-btn" class="btn-secondary">Select Image</button>' +
             '    <span id="current-image-name" class="text-muted" style="display:block;margin-top:4px;font-size:0.85em;">' + (props.image || 'None') + '</span>' +
+            '</div>' +
+            '<div class="property-group">' +
+            '    <label>Resize Mode</label>' +
+            '    <div class="button-group">' +
+            '        <button class="style-btn resize-mode-btn' + (resizeMode === 'proportional' ? ' active' : '') + '" data-mode="proportional" title="Proportional">Prop</button>' +
+            '        <button class="style-btn resize-mode-btn' + (resizeMode === 'free' ? ' active' : '') + '" data-mode="free" title="Free transform">Free</button>' +
+            '        <button class="style-btn resize-mode-btn' + (resizeMode === 'crop' ? ' active' : '') + '" data-mode="crop" title="Crop">Crop</button>' +
+            '    </div>' +
             '</div>';
 
         document.getElementById('select-image-btn').addEventListener('click', function() {
@@ -225,6 +252,7 @@ var PropertiesPanel = {
                     img.set('elementId', obj.get('elementId'));
                     img.set('elementType', 'image');
                     img.set('elementData', data);
+                    img.set('lockUniScaling', data.properties.resizeMode !== 'free');
                     canvas.add(img);
                     canvas.setActiveObject(img);
                     self.currentObject = img;
@@ -233,6 +261,22 @@ var PropertiesPanel = {
                 });
 
                 document.getElementById('current-image-name').textContent = imageName;
+            });
+        });
+
+        // Resize mode buttons
+        container.querySelectorAll('.resize-mode-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                container.querySelectorAll('.resize-mode-btn').forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                var mode = btn.dataset.mode;
+                var data = obj.get('elementData') || {};
+                data.properties = data.properties || {};
+                data.properties.resizeMode = mode;
+                obj.set('elementData', data);
+                obj.set('lockUniScaling', mode === 'proportional');
+                CanvasManager.getCanvas().renderAll();
+                HistoryManager.saveState();
             });
         });
     },
@@ -284,9 +328,23 @@ var PropertiesPanel = {
     },
 
     renderWidgetProperties(container, type, obj, props) {
+        var self = this;
         var widgetType = type.replace('widget_', '');
         var html = '<div class="property-group"><label>Widget: ' + widgetType + '</label></div>';
 
+        // Layout selector
+        var currentLayout = props.layout || WidgetPreview.getDefaultLayout(type);
+        html += '<div class="property-group"><label>Layout</label>' +
+            '<select class="prop-input" id="widget-layout-select"><option value="' + currentLayout + '">' + currentLayout + '</option></select></div>';
+
+        // Custom template (shown when layout is "custom")
+        html += '<div class="property-group" id="custom-template-section" style="display:' + (currentLayout === 'custom' ? 'block' : 'none') + ';">' +
+            '<label>Custom Template</label>' +
+            '<textarea id="custom-template-input" class="prop-input" rows="3" style="resize:vertical;font-family:monospace;font-size:12px;">' + (props.customTemplate || '') + '</textarea>' +
+            '<div id="placeholder-list" class="placeholder-chips" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;"></div>' +
+            '</div>';
+
+        // Widget-specific properties
         var propDefs = this.getWidgetPropertyDefs(type);
         var keys = Object.keys(propDefs);
         for (var i = 0; i < keys.length; i++) {
@@ -314,9 +372,60 @@ var PropertiesPanel = {
             }
         }
 
+        // Color for widgets
+        html += '<div class="property-group"><label>Color</label><div class="color-swatches" id="widget-color-swatches"></div></div>';
+
+        // Text alignment for widgets
+        var currentAlign = props.textAlign || 'center';
+        html += '<div class="property-group"><label>Align</label><div class="button-group">' +
+            '<button class="align-btn widget-align' + (currentAlign === 'left' ? ' active' : '') + '" data-align="left">L</button>' +
+            '<button class="align-btn widget-align' + (currentAlign === 'center' ? ' active' : '') + '" data-align="center">C</button>' +
+            '<button class="align-btn widget-align' + (currentAlign === 'right' ? ' active' : '') + '" data-align="right">R</button>' +
+            '</div></div>';
+
         container.innerHTML = html;
 
-        // Listen for changes
+        // Load layouts from server and populate dropdown
+        this.loadAndPopulateLayouts(type, currentLayout, obj);
+
+        // Setup custom template input
+        var templateInput = document.getElementById('custom-template-input');
+        if (templateInput) {
+            templateInput.addEventListener('input', function() {
+                var data = obj.get('elementData') || {};
+                data.properties = data.properties || {};
+                data.properties.customTemplate = templateInput.value;
+                obj.set('elementData', data);
+                WidgetPreview.updatePreview(obj);
+                HistoryManager.saveState();
+            });
+        }
+
+        // Color swatches for widget
+        this.renderColorSwatches('widget-color-swatches', props.color || '#000000', function(color) {
+            var data = obj.get('elementData') || {};
+            data.properties = data.properties || {};
+            data.properties.color = color;
+            obj.set('elementData', data);
+            WidgetPreview.updatePreview(obj);
+            HistoryManager.saveState();
+        });
+
+        // Widget alignment buttons
+        container.querySelectorAll('.widget-align').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                container.querySelectorAll('.widget-align').forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                var data = obj.get('elementData') || {};
+                data.properties = data.properties || {};
+                data.properties.textAlign = btn.dataset.align;
+                obj.set('elementData', data);
+                WidgetPreview.updatePreview(obj);
+                HistoryManager.saveState();
+            });
+        });
+
+        // Listen for widget property changes
         container.querySelectorAll('.widget-prop').forEach(function(input) {
             input.addEventListener('change', function() {
                 var data = obj.get('elementData') || {};
@@ -336,26 +445,105 @@ var PropertiesPanel = {
         });
     },
 
+    async loadAndPopulateLayouts(type, currentLayout, obj) {
+        var select = document.getElementById('widget-layout-select');
+        if (!select) return;
+
+        // Try cache first
+        if (this._layoutCache[type]) {
+            this.populateLayoutSelect(select, this._layoutCache[type], currentLayout, obj, type);
+            return;
+        }
+
+        try {
+            var res = await fetch('/api/widget_layouts/' + type);
+            if (res.ok) {
+                var data = await res.json();
+                this._layoutCache[type] = data;
+                this.populateLayoutSelect(select, data, currentLayout, obj, type);
+            }
+        } catch (e) {
+            console.warn('Failed to load layouts for', type);
+        }
+    },
+
+    populateLayoutSelect(select, data, currentLayout, obj, type) {
+        select.innerHTML = '';
+        var layouts = data.layouts || [];
+        for (var i = 0; i < layouts.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = layouts[i].id;
+            opt.textContent = layouts[i].name;
+            if (layouts[i].id === currentLayout) opt.selected = true;
+            select.appendChild(opt);
+        }
+
+        var self = this;
+        select.addEventListener('change', function() {
+            var newLayout = select.value;
+            var d = obj.get('elementData') || {};
+            d.properties = d.properties || {};
+            d.properties.layout = newLayout;
+            obj.set('elementData', d);
+
+            // Show/hide custom template
+            var customSection = document.getElementById('custom-template-section');
+            if (customSection) {
+                customSection.style.display = newLayout === 'custom' ? 'block' : 'none';
+            }
+
+            // Populate placeholders if custom
+            if (newLayout === 'custom' && data.placeholders) {
+                self.populatePlaceholders(data.placeholders, type);
+            }
+
+            WidgetPreview.updatePreview(obj);
+            HistoryManager.saveState();
+        });
+
+        // If currently custom, populate placeholders
+        if (currentLayout === 'custom' && data.placeholders) {
+            this.populatePlaceholders(data.placeholders, type);
+        }
+    },
+
+    populatePlaceholders(placeholders, type) {
+        var container = document.getElementById('placeholder-list');
+        if (!container) return;
+        container.innerHTML = '';
+        for (var i = 0; i < placeholders.length; i++) {
+            var chip = document.createElement('span');
+            chip.textContent = placeholders[i];
+            chip.style.cssText = 'background:var(--bg-tertiary,#333);color:var(--accent,#89b4fa);padding:2px 8px;border-radius:4px;font-size:11px;font-family:monospace;cursor:pointer;';
+            chip.addEventListener('click', (function(p) {
+                return function() {
+                    var textarea = document.getElementById('custom-template-input');
+                    if (!textarea) return;
+                    var pos = textarea.selectionStart;
+                    var text = textarea.value;
+                    textarea.value = text.slice(0, pos) + p + text.slice(pos);
+                    textarea.focus();
+                    textarea.dispatchEvent(new Event('input'));
+                };
+            })(placeholders[i]));
+            container.appendChild(chip);
+        }
+    },
+
     getWidgetPropertyDefs(type) {
         var defs = {
             widget_clock: {
-                format: { label: 'Format', type: 'select', options: ['HH:mm', 'hh:mm A', 'HH:mm:ss', 'dddd, DD. MMMM YYYY'], default: 'HH:mm' },
                 timezone: { label: 'Timezone', type: 'text', default: 'Europe/Berlin' },
                 fontSize: { label: 'Font Size', type: 'number', default: 48, min: 8, max: 200 },
             },
             widget_weather: {
                 latitude: { label: 'Latitude', type: 'number', default: 52.3759, min: -90, max: 90 },
                 longitude: { label: 'Longitude', type: 'number', default: 9.7320, min: -180, max: 180 },
-                style: { label: 'Style', type: 'select', options: ['compact', 'detailed', 'minimal', 'icon_only'], default: 'compact' },
-                showTemperature: { label: 'Show Temperature', type: 'checkbox', default: true },
-                showCondition: { label: 'Show Condition', type: 'checkbox', default: true },
             },
             widget_forecast: {
                 latitude: { label: 'Latitude', type: 'number', default: 52.3759, min: -90, max: 90 },
                 longitude: { label: 'Longitude', type: 'number', default: 9.7320, min: -180, max: 180 },
                 days: { label: 'Days', type: 'number', default: 3, min: 1, max: 7 },
-                layout: { label: 'Layout', type: 'select', options: ['horizontal', 'vertical', 'grid'], default: 'horizontal' },
-                showHighLow: { label: 'Show High/Low', type: 'checkbox', default: true },
             },
             widget_calendar: {
                 icalUrl: { label: 'iCal URL', type: 'text', default: '' },
@@ -367,14 +555,12 @@ var PropertiesPanel = {
             widget_news: {
                 feedUrl: { label: 'RSS Feed URL', type: 'text', default: '' },
                 maxItems: { label: 'Max Items', type: 'number', default: 3, min: 1, max: 10 },
-                showDescription: { label: 'Show Description', type: 'checkbox', default: true },
-                layout: { label: 'Layout', type: 'select', options: ['list', 'headline_only', 'cards'], default: 'list' },
+                showDescription: { label: 'Show Description', type: 'checkbox', default: false },
                 title: { label: 'Title', type: 'text', default: 'News' },
             },
             widget_timer: {
                 targetDate: { label: 'Target Date', type: 'text', default: '2026-12-25T00:00:00' },
                 label: { label: 'Label', type: 'text', default: 'Countdown' },
-                format: { label: 'Format', type: 'select', options: ['days', 'dhm', 'full'], default: 'days' },
                 finishedText: { label: 'Finished Text', type: 'text', default: "Time's up!" },
             },
             widget_custom: {
@@ -385,7 +571,6 @@ var PropertiesPanel = {
                 fontSize: { label: 'Font Size', type: 'number', default: 24, min: 8, max: 200 },
             },
             widget_system: {
-                layout: { label: 'Layout', type: 'select', options: ['horizontal', 'vertical', 'compact'], default: 'horizontal' },
                 showLabels: { label: 'Show Labels', type: 'checkbox', default: true },
             },
         };

@@ -199,7 +199,7 @@ func (s *PreviewService) fillTextContent(props map[string]any) string {
 }
 
 func (s *PreviewService) fillClockContent(props map[string]any) string {
-	format := GetPropString(props, "format", "YYYY-MM-DD HH:mm")
+	layout := GetPropString(props, "layout", "digital_large")
 	tz := GetPropString(props, "timezone", "")
 
 	loc := time.Now().Location()
@@ -208,45 +208,126 @@ func (s *PreviewService) fillClockContent(props map[string]any) string {
 			loc = l
 		}
 	}
+	now := time.Now().In(loc)
+
+	switch layout {
+	case "digital_with_seconds":
+		return now.Format("15:04:05")
+	case "digital_with_date":
+		return now.Format("15:04") + "\n" + formatGermanDate(now)
+	case "date_only":
+		return now.Format("02.01.2006")
+	case "full":
+		return formatGermanDate(now) + " — " + now.Format("15:04") + " Uhr"
+	case "custom":
+		template := GetPropString(props, "customTemplate", "%HH%:%MM%")
+		return applyClockPlaceholders(template, now)
+	default: // digital_large
+		// Also support legacy format property
+		format := GetPropString(props, "format", "")
+		if format != "" && format != "HH:mm" {
+			r := strings.NewReplacer(
+				"YYYY", "2006", "MM", "01", "DD", "02",
+				"HH", "15", "mm", "04", "ss", "05",
+			)
+			return now.Format(r.Replace(format))
+		}
+		return now.Format("15:04")
+	}
+}
+
+func formatGermanDate(t time.Time) string {
+	weekdays := []string{"Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"}
+	months := []string{"", "Januar", "Februar", "März", "April", "Mai", "Juni",
+		"Juli", "August", "September", "Oktober", "November", "Dezember"}
+	return fmt.Sprintf("%s, %d. %s %d", weekdays[t.Weekday()], t.Day(), months[t.Month()], t.Year())
+}
+
+func applyClockPlaceholders(template string, t time.Time) string {
+	weekdays := []string{"Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"}
+	weekdaysShort := []string{"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"}
+	months := []string{"", "Januar", "Februar", "März", "April", "Mai", "Juni",
+		"Juli", "August", "September", "Oktober", "November", "Dezember"}
+
+	h12 := t.Hour() % 12
+	if h12 == 0 {
+		h12 = 12
+	}
+	ampm := "AM"
+	if t.Hour() >= 12 {
+		ampm = "PM"
+	}
 
 	r := strings.NewReplacer(
-		"YYYY", "2006",
-		"MM", "01",
-		"DD", "02",
-		"HH", "15",
-		"mm", "04",
-		"ss", "05",
+		"%HH%", fmt.Sprintf("%02d", t.Hour()),
+		"%hh%", fmt.Sprintf("%02d", h12),
+		"%MM%", fmt.Sprintf("%02d", t.Minute()),
+		"%SS%", fmt.Sprintf("%02d", t.Second()),
+		"%dd%", fmt.Sprintf("%02d", t.Day()),
+		"%mm%", fmt.Sprintf("%02d", int(t.Month())),
+		"%yyyy%", fmt.Sprintf("%d", t.Year()),
+		"%WEEKDAY%", weekdays[t.Weekday()],
+		"%WEEKDAY_SHORT%", weekdaysShort[t.Weekday()],
+		"%MONTH_NAME%", months[t.Month()],
+		"%AMPM%", ampm,
 	)
-	goFmt := r.Replace(format)
-	return time.Now().In(loc).Format(goFmt)
+	return r.Replace(template)
 }
 
 func (s *PreviewService) fillWeatherContent(props map[string]any) string {
 	lat := GetPropString(props, "latitude", "52.52")
 	lon := GetPropString(props, "longitude", "13.41")
-	style := GetPropString(props, "style", "compact")
+	layout := GetPropString(props, "layout", "")
+	// Backward compat: fall back to "style" if no layout set
+	if layout == "" {
+		layout = GetPropString(props, "style", "compact")
+	}
 
 	wdata, err := s.weather.FetchForLocation(lat, lon)
 	if err != nil || wdata == nil {
 		return "No data"
 	}
 
-	switch style {
+	switch layout {
+	case "standard":
+		return fmt.Sprintf("%.0f°C\n%s", wdata.CurrentTemp, wdata.CurrentDesc)
 	case "detailed":
 		return fmt.Sprintf("%.0f°C %s\nHumidity: --%%\nWind: -- km/h", wdata.CurrentTemp, wdata.CurrentDesc)
 	case "minimal":
-		return fmt.Sprintf("%.0f°C", wdata.CurrentTemp)
-	case "icon_only":
-		return wdata.CurrentIcon
+		return fmt.Sprintf("%.0f°", wdata.CurrentTemp)
+	case "custom":
+		template := GetPropString(props, "customTemplate", "%temperature%°C")
+		return applyWeatherPlaceholders(template, wdata)
 	default: // compact
 		return fmt.Sprintf("%.0f°C %s", wdata.CurrentTemp, wdata.CurrentDesc)
 	}
+}
+
+func applyWeatherPlaceholders(template string, data *WeatherData) string {
+	tempMin, tempMax := "--", "--"
+	desc := data.CurrentDesc
+	if len(data.Daily) > 0 {
+		tempMin = fmt.Sprintf("%.0f", data.Daily[0].Min)
+		tempMax = fmt.Sprintf("%.0f", data.Daily[0].Max)
+	}
+	r := strings.NewReplacer(
+		"%temperature%", fmt.Sprintf("%.0f", data.CurrentTemp),
+		"%feels_like%", fmt.Sprintf("%.0f", data.CurrentTemp),
+		"%description%", desc,
+		"%humidity%", "--",
+		"%wind_speed%", "--",
+		"%icon%", data.CurrentIcon,
+		"%temp_min%", tempMin,
+		"%temp_max%", tempMax,
+	)
+	return r.Replace(template)
 }
 
 func (s *PreviewService) fillForecastContent(props map[string]any) string {
 	lat := GetPropString(props, "latitude", "52.52")
 	lon := GetPropString(props, "longitude", "13.41")
 	days := GetPropInt(props, "days", 3)
+	layout := GetPropString(props, "layout", "vertical")
 
 	wdata, err := s.weather.FetchForLocation(lat, lon)
 	if err != nil || wdata == nil {
@@ -258,8 +339,24 @@ func (s *PreviewService) fillForecastContent(props map[string]any) string {
 		if i >= days {
 			break
 		}
-		lines = append(lines, fmt.Sprintf("%s: %d-%d°C %s",
-			day.Weekday, int(day.Min), int(day.Max), day.Desc))
+		switch layout {
+		case "compact_row":
+			lines = append(lines, fmt.Sprintf("%s %d/%d°", day.Weekday[:3], int(day.Min), int(day.Max)))
+		case "detailed_list":
+			lines = append(lines, fmt.Sprintf("%s: %d°/%d° %s", day.Weekday, int(day.Min), int(day.Max), day.Desc))
+		case "custom":
+			template := GetPropString(props, "customTemplate", "%day_name%: %temp_min%-%temp_max%°C")
+			r := strings.NewReplacer(
+				"%day_name%", day.Weekday,
+				"%temp_min%", fmt.Sprintf("%d", int(day.Min)),
+				"%temp_max%", fmt.Sprintf("%d", int(day.Max)),
+				"%description%", day.Desc,
+			)
+			lines = append(lines, r.Replace(template))
+		default: // vertical
+			lines = append(lines, fmt.Sprintf("%s: %d-%d°C %s",
+				day.Weekday, int(day.Min), int(day.Max), day.Desc))
+		}
 	}
 	if len(lines) == 0 {
 		return "No forecast data"
@@ -270,13 +367,87 @@ func (s *PreviewService) fillForecastContent(props map[string]any) string {
 func (s *PreviewService) fillCalendarContent(props map[string]any) string {
 	calURL := GetPropString(props, "icalUrl", "")
 	maxEvents := GetPropInt(props, "maxEvents", 5)
-	return fetchCalendarContent(calURL, maxEvents)
+	layout := GetPropString(props, "layout", "list")
+	title := GetPropString(props, "title", "")
+	daysAhead := GetPropInt(props, "daysAhead", 7)
+
+	if calURL == "" {
+		return "No calendar URL"
+	}
+
+	if strings.HasPrefix(calURL, "webcal://") {
+		calURL = "https://" + calURL[len("webcal://"):]
+	}
+
+	if layout == "compact" && maxEvents > 3 {
+		maxEvents = 3
+	}
+
+	client := &defaultHTTPClient
+	resp, err := client.Get(calURL)
+	if err != nil {
+		slog.Error("failed to fetch calendar", "error", err)
+		return "No events"
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "No events"
+	}
+	body, err := readLimitedBody(resp.Body, 1<<20)
+	if err != nil {
+		return "No events"
+	}
+
+	events := parseICalEvents(string(body), maxEvents)
+	if len(events) == 0 {
+		return "No events"
+	}
+
+	// Filter by daysAhead
+	cutoff := time.Now().Add(time.Duration(daysAhead) * 24 * time.Hour)
+	var filtered []calEvent
+	for _, e := range events {
+		if e.Start.Before(cutoff) {
+			filtered = append(filtered, e)
+		}
+	}
+	if len(filtered) == 0 {
+		return "No events"
+	}
+
+	var lines []string
+	if title != "" {
+		lines = append(lines, title)
+	}
+	switch layout {
+	case "agenda":
+		var lastDate string
+		for _, e := range filtered {
+			dateStr := e.Start.Format("02.01.2006")
+			if dateStr != lastDate {
+				lines = append(lines, dateStr)
+				lastDate = dateStr
+			}
+			lines = append(lines, "  "+e.Start.Format("15:04")+" "+e.Summary)
+		}
+	case "compact":
+		for _, e := range filtered {
+			lines = append(lines, e.Start.Format("15:04")+" "+e.Summary)
+		}
+	default: // list
+		for _, e := range filtered {
+			lines = append(lines, fmt.Sprintf("%s - %s", e.Start.Format("2006-01-02 15:04"), e.Summary))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (s *PreviewService) fillNewsContent(props map[string]any) string {
 	feedURL := GetPropString(props, "feedUrl", "")
 	maxItems := GetPropInt(props, "maxItems", 5)
 	title := GetPropString(props, "title", "")
+	layout := GetPropString(props, "layout", "headlines")
+	showDesc := GetPropBool(props, "showDescription", false)
 
 	if feedURL == "" {
 		return "No feed URL"
@@ -291,18 +462,54 @@ func (s *PreviewService) fillNewsContent(props map[string]any) string {
 	if title != "" {
 		lines = append(lines, title)
 	}
-	for _, item := range items {
-		lines = append(lines, "- "+item.Title)
+
+	switch layout {
+	case "summary":
+		for _, item := range items {
+			desc := item.Description
+			if len(desc) > 80 {
+				desc = desc[:80] + "..."
+			}
+			lines = append(lines, "- "+item.Title)
+			if desc != "" {
+				lines = append(lines, "  "+desc)
+			}
+		}
+	case "single":
+		if len(items) > 0 {
+			lines = append(lines, items[0].Title)
+		}
+	default: // headlines
+		for _, item := range items {
+			if showDesc && item.Description != "" {
+				desc := item.Description
+				if len(desc) > 80 {
+					desc = desc[:80] + "..."
+				}
+				lines = append(lines, "- "+item.Title+": "+desc)
+			} else {
+				lines = append(lines, "- "+item.Title)
+			}
+		}
 	}
 	return strings.Join(lines, "\n")
 }
 
 func (s *PreviewService) fillTimerContent(props map[string]any) string {
 	target := GetPropString(props, "targetDate", "2025-01-01 00:00:00")
-	format := GetPropString(props, "format", "D days, HH:MM:SS")
+	layout := GetPropString(props, "layout", "countdown_large")
 	finishedText := GetPropString(props, "finishedText", "Time's up!")
+	label := GetPropString(props, "label", "")
 
-	targetDT, err := time.ParseInLocation("2006-01-02 15:04:05", target, time.Now().Location())
+	// Try multiple date formats
+	var targetDT time.Time
+	var err error
+	for _, fmt := range []string{"2006-01-02 15:04:05", "2006-01-02T15:04:05", "2006-01-02T15:04"} {
+		targetDT, err = time.ParseInLocation(fmt, target, time.Now().Location())
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		return "Invalid timer target"
 	}
@@ -319,10 +526,45 @@ func (s *PreviewService) fillTimerContent(props map[string]any) string {
 	minutes := (remainder % 3600) / 60
 	seconds := remainder % 60
 
-	display := strings.Replace(format, "D", strconv.Itoa(days), 1)
-	display = strings.Replace(display, "HH", fmt.Sprintf("%02d", hours), 1)
-	display = strings.Replace(display, "MM", fmt.Sprintf("%02d", minutes), 1)
-	display = strings.Replace(display, "SS", fmt.Sprintf("%02d", seconds), 1)
+	var display string
+	switch layout {
+	case "countdown_compact":
+		display = fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	case "label_above":
+		display = fmt.Sprintf("%d days %02d:%02d:%02d", days, hours, minutes, seconds)
+		if label != "" {
+			display = label + "\n" + display
+		}
+		return display
+	case "days_only":
+		display = fmt.Sprintf("%d days", days)
+	case "custom":
+		template := GetPropString(props, "customTemplate", "%days% days %hours%:%minutes%:%seconds%")
+		r := strings.NewReplacer(
+			"%days%", strconv.Itoa(days),
+			"%hours%", fmt.Sprintf("%02d", hours),
+			"%minutes%", fmt.Sprintf("%02d", minutes),
+			"%seconds%", fmt.Sprintf("%02d", seconds),
+			"%total_hours%", strconv.Itoa(totalSecs/3600),
+			"%label%", label,
+		)
+		display = r.Replace(template)
+	default: // countdown_large
+		// Also support legacy format property
+		legacyFmt := GetPropString(props, "format", "")
+		if legacyFmt != "" && legacyFmt != "days" {
+			display = strings.Replace(legacyFmt, "D", strconv.Itoa(days), 1)
+			display = strings.Replace(display, "HH", fmt.Sprintf("%02d", hours), 1)
+			display = strings.Replace(display, "MM", fmt.Sprintf("%02d", minutes), 1)
+			display = strings.Replace(display, "SS", fmt.Sprintf("%02d", seconds), 1)
+		} else {
+			display = fmt.Sprintf("%d days %02d:%02d:%02d", days, hours, minutes, seconds)
+		}
+	}
+
+	if label != "" && layout != "label_above" {
+		display = label + ": " + display
+	}
 	return display
 }
 
@@ -338,7 +580,53 @@ func (s *PreviewService) fillCustomContent(props map[string]any) string {
 }
 
 func (s *PreviewService) fillSystemContent(props map[string]any) string {
-	return fetchSystemInfo(props)
+	layout := GetPropString(props, "layout", "vertical")
+	if layout == "custom" {
+		template := GetPropString(props, "customTemplate", "%cpu% | %memory% | %temperature%")
+		return applySystemPlaceholders(template)
+	}
+	// For horizontal layout, join with " | " instead of newlines
+	result := fetchSystemInfo(props)
+	if layout == "horizontal" {
+		result = strings.ReplaceAll(result, "\n", " | ")
+	}
+	return result
+}
+
+func applySystemPlaceholders(template string) string {
+	cpu, mem, temp := "--", "--", "--"
+	if loadData, err := os.ReadFile("/proc/loadavg"); err == nil {
+		parts := strings.Fields(string(loadData))
+		if len(parts) >= 1 {
+			cpu = parts[0]
+		}
+	}
+	if memData, err := os.ReadFile("/proc/meminfo"); err == nil {
+		memLines := strings.Split(string(memData), "\n")
+		var totalKB, availKB int64
+		for _, line := range memLines {
+			if strings.HasPrefix(line, "MemTotal:") {
+				fmt.Sscanf(line, "MemTotal: %d kB", &totalKB)
+			} else if strings.HasPrefix(line, "MemAvailable:") {
+				fmt.Sscanf(line, "MemAvailable: %d kB", &availKB)
+			}
+		}
+		if totalKB > 0 {
+			mem = fmt.Sprintf("%dMB/%dMB", (totalKB-availKB)/1024, totalKB/1024)
+		}
+	}
+	if tempData, err := os.ReadFile("/sys/class/thermal/thermal_zone0/temp"); err == nil {
+		tempStr := strings.TrimSpace(string(tempData))
+		if tempMilliC, err := strconv.ParseInt(tempStr, 10, 64); err == nil {
+			temp = fmt.Sprintf("%.1f°C", float64(tempMilliC)/1000.0)
+		}
+	}
+	r := strings.NewReplacer(
+		"%cpu%", cpu,
+		"%memory%", mem,
+		"%temperature%", temp,
+	)
+	return r.Replace(template)
 }
 
 // renderImageElement renders an image element from v2 properties.
