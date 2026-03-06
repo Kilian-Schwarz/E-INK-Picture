@@ -8,6 +8,8 @@ RUN if ls /tmp/certs/*.pem 1>/dev/null 2>&1; then \
         update-ca-certificates; \
     fi
 
+RUN apk --no-cache add font-noto
+
 WORKDIR /build
 
 COPY go.mod go.sum ./
@@ -32,6 +34,9 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Binaries
 COPY --from=builder /build/server /server
 COPY --from=builder /build/healthcheck /healthcheck
+
+# Fonts for text rendering
+COPY --from=builder /usr/share/fonts/noto /usr/share/fonts/noto
 
 EXPOSE 5000
 

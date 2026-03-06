@@ -564,6 +564,9 @@ func (s *PreviewService) loadFontFace(fontName *string, size int) font.Face {
 	}
 
 	defaultPaths := []string{
+		"/usr/share/fonts/noto/NotoSans-Regular.ttf",
+		"/usr/share/fonts/noto/NotoSans-Bold.ttf",
+		"/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
 		"/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
 		"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 		"/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
@@ -574,6 +577,7 @@ func (s *PreviewService) loadFontFace(fontName *string, size int) font.Face {
 		}
 	}
 
+	slog.Warn("no system fonts found, using basic fallback", "checked_paths", len(defaultPaths))
 	return newBasicFace(size)
 }
 
