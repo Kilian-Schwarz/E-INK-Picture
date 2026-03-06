@@ -21,6 +21,7 @@ import (
 	"e-ink-picture/server/internal/models"
 
 	"golang.org/x/image/font"
+	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
@@ -627,66 +628,10 @@ func (s *PreviewService) loadTTFFace(path string, size int) font.Face {
 
 // --- Basic fallback font ---
 
-type basicFace struct {
-	size    int
-	advance fixed.Int26_6
-	height  fixed.Int26_6
-}
-
-func newBasicFace(size int) font.Face {
-	return &basicFace{
-		size:    size,
-		advance: fixed.I(size * 3 / 5),
-		height:  fixed.I(size),
-	}
-}
-
-func (f *basicFace) Close() error { return nil }
-
-func (f *basicFace) Glyph(dot fixed.Point26_6, r rune) (dr image.Rectangle, mask image.Image, maskp image.Point, advance fixed.Int26_6, ok bool) {
-	x := dot.X.Floor()
-	y := dot.Y.Floor() - f.size + f.size/5
-	w := f.advance.Floor()
-	h := f.size
-
-	dr = image.Rect(x, y, x+w, y+h)
-
-	if r == ' ' {
-		mask = image.NewAlpha(image.Rect(0, 0, w, h))
-	} else {
-		m := image.NewAlpha(image.Rect(0, 0, w, h))
-		for py := 1; py < h-1; py++ {
-			for px := 0; px < w-1; px++ {
-				m.SetAlpha(px, py, color.Alpha{A: 255})
-			}
-		}
-		mask = m
-	}
-	maskp = image.Point{}
-	advance = f.advance
-	ok = true
-	return
-}
-
-func (f *basicFace) GlyphBounds(r rune) (bounds fixed.Rectangle26_6, advance fixed.Int26_6, ok bool) {
-	bounds = fixed.R(0, -f.size, f.advance.Floor(), 0)
-	return bounds, f.advance, true
-}
-
-func (f *basicFace) GlyphAdvance(r rune) (advance fixed.Int26_6, ok bool) {
-	return f.advance, true
-}
-
-func (f *basicFace) Kern(r0, r1 rune) fixed.Int26_6 {
-	return 0
-}
-
-func (f *basicFace) Metrics() font.Metrics {
-	return font.Metrics{
-		Height:  f.height,
-		Ascent:  fixed.I(f.size * 4 / 5),
-		Descent: fixed.I(f.size / 5),
-	}
+// newBasicFace returns Go's built-in 7x13 bitmap font face.
+// It renders actual readable glyphs instead of solid blocks.
+func newBasicFace(_ int) font.Face {
+	return basicfont.Face7x13
 }
 
 // --- Text rendering ---
