@@ -324,6 +324,12 @@ select:focus {
     z-index: 100;
 }
 
+/* Status indicators */
+.status-info { font-size: 12px; }
+.status-ok { color: var(--success); }
+.status-warning { color: var(--warning); }
+.status-error { color: var(--danger); }
+
 /* Modals */
 .modal {
     position: fixed;

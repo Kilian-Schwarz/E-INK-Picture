@@ -32,6 +32,7 @@
             </div>
         </div>
         <div class="topbar-right">
+            <button id="refresh-now-btn" class="btn-secondary" title="Refresh E-Ink Display">Refresh Display</button>
             <button id="preview-btn" class="btn-secondary">Preview</button>
             <button id="save-btn" class="btn-primary">Save</button>
             <button id="settings-btn" title="Settings">Settings</button>
@@ -180,6 +181,7 @@
     <!-- STATUS BAR -->
     <footer class="statusbar">
         <span id="status-selection">No selection</span>
+        <span id="status-client"></span>
         <span id="status-display">800x480 | Waveshare 7.5" V2</span>
     </footer>
 
@@ -198,9 +200,21 @@
                     <div id="display-info" class="display-info"></div>
                 </div>
                 <div class="property-group">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="keep-alive"> Keep Alive Mode
-                    </label>
+                    <label>Auto-Refresh Interval</label>
+                    <select id="refresh-interval">
+                        <option value="300">Every 5 minutes</option>
+                        <option value="900">Every 15 minutes</option>
+                        <option value="1800">Every 30 minutes</option>
+                        <option value="3600" selected>Every hour</option>
+                        <option value="10800">Every 3 hours</option>
+                        <option value="21600">Every 6 hours</option>
+                        <option value="43200">Every 12 hours</option>
+                        <option value="86400">Once a day</option>
+                    </select>
+                </div>
+                <div class="property-group">
+                    <label>Client Status</label>
+                    <div id="client-status" class="status-info">Checking...</div>
                 </div>
             </div>
         </div>

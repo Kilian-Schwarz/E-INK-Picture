@@ -321,5 +321,83 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Initial history state
     HistoryManager.saveState();
 
+    // Refresh Display button
+    var refreshNowBtn = document.getElementById('refresh-now-btn');
+    if (refreshNowBtn) {
+        refreshNowBtn.addEventListener('click', async function() {
+            refreshNowBtn.disabled = true;
+            refreshNowBtn.textContent = 'Refreshing...';
+            try {
+                var res = await fetch('/api/trigger_refresh', { method: 'POST' });
+                if (res.ok) {
+                    refreshNowBtn.textContent = 'Triggered!';
+                    showNotification('Display refresh triggered', 'success');
+                } else {
+                    refreshNowBtn.textContent = 'Error';
+                    showNotification('Failed to trigger refresh', 'error');
+                }
+            } catch (e) {
+                refreshNowBtn.textContent = 'Error';
+                showNotification('Failed to trigger refresh', 'error');
+            }
+            setTimeout(function() {
+                refreshNowBtn.textContent = 'Refresh Display';
+                refreshNowBtn.disabled = false;
+            }, 3000);
+        });
+    }
+
+    // Refresh interval selector
+    var refreshIntervalSelect = document.getElementById('refresh-interval');
+    if (refreshIntervalSelect) {
+        // Set current value from settings
+        try {
+            var settingsResp = await fetch('/settings');
+            var settingsData = await settingsResp.json();
+            if (settingsData.refresh_interval) {
+                refreshIntervalSelect.value = String(settingsData.refresh_interval);
+            }
+        } catch (e) {}
+
+        refreshIntervalSelect.addEventListener('change', async function() {
+            try {
+                await fetch('/update_settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ refresh_interval: parseInt(refreshIntervalSelect.value) }),
+                });
+                showNotification('Refresh interval updated', 'success');
+            } catch (e) {
+                showNotification('Failed to update interval', 'error');
+            }
+        });
+    }
+
+    // Client status polling
+    async function updateClientStatus() {
+        try {
+            var res = await fetch('/api/refresh_status');
+            var data = await res.json();
+            var statusEl = document.getElementById('client-status');
+            var statusBarEl = document.getElementById('status-client');
+            if (data.last_client_refresh) {
+                var ago = Math.round((Date.now() - new Date(data.last_client_refresh).getTime()) / 60000);
+                var text = ago < 1 ? 'Display: just updated' : 'Display: updated ' + ago + 'min ago';
+                if (statusEl) { statusEl.textContent = text; statusEl.className = 'status-info status-ok'; }
+                if (statusBarEl) statusBarEl.textContent = text;
+            } else {
+                if (statusEl) { statusEl.textContent = 'Display: no updates yet'; statusEl.className = 'status-info status-warning'; }
+                if (statusBarEl) statusBarEl.textContent = 'Display: waiting';
+            }
+        } catch (e) {
+            var statusEl2 = document.getElementById('client-status');
+            var statusBarEl2 = document.getElementById('status-client');
+            if (statusEl2) { statusEl2.textContent = 'Client: offline'; statusEl2.className = 'status-info status-error'; }
+            if (statusBarEl2) statusBarEl2.textContent = '';
+        }
+    }
+    updateClientStatus();
+    setInterval(updateClientStatus, 10000);
+
     showNotification('Designer loaded!', 'success');
 });
