@@ -28,6 +28,7 @@ var PropertiesPanel = {
     updateFromCanvas() {
         if (!this.currentObject) return;
         var obj = this.currentObject;
+        var type = obj.get('elementType');
         var x = document.getElementById('prop-x');
         var y = document.getElementById('prop-y');
         var w = document.getElementById('prop-w');
@@ -37,7 +38,14 @@ var PropertiesPanel = {
         if (x) x.value = Math.round(obj.left || 0);
         if (y) y.value = Math.round(obj.top || 0);
         if (w) w.value = Math.round(obj.getScaledWidth ? obj.getScaledWidth() : (obj.width || 0));
-        if (h) h.value = Math.round(obj.getScaledHeight ? obj.getScaledHeight() : (obj.height || 0));
+        // For text elements, show the clip height (bounding box) not the auto-calculated text height
+        if (h) {
+            if (type === 'text' && obj.get('_clipH')) {
+                h.value = Math.round(obj.get('_clipH'));
+            } else {
+                h.value = Math.round(obj.getScaledHeight ? obj.getScaledHeight() : (obj.height || 0));
+            }
+        }
         if (rot) rot.value = Math.round(obj.angle || 0);
 
         // Update status bar
@@ -56,16 +64,33 @@ var PropertiesPanel = {
                 if (!self.currentObject) return;
                 var canvas = CanvasManager.getCanvas();
                 var obj = self.currentObject;
+                var type = obj.get('elementType');
 
                 if (id === 'prop-x') obj.set('left', parseFloat(el.value));
                 if (id === 'prop-y') obj.set('top', parseFloat(el.value));
                 if (id === 'prop-w') {
-                    var scaleX = parseFloat(el.value) / obj.width;
-                    obj.set('scaleX', scaleX);
+                    var newW = parseFloat(el.value);
+                    if (type === 'text') {
+                        obj.set('width', newW);
+                        if (obj.clipPath) {
+                            obj.clipPath.set({ width: newW, left: -newW / 2 });
+                        }
+                    } else {
+                        var scaleX = newW / obj.width;
+                        obj.set('scaleX', scaleX);
+                    }
                 }
                 if (id === 'prop-h') {
-                    var scaleY = parseFloat(el.value) / obj.height;
-                    obj.set('scaleY', scaleY);
+                    var newH = parseFloat(el.value);
+                    if (type === 'text') {
+                        obj.set('_clipH', newH);
+                        if (obj.clipPath) {
+                            obj.clipPath.set({ height: newH, top: -newH / 2 });
+                        }
+                    } else {
+                        var scaleY = newH / obj.height;
+                        obj.set('scaleY', scaleY);
+                    }
                 }
                 if (id === 'prop-rotation') obj.set('angle', parseFloat(el.value));
 

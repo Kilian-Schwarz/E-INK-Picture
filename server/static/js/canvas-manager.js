@@ -140,12 +140,23 @@ const CanvasManager = {
                     var tSy = obj.scaleY || 1;
                     if (tSx !== 1 || tSy !== 1) {
                         var newWidth = Math.round(obj.width * tSx);
+                        var newClipH = Math.round((obj.get('_clipH') || obj.height || 60) * tSy);
                         // Do NOT scale fontSize — keep it independent of widget size
                         obj.set({
                             width: newWidth,
                             scaleX: 1,
                             scaleY: 1,
                         });
+                        obj.set('_clipH', newClipH);
+                        // Update clipPath for overflow clipping
+                        if (obj.clipPath) {
+                            obj.clipPath.set({
+                                width: newWidth,
+                                height: newClipH,
+                                left: -newWidth / 2,
+                                top: -newClipH / 2,
+                            });
+                        }
                         obj.setCoords();
                     }
                 }
