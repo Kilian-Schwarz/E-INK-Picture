@@ -378,13 +378,37 @@ func (s *PreviewService) renderImageElement(img *image.RGBA, x, y, w, h int, pro
 	s.renderImageRGBA(img, x, y, w, h, sd)
 }
 
-// renderShapeElement renders a shape element.
+// renderShapeElement renders a shape element with fill and stroke.
 func (s *PreviewService) renderShapeElement(img *image.RGBA, x, y, w, h int, props map[string]any, defaultColor color.RGBA) {
+	// Read fill color: try "fill" (v2 frontend), then "fillColor" (legacy)
 	fillColor := defaultColor
-	if c := GetPropString(props, "fillColor", ""); c != "" {
+	if c := GetPropString(props, "fill", ""); c != "" && c != "transparent" {
+		fillColor = parseHexColor(c)
+	} else if c := GetPropString(props, "fillColor", ""); c != "" && c != "transparent" {
 		fillColor = parseHexColor(c)
 	}
 	s.drawFilledRectRGBA(img, x, y, w, h, fillColor)
+
+	// Stroke
+	strokeColor := GetPropString(props, "stroke", "")
+	strokeWidth := GetPropInt(props, "strokeWidth", 0)
+	if strokeColor != "" && strokeColor != "transparent" && strokeWidth > 0 {
+		sc := parseHexColor(strokeColor)
+		s.drawStrokeRectRGBA(img, x, y, w, h, strokeWidth, sc)
+	}
+}
+
+// drawStrokeRectRGBA draws a rectangular stroke outline.
+func (s *PreviewService) drawStrokeRectRGBA(img *image.RGBA, x, y, w, h, strokeWidth int, c color.RGBA) {
+	uni := image.NewUniform(c)
+	// Top edge
+	draw.Draw(img, image.Rect(x, y, x+w, y+strokeWidth).Intersect(img.Bounds()), uni, image.Point{}, draw.Src)
+	// Bottom edge
+	draw.Draw(img, image.Rect(x, y+h-strokeWidth, x+w, y+h).Intersect(img.Bounds()), uni, image.Point{}, draw.Src)
+	// Left edge
+	draw.Draw(img, image.Rect(x, y, x+strokeWidth, y+h).Intersect(img.Bounds()), uni, image.Point{}, draw.Src)
+	// Right edge
+	draw.Draw(img, image.Rect(x+w-strokeWidth, y, x+w, y+h).Intersect(img.Bounds()), uni, image.Point{}, draw.Src)
 }
 
 // resolveTextColor parses a hex color from style data, defaulting to black.
