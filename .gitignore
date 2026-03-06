@@ -22,11 +22,15 @@ client/.env
 server/certs/*.pem
 server/certs/*.crt
 !server/certs/.gitkeep
+client/certs/*.pem
+client/certs/*.crt
+!client/certs/.gitkeep
 
 # Claude local config
 CLAUDE.local.md
 
 # Data (user content, not tracked)
+data/settings.json
 data/designs/*.json
 data/uploaded_images/*
 data/fonts/*
