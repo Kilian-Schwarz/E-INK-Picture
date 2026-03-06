@@ -19,6 +19,10 @@ services:
       - TZ=${TZ:-Europe/Berlin}
     user: "${UID:-1000}:${GID:-1000}"
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 128M
     depends_on:
       client:
         condition: service_started
@@ -35,8 +39,9 @@ services:
       dockerfile: Dockerfile
     environment:
       - EINK_SERVER_URL=http://server:5000
-      - EINK_REFRESH_INTERVAL=${EINK_REFRESH_INTERVAL:-300}
-      - EINK_CLIENT_PORT=8081
+      - EINK_DISPLAY_DRIVER=${EINK_DISPLAY_DRIVER:-epd7in3e}
+      - EINK_REFRESH_INTERVAL=${EINK_REFRESH_INTERVAL:-3600}
+      - EINK_POLL_INTERVAL=${EINK_POLL_INTERVAL:-30}
       - EINK_LOG_LEVEL=${EINK_LOG_LEVEL:-INFO}
       - TZ=${TZ:-Europe/Berlin}
     devices:
@@ -48,3 +53,7 @@ services:
       - /dev/gpiochip2:/dev/gpiochip2
     privileged: true
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 64M
