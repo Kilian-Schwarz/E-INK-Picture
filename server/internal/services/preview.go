@@ -22,6 +22,7 @@ import (
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
+	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
@@ -191,6 +192,9 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 // --- Content filling methods for v2 elements ---
 
 func (s *PreviewService) fillTextContent(props map[string]any) string {
+	if t := GetPropString(props, "text", ""); t != "" {
+		return t
+	}
 	return GetPropString(props, "content", "")
 }
 
@@ -339,7 +343,10 @@ func (s *PreviewService) fillSystemContent(props map[string]any) string {
 
 // renderImageElement renders an image element from v2 properties.
 func (s *PreviewService) renderImageElement(img *image.RGBA, x, y, w, h int, props map[string]any) {
-	src := GetPropString(props, "src", "")
+	src := GetPropString(props, "image", "")
+	if src == "" {
+		src = GetPropString(props, "src", "")
+	}
 	if src == "" {
 		return
 	}
@@ -578,8 +585,54 @@ func (s *PreviewService) loadFontFace(fontName *string, size int) font.Face {
 		}
 	}
 
-	slog.Warn("no system fonts found, using basic fallback", "checked_paths", len(defaultPaths))
+	// Go built-in vector font (scales properly to any size)
+	if face := s.loadGoFont(size); face != nil {
+		return face
+	}
+
+	slog.Warn("no fonts available, using basic fallback", "checked_paths", len(defaultPaths))
 	return newBasicFace(size)
+}
+
+// loadGoFont returns Go's built-in regular font at the given size.
+func (s *PreviewService) loadGoFont(size int) font.Face {
+	key := fontCacheKey{path: "__goregular__", size: size}
+
+	s.fontMu.RLock()
+	if f, ok := s.fontCache[key]; ok {
+		s.fontMu.RUnlock()
+		return f
+	}
+	s.fontMu.RUnlock()
+
+	f, err := opentype.Parse(goregular.TTF)
+	if err != nil {
+		slog.Error("failed to parse Go built-in font", "error", err)
+		return nil
+	}
+
+	face, err := opentype.NewFace(f, &opentype.FaceOptions{
+		Size:    float64(size),
+		DPI:     72,
+		Hinting: font.HintingFull,
+	})
+	if err != nil {
+		slog.Error("failed to create Go font face", "error", err)
+		return nil
+	}
+
+	s.fontMu.Lock()
+	if len(s.fontCache) >= maxFontCacheEntries {
+		for k := range s.fontCache {
+			delete(s.fontCache, k)
+			break
+		}
+	}
+	s.fontCache[key] = face
+	s.fontMu.Unlock()
+
+	slog.Info("using Go built-in font", "size", size)
+	return face
 }
 
 // loadTTFFace loads a TrueType font file and returns a font.Face, using cache.

@@ -63,9 +63,9 @@ func sanitize(name string) (string, error) {
 func (s *ImageService) ListImages() ([]models.FileInfo, error) {
 	entries, err := os.ReadDir(s.imagesDir)
 	if err != nil {
-		return nil, err
+		return []models.FileInfo{}, nil
 	}
-	var result []models.FileInfo
+	result := []models.FileInfo{}
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -154,9 +154,9 @@ func (s *ImageService) DeleteImage(name string) error {
 func (s *ImageService) ListFonts() ([]models.FileInfo, error) {
 	entries, err := os.ReadDir(s.fontsDir)
 	if err != nil {
-		return nil, err
+		return []models.FileInfo{}, nil
 	}
-	var result []models.FileInfo
+	result := []models.FileInfo{}
 	for _, e := range entries {
 		if e.IsDir() {
 			continue

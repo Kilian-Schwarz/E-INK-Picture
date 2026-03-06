@@ -8,7 +8,10 @@ RUN if ls /tmp/certs/*.pem 1>/dev/null 2>&1; then \
         update-ca-certificates; \
     fi
 
-RUN apk --no-cache add font-noto
+RUN apk --no-cache add fontconfig font-noto 2>/dev/null || \
+    apk --no-cache add font-noto-sans 2>/dev/null || \
+    apk --no-cache add ttf-dejavu 2>/dev/null || \
+    echo "INFO: No system fonts installed, using Go built-in font"
 
 WORKDIR /build
 
@@ -35,8 +38,8 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /build/server /server
 COPY --from=builder /build/healthcheck /healthcheck
 
-# Fonts for text rendering
-COPY --from=builder /usr/share/fonts/noto /usr/share/fonts/noto
+# Fonts for text rendering (Go built-in font used as fallback if none available)
+COPY --from=builder /usr/share/fonts/ /usr/share/fonts/
 
 EXPOSE 5000
 
