@@ -70,7 +70,7 @@ def prepare_image_for_display(img: Image.Image, display_config: dict) -> Image.I
 
         palette_img = Image.new("P", (1, 1))
         palette_img.putpalette(palette_colors)
-        return img.quantize(colors=len(colors), palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
+        return img.convert("RGB").quantize(colors=len(colors), palette=palette_img, dither=Image.Dither.FLOYDSTEINBERG)
 
 
 class RefreshHandler(BaseHTTPRequestHandler):
