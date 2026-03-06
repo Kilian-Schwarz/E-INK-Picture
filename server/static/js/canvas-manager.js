@@ -96,7 +96,7 @@ const CanvasManager = {
             if (obj) {
                 var type = obj.get('elementType');
 
-                // For widget groups: absorb scale into dimensions, re-render text
+                // For widget groups: absorb scale into dimensions, keep text fontSize unchanged
                 if (type && type.startsWith('widget_') && obj.type === 'group') {
                     var sx = obj.scaleX || 1;
                     var sy = obj.scaleY || 1;
@@ -110,6 +110,7 @@ const CanvasManager = {
                             bgObj.set({ width: newW, height: newH, scaleX: 1, scaleY: 1 });
                         }
                         if (labelObj) {
+                            // Keep fontSize unchanged — only resize the text box
                             labelObj.set({
                                 width: newW - 16,
                                 left: -newW / 2 + 8,
@@ -133,20 +134,35 @@ const CanvasManager = {
                     }
                 }
 
-                // For text: absorb scaleY into fontSize, scaleX into width
+                // For text: absorb scale into width/height, never distort font
                 if (type === 'text' && (obj.type === 'textbox' || obj.type === 'i-text' || obj.type === 'text')) {
                     var tSx = obj.scaleX || 1;
                     var tSy = obj.scaleY || 1;
                     if (tSx !== 1 || tSy !== 1) {
-                        var newFontSize = Math.round(obj.fontSize * tSy);
                         var newWidth = Math.round(obj.width * tSx);
+                        // Do NOT scale fontSize — keep it independent of widget size
                         obj.set({
-                            fontSize: newFontSize,
                             width: newWidth,
                             scaleX: 1,
                             scaleY: 1,
                         });
                         obj.setCoords();
+                    }
+                }
+
+                // For images: handle aspect ratio lock
+                if (type === 'image' && obj.type === 'image') {
+                    var data = obj.get('elementData') || {};
+                    var props = data.properties || {};
+                    if (props.resizeMode !== 'free') {
+                        // Maintain aspect ratio from the latest scale
+                        var imgSx = obj.scaleX || 1;
+                        var imgSy = obj.scaleY || 1;
+                        if (Math.abs(imgSx - imgSy) > 0.001) {
+                            var avgScale = Math.max(imgSx, imgSy);
+                            obj.set({ scaleX: avgScale, scaleY: avgScale });
+                            obj.setCoords();
+                        }
                     }
                 }
             }
@@ -164,16 +180,50 @@ const CanvasManager = {
         this.canvas.on('object:rotating', () => {
             PropertiesPanel.updateFromCanvas();
         });
+
+        // Live preview: debounced update on any canvas change
+        var livePreviewTimeout = null;
+        var triggerLivePreview = () => {
+            if (livePreviewTimeout) clearTimeout(livePreviewTimeout);
+            livePreviewTimeout = setTimeout(() => {
+                if (typeof LivePreview !== 'undefined' && LivePreview.enabled) {
+                    LivePreview.update();
+                }
+            }, 300);
+        };
+        this.canvas.on('object:modified', triggerLivePreview);
+        this.canvas.on('object:added', triggerLivePreview);
+        this.canvas.on('object:removed', triggerLivePreview);
     },
 
     setupGrid() {
+        // Restore grid state from localStorage
+        var savedGrid = localStorage.getItem('eink_grid_enabled');
+        var savedGridSize = localStorage.getItem('eink_grid_size');
+        if (savedGrid === 'true') this.gridEnabled = true;
+        if (savedGridSize) this.GRID_SIZE = parseInt(savedGridSize) || 10;
+
         const toggle = document.getElementById('grid-toggle');
         if (toggle) {
+            toggle.checked = this.gridEnabled;
             toggle.addEventListener('change', () => {
                 this.gridEnabled = toggle.checked;
+                localStorage.setItem('eink_grid_enabled', this.gridEnabled);
                 this.renderGrid();
             });
         }
+
+        // Update toolbar grid button state
+        var gridBtn = document.getElementById('grid-toggle-btn');
+        if (gridBtn && this.gridEnabled) gridBtn.classList.add('active');
+
+        if (this.gridEnabled) this.renderGrid();
+    },
+
+    setGridSize(size) {
+        this.GRID_SIZE = Math.max(5, Math.min(100, size));
+        localStorage.setItem('eink_grid_size', this.GRID_SIZE);
+        if (this.gridEnabled) this.renderGrid();
     },
 
     renderGrid() {

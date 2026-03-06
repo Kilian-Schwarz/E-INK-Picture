@@ -67,28 +67,38 @@ var Storage = {
         var canvas = CanvasManager.getCanvas();
         var elements = [];
 
-        canvas.getObjects().forEach(function(obj, idx) {
+        var zIdx = 0;
+        canvas.getObjects().forEach(function(obj) {
             // Skip grid lines
             if (obj.isGridLine) return;
 
             var data = obj.get('elementData') || {};
             var type = obj.get('elementType') || 'unknown';
 
+            var w = Math.round(obj.getScaledWidth ? obj.getScaledWidth() : (obj.width || 0));
+            var h = Math.round(obj.getScaledHeight ? obj.getScaledHeight() : (obj.height || 0));
+
+            // For text elements, use the clipPath height if available for consistent bounding box
+            if (type === 'text' && obj.get('_clipH')) {
+                h = Math.round(obj.get('_clipH'));
+            }
+
             elements.push({
-                id: obj.get('elementId') || 'elem_' + idx,
+                id: obj.get('elementId') || 'elem_' + zIdx,
                 type: type,
                 x: Math.round(obj.left || 0),
                 y: Math.round(obj.top || 0),
-                width: Math.round(obj.getScaledWidth ? obj.getScaledWidth() : (obj.width || 0)),
-                height: Math.round(obj.getScaledHeight ? obj.getScaledHeight() : (obj.height || 0)),
+                width: w,
+                height: h,
                 rotation: Math.round(obj.angle || 0),
-                zIndex: idx,
+                zIndex: zIdx,
                 locked: obj.lockMovementX || false,
                 visible: obj.visible !== false,
                 groupId: null,
                 properties: Storage.extractProperties(type, obj, data.properties || {}),
                 conditions: [],
             });
+            zIdx++;
         });
 
         return {
@@ -104,13 +114,12 @@ var Storage = {
     },
 
     extractProperties(type, obj, savedProps) {
-        var scaleY = obj.scaleY || 1;
         switch (type) {
             case 'text':
                 return {
                     text: obj.text || '',
                     fontFamily: obj.fontFamily || 'Arial',
-                    fontSize: Math.round((obj.fontSize || 24) * scaleY),
+                    fontSize: obj.fontSize || 24,
                     fontWeight: obj.fontWeight || 'normal',
                     fontStyle: obj.fontStyle || 'normal',
                     color: obj.fill || '#000000',
@@ -121,8 +130,8 @@ var Storage = {
                     fill: obj.fill || '#000000',
                     stroke: obj.stroke || '#000000',
                     strokeWidth: obj.strokeWidth || 1,
-                    rx: Math.round((obj.rx || 0) * Math.min(obj.scaleX || 1, scaleY)),
-                    ry: Math.round((obj.ry || 0) * Math.min(obj.scaleX || 1, scaleY)),
+                    rx: obj.rx || 0,
+                    ry: obj.ry || 0,
                 };
             case 'image':
                 return {
@@ -135,12 +144,8 @@ var Storage = {
                     cropH: savedProps.cropH,
                 };
             default: {
-                // Widgets: scale fontSize if present
-                var result = Object.assign({}, savedProps);
-                if (result.fontSize && scaleY !== 1) {
-                    result.fontSize = Math.round(result.fontSize * scaleY);
-                }
-                return result;
+                // Widgets: keep properties as-is (fontSize is already independent)
+                return Object.assign({}, savedProps);
             }
         }
     },

@@ -309,35 +309,25 @@ var WidgetPreview = {
             .replace(/%AMPM%/g, d.getHours() >= 12 ? 'PM' : 'AM');
     },
 
-    // Get appropriate font size for widget type
+    // Get font size from widget properties, with sensible defaults
     getPreviewFontSize(type, props) {
         props = props || {};
-        var layout = props.layout || this.getDefaultLayout(type);
-        switch (type) {
-            case 'widget_clock':
-                if (layout === 'digital_large') return Math.min(props.fontSize || 48, 48);
-                if (layout === 'full' || layout === 'digital_with_date') return 18;
-                return Math.min(props.fontSize || 36, 36);
-            case 'widget_weather':
-                if (layout === 'minimal') return 36;
-                return 18;
-            case 'widget_forecast':
-                return 13;
-            case 'widget_calendar':
-                return 13;
-            case 'widget_news':
-                if (layout === 'single') return 24;
-                return 13;
-            case 'widget_timer':
-                if (layout === 'countdown_large') return 24;
-                return 18;
-            case 'widget_custom':
-                return Math.min(props.fontSize || 24, 24);
-            case 'widget_system':
-                return 12;
-            default:
-                return 14;
+        // Use the user-configured fontSize if available
+        if (props.fontSize && props.fontSize > 0) {
+            return props.fontSize;
         }
+        // Fallback defaults per widget type
+        var defaults = {
+            widget_clock: 48,
+            widget_weather: 18,
+            widget_forecast: 13,
+            widget_calendar: 13,
+            widget_news: 13,
+            widget_timer: 24,
+            widget_custom: 24,
+            widget_system: 12,
+        };
+        return defaults[type] || 14;
     },
 
     // Update widget preview when properties change

@@ -131,10 +131,27 @@ var Toolbar = {
         LayersPanel.refresh();
     },
 
-    preview() {
-        var designName = document.getElementById('design-select') ? document.getElementById('design-select').value : '';
-        var url = designName ? '/preview?name=' + encodeURIComponent(designName) : '/preview';
-        document.getElementById('preview-image').src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+    async preview() {
+        var previewImg = document.getElementById('preview-image');
+        previewImg.src = '';
         document.getElementById('preview-modal').style.display = 'flex';
+
+        try {
+            var designData = Storage.canvasToDesignJSON();
+            designData.name = Storage.currentDesignName || 'preview';
+            var resp = await fetch('/api/preview_live', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(designData),
+            });
+            if (!resp.ok) throw new Error('Preview failed');
+            var blob = await resp.blob();
+            previewImg.src = URL.createObjectURL(blob);
+        } catch (e) {
+            console.error('Live preview failed, falling back to saved:', e);
+            var designName = document.getElementById('design-select') ? document.getElementById('design-select').value : '';
+            var url = designName ? '/preview?name=' + encodeURIComponent(designName) : '/preview';
+            previewImg.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+        }
     }
 };

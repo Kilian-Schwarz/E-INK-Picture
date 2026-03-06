@@ -1,4 +1,15 @@
 // Main Designer Entry Point
+
+// Live Preview: renders the current canvas state via the server
+var LivePreview = {
+    enabled: false,
+    _timeout: null,
+
+    update() {
+        // Called by debounced canvas events — no-op unless mini preview is shown
+    }
+};
+
 var MediaModal = {
     callback: null,
     selectedMedia: null,

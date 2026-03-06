@@ -284,17 +284,109 @@ var PropertiesPanel = {
             });
         });
 
-        // Crop button
+        // Crop button — visual crop with draggable selection
         var cropBtn = document.getElementById('open-crop-btn');
         if (cropBtn) {
             cropBtn.addEventListener('click', function() {
                 var data = obj.get('elementData') || {};
                 var p = data.properties || {};
+                var imgName = p.image;
+                var cropModal = document.getElementById('crop-modal');
+                var previewImg = document.getElementById('crop-preview-img');
+                var selection = document.getElementById('crop-selection');
+
                 document.getElementById('crop-x').value = p.cropX || 0;
                 document.getElementById('crop-y').value = p.cropY || 0;
                 document.getElementById('crop-w').value = p.cropW || 0;
                 document.getElementById('crop-h').value = p.cropH || 0;
-                document.getElementById('crop-modal').style.display = 'flex';
+
+                // Load image for visual crop
+                if (imgName) {
+                    previewImg.src = '/image/' + imgName;
+                    previewImg.onload = function() {
+                        var scale = previewImg.width / previewImg.naturalWidth;
+                        var cx = (p.cropX || 0) * scale;
+                        var cy = (p.cropY || 0) * scale;
+                        var cw = (p.cropW || previewImg.naturalWidth) * scale;
+                        var ch = (p.cropH || previewImg.naturalHeight) * scale;
+                        selection.style.display = 'block';
+                        selection.style.left = cx + 'px';
+                        selection.style.top = cy + 'px';
+                        selection.style.width = cw + 'px';
+                        selection.style.height = ch + 'px';
+
+                        // Draggable crop selection
+                        var dragging = false, startX = 0, startY = 0, origL = 0, origT = 0;
+                        var drawing = false, drawStartX = 0, drawStartY = 0;
+                        var container = document.getElementById('crop-preview-container');
+
+                        var moveHandler = function(ev) {
+                            if (dragging) {
+                                var dx = ev.clientX - startX;
+                                var dy = ev.clientY - startY;
+                                var newL = Math.max(0, Math.min(origL + dx, previewImg.width - selection.offsetWidth));
+                                var newT = Math.max(0, Math.min(origT + dy, previewImg.height - selection.offsetHeight));
+                                selection.style.left = newL + 'px';
+                                selection.style.top = newT + 'px';
+                                updateCropInputs(scale);
+                            }
+                            if (drawing) {
+                                var rect = container.getBoundingClientRect();
+                                var curX = Math.max(0, Math.min(ev.clientX - rect.left, previewImg.width));
+                                var curY = Math.max(0, Math.min(ev.clientY - rect.top, previewImg.height));
+                                var x1 = Math.min(drawStartX, curX), y1 = Math.min(drawStartY, curY);
+                                var x2 = Math.max(drawStartX, curX), y2 = Math.max(drawStartY, curY);
+                                selection.style.left = x1 + 'px';
+                                selection.style.top = y1 + 'px';
+                                selection.style.width = (x2 - x1) + 'px';
+                                selection.style.height = (y2 - y1) + 'px';
+                                selection.style.display = 'block';
+                                updateCropInputs(scale);
+                            }
+                        };
+                        var upHandler = function() {
+                            dragging = false;
+                            drawing = false;
+                        };
+                        selection.onmousedown = function(ev) {
+                            ev.stopPropagation();
+                            dragging = true;
+                            startX = ev.clientX;
+                            startY = ev.clientY;
+                            origL = selection.offsetLeft;
+                            origT = selection.offsetTop;
+                        };
+                        container.onmousedown = function(ev) {
+                            if (ev.target === selection) return;
+                            drawing = true;
+                            var rect = container.getBoundingClientRect();
+                            drawStartX = ev.clientX - rect.left;
+                            drawStartY = ev.clientY - rect.top;
+                        };
+                        document.addEventListener('mousemove', moveHandler);
+                        document.addEventListener('mouseup', upHandler);
+
+                        // Store cleanup for later
+                        cropModal._cleanupDrag = function() {
+                            document.removeEventListener('mousemove', moveHandler);
+                            document.removeEventListener('mouseup', upHandler);
+                            selection.onmousedown = null;
+                            container.onmousedown = null;
+                        };
+                    };
+                } else {
+                    previewImg.src = '';
+                    selection.style.display = 'none';
+                }
+
+                function updateCropInputs(scale) {
+                    document.getElementById('crop-x').value = Math.round(selection.offsetLeft / scale);
+                    document.getElementById('crop-y').value = Math.round(selection.offsetTop / scale);
+                    document.getElementById('crop-w').value = Math.round(selection.offsetWidth / scale);
+                    document.getElementById('crop-h').value = Math.round(selection.offsetHeight / scale);
+                }
+
+                cropModal.style.display = 'flex';
 
                 var applyBtn = document.getElementById('crop-apply-btn');
                 var resetBtn = document.getElementById('crop-reset-btn');
@@ -319,21 +411,22 @@ var PropertiesPanel = {
                         delete d.properties.cropH;
                     }
                     obj.set('elementData', d);
-                    document.getElementById('crop-modal').style.display = 'none';
+                    closeCropModal();
                     HistoryManager.saveState();
-                    cleanup();
                 };
                 var resetHandler = function() {
                     document.getElementById('crop-x').value = 0;
                     document.getElementById('crop-y').value = 0;
                     document.getElementById('crop-w').value = 0;
                     document.getElementById('crop-h').value = 0;
+                    selection.style.display = 'none';
                 };
                 var cancelHandler = function() {
-                    document.getElementById('crop-modal').style.display = 'none';
-                    cleanup();
+                    closeCropModal();
                 };
-                var cleanup = function() {
+                var closeCropModal = function() {
+                    cropModal.style.display = 'none';
+                    if (cropModal._cleanupDrag) cropModal._cleanupDrag();
                     applyBtn.removeEventListener('click', applyHandler);
                     resetBtn.removeEventListener('click', resetHandler);
                     cancelBtn.removeEventListener('click', cancelHandler);
@@ -608,11 +701,13 @@ var PropertiesPanel = {
             widget_weather: {
                 latitude: { label: 'Latitude', type: 'number', default: 52.3759, min: -90, max: 90 },
                 longitude: { label: 'Longitude', type: 'number', default: 9.7320, min: -180, max: 180 },
+                fontSize: { label: 'Font Size', type: 'number', default: 18, min: 8, max: 200 },
             },
             widget_forecast: {
                 latitude: { label: 'Latitude', type: 'number', default: 52.3759, min: -90, max: 90 },
                 longitude: { label: 'Longitude', type: 'number', default: 9.7320, min: -180, max: 180 },
                 days: { label: 'Days', type: 'number', default: 3, min: 1, max: 7 },
+                fontSize: { label: 'Font Size', type: 'number', default: 13, min: 8, max: 200 },
             },
             widget_calendar: {
                 icalUrl: { label: 'iCal URL', type: 'text', default: '' },
@@ -620,17 +715,20 @@ var PropertiesPanel = {
                 showTime: { label: 'Show Time', type: 'checkbox', default: true },
                 daysAhead: { label: 'Days Ahead', type: 'number', default: 7, min: 1, max: 30 },
                 title: { label: 'Title', type: 'text', default: 'Events' },
+                fontSize: { label: 'Font Size', type: 'number', default: 13, min: 8, max: 200 },
             },
             widget_news: {
                 feedUrl: { label: 'RSS Feed URL', type: 'text', default: '' },
                 maxItems: { label: 'Max Items', type: 'number', default: 3, min: 1, max: 10 },
                 showDescription: { label: 'Show Description', type: 'checkbox', default: false },
                 title: { label: 'Title', type: 'text', default: 'News' },
+                fontSize: { label: 'Font Size', type: 'number', default: 13, min: 8, max: 200 },
             },
             widget_timer: {
                 targetDate: { label: 'Target Date', type: 'text', default: '2026-12-25T00:00:00' },
                 label: { label: 'Label', type: 'text', default: 'Countdown' },
                 finishedText: { label: 'Finished Text', type: 'text', default: "Time's up!" },
+                fontSize: { label: 'Font Size', type: 'number', default: 24, min: 8, max: 200 },
             },
             widget_custom: {
                 url: { label: 'API URL', type: 'text', default: '' },
@@ -641,6 +739,7 @@ var PropertiesPanel = {
             },
             widget_system: {
                 showLabels: { label: 'Show Labels', type: 'checkbox', default: true },
+                fontSize: { label: 'Font Size', type: 'number', default: 12, min: 8, max: 200 },
             },
         };
         return defs[type] || {};

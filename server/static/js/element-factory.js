@@ -10,20 +10,30 @@ const ElementFactory = {
     createText(options) {
         options = options || {};
         const id = this.generateId();
-        const text = new fabric.Textbox(options.text || 'Text', {
+        var w = options.width || 200;
+        var h = options.height || 60;
+        var text = new fabric.Textbox(options.text || 'Text', {
             left: options.x || 50,
             top: options.y || 50,
-            width: options.width || 200,
+            width: w,
             fontSize: options.fontSize || 24,
             fontFamily: options.fontFamily || 'Arial',
             fontWeight: options.fontWeight || 'normal',
             fontStyle: options.fontStyle || 'normal',
             fill: options.color || '#000000',
             textAlign: options.textAlign || 'left',
+            clipPath: new fabric.Rect({
+                width: w,
+                height: h,
+                top: -h / 2,
+                left: -w / 2,
+                absolutePositioned: false,
+            }),
         });
         text.set('elementId', id);
         text.set('elementType', 'text');
         text.set('elementData', { type: 'text', properties: options.properties || {} });
+        text.set('_clipH', h);
         return text;
     },
 
@@ -256,11 +266,13 @@ const ElementFactory = {
     fromElement(elem) {
         switch (elem.type) {
             case 'text':
+            case 'i-text':
+            case 'textbox':
                 return this.createText({
                     x: elem.x,
                     y: elem.y,
                     width: elem.width,
-                    height: elem.height,
+                    height: elem.height || 60,
                     text: elem.properties ? elem.properties.text : 'Text',
                     fontSize: elem.properties ? elem.properties.fontSize : 24,
                     fontFamily: elem.properties ? elem.properties.fontFamily : 'Arial',

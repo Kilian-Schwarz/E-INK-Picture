@@ -104,6 +104,7 @@ func main() {
 
 	// Preview
 	mux.HandleFunc("GET /preview", previewH.Preview)
+	mux.HandleFunc("POST /api/preview_live", previewH.PreviewLive)
 
 	// Display
 	mux.HandleFunc("POST /refresh-display", displayH.RefreshDisplay)

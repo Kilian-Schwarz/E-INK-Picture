@@ -262,30 +262,36 @@
     <!-- Crop Modal -->
     <div id="crop-modal" class="modal" style="display:none;">
         <div class="modal-overlay"></div>
-        <div class="modal-content">
+        <div class="modal-content modal-content-lg">
             <div class="modal-header">
                 <h2>Crop Image</h2>
                 <button class="modal-close">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="property-group">
-                    <label>Crop X</label>
-                    <input type="number" id="crop-x" class="prop-input" value="0" min="0">
+                <div id="crop-preview-container" style="position:relative;display:inline-block;margin-bottom:16px;max-width:100%;overflow:hidden;background:#ccc;">
+                    <img id="crop-preview-img" src="" style="max-width:100%;display:block;">
+                    <div id="crop-selection" style="position:absolute;border:2px dashed #89b4fa;background:rgba(137,180,250,0.15);cursor:move;display:none;"></div>
                 </div>
-                <div class="property-group">
-                    <label>Crop Y</label>
-                    <input type="number" id="crop-y" class="prop-input" value="0" min="0">
-                </div>
-                <div class="property-group">
-                    <label>Crop Width</label>
-                    <input type="number" id="crop-w" class="prop-input" value="0" min="0">
-                </div>
-                <div class="property-group">
-                    <label>Crop Height</label>
-                    <input type="number" id="crop-h" class="prop-input" value="0" min="0">
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+                    <div class="property-group" style="flex:1;min-width:80px;">
+                        <label>X</label>
+                        <input type="number" id="crop-x" class="prop-input" value="0" min="0">
+                    </div>
+                    <div class="property-group" style="flex:1;min-width:80px;">
+                        <label>Y</label>
+                        <input type="number" id="crop-y" class="prop-input" value="0" min="0">
+                    </div>
+                    <div class="property-group" style="flex:1;min-width:80px;">
+                        <label>W</label>
+                        <input type="number" id="crop-w" class="prop-input" value="0" min="0">
+                    </div>
+                    <div class="property-group" style="flex:1;min-width:80px;">
+                        <label>H</label>
+                        <input type="number" id="crop-h" class="prop-input" value="0" min="0">
+                    </div>
                 </div>
                 <div class="modal-actions">
-                    <button id="crop-apply-btn" class="btn-primary">Apply Crop</button>
+                    <button id="crop-apply-btn" class="btn-primary">Apply</button>
                     <button id="crop-reset-btn" class="btn-secondary">Reset</button>
                     <button id="crop-cancel-btn" class="btn-secondary">Cancel</button>
                 </div>
