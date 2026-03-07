@@ -31,8 +31,10 @@ func main() {
 	dataDirs := []string{
 		cfg.DataDir + "/designs",
 		cfg.DataDir + "/uploaded_images",
+		cfg.DataDir + "/uploaded_images/thumbs",
 		cfg.DataDir + "/fonts",
 		cfg.DataDir + "/weather_styles",
+		cfg.DataDir + "/designs/history",
 	}
 	for _, dir := range dataDirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -73,12 +75,22 @@ func main() {
 	// Setup router
 	mux := http.NewServeMux()
 
+	// Root redirect to designer
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/designer", http.StatusFound)
+	})
+
 	// Designer UI
 	mux.HandleFunc("GET /designer", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := tmpl.ExecuteTemplate(w, "designer.html", nil); err != nil {
 			http.Error(w, "template error", http.StatusInternalServerError)
 		}
+	})
+
+	// Media page (same as designer — media is integrated as modal/tab)
+	mux.HandleFunc("GET /media", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/designer#media-images", http.StatusFound)
 	})
 
 	// Design endpoints
@@ -90,13 +102,36 @@ func main() {
 	mux.HandleFunc("POST /clone_design", designH.Clone)
 	mux.HandleFunc("POST /delete_design", designH.Delete)
 
-	// Media endpoints
+	// Media endpoints (legacy)
 	mux.HandleFunc("POST /upload_image", mediaH.Upload)
 	mux.HandleFunc("GET /images_all", mediaH.ListImages)
 	mux.HandleFunc("GET /image/{filename}", mediaH.GetImage)
 	mux.HandleFunc("POST /delete_image", mediaH.DeleteImage)
 	mux.HandleFunc("GET /fonts_all", mediaH.ListFonts)
 	mux.HandleFunc("GET /font/{filename}", mediaH.GetFont)
+
+	// Design Management API (new)
+	mux.HandleFunc("GET /api/designs", designH.APIListDesigns)
+	mux.HandleFunc("POST /api/designs", designH.APICreateDesign)
+	mux.HandleFunc("GET /api/designs/active", designH.APIGetActiveDesign)
+	mux.HandleFunc("GET /api/designs/{id}", designH.APIGetDesign)
+	mux.HandleFunc("PUT /api/designs/{id}", designH.APIUpdateDesign)
+	mux.HandleFunc("PATCH /api/designs/{id}", designH.APIPatchDesign)
+	mux.HandleFunc("DELETE /api/designs/{id}", designH.APIDeleteDesign)
+	mux.HandleFunc("POST /api/designs/{id}/activate", designH.APIActivateDesign)
+	mux.HandleFunc("POST /api/designs/{id}/duplicate", designH.APIDuplicateDesign)
+	mux.HandleFunc("GET /api/designs/{id}/history", designH.APIGetHistory)
+	mux.HandleFunc("GET /api/designs/{id}/history/{timestamp}", designH.APIGetHistorySnapshot)
+	mux.HandleFunc("POST /api/designs/{id}/history/{timestamp}/restore", designH.APIRestoreHistorySnapshot)
+
+	// Media Library API (new)
+	mux.HandleFunc("GET /api/media/images", mediaH.APIListImages)
+	mux.HandleFunc("GET /api/media/fonts", mediaH.APIListFonts)
+	mux.HandleFunc("GET /api/media/images/thumb/{filename}", mediaH.APIGetThumb)
+	mux.HandleFunc("POST /api/media/images/upload", mediaH.APIUploadImage)
+	mux.HandleFunc("POST /api/media/fonts/upload", mediaH.APIUploadFont)
+	mux.HandleFunc("DELETE /api/media/images/{filename}", mediaH.APIDeleteImage)
+	mux.HandleFunc("DELETE /api/media/fonts/{filename}", mediaH.APIDeleteFont)
 
 	// Weather endpoints
 	mux.HandleFunc("GET /weather_styles", weatherH.ListStyles)
