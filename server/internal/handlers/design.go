@@ -194,3 +194,268 @@ func (h *DesignHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	jsonResponse(w, http.StatusOK, map[string]string{"message": "Design deleted"})
 }
+
+// --- New Design Management API endpoints ---
+
+// APIListDesigns returns design cards for the dashboard.
+// GET /api/designs
+func (h *DesignHandler) APIListDesigns(w http.ResponseWriter, r *http.Request) {
+	cards, err := h.svc.ListCards()
+	if err != nil {
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]any{
+		"designs": cards,
+	})
+}
+
+// APICreateDesign creates a new design.
+// POST /api/designs
+func (h *DesignHandler) APICreateDesign(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name     string            `json:"name"`
+		Elements []models.Element  `json:"elements"`
+		Canvas   models.CanvasConfig `json:"canvas"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if body.Name == "" {
+		jsonError(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	d, err := h.svc.CreateDesign(body.Name, body.Elements, body.Canvas)
+	if err != nil {
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, d)
+}
+
+// APIGetDesign returns a design by ID.
+// GET /api/designs/{id}
+func (h *DesignHandler) APIGetDesign(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, "Missing design ID", http.StatusBadRequest)
+		return
+	}
+	d, err := h.svc.GetByID(id)
+	if err != nil {
+		if errors.Is(err, services.ErrDesignNotFound) {
+			jsonError(w, "Design not found", http.StatusNotFound)
+			return
+		}
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, d)
+}
+
+// APIUpdateDesign updates a design by ID (full update or partial).
+// PUT /api/designs/{id}
+func (h *DesignHandler) APIUpdateDesign(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, "Missing design ID", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		Name      string              `json:"name"`
+		Elements  []models.Element    `json:"elements"`
+		Canvas    models.CanvasConfig `json:"canvas"`
+		KeepAlive bool                `json:"keep_alive"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	d, err := h.svc.UpdateDesignByID(id, body.Name, body.Elements, body.Canvas, body.KeepAlive)
+	if err != nil {
+		if errors.Is(err, services.ErrDesignNotFound) {
+			jsonError(w, "Design not found", http.StatusNotFound)
+			return
+		}
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, d)
+}
+
+// APIPatchDesign partially updates a design (e.g. rename).
+// PATCH /api/designs/{id}
+func (h *DesignHandler) APIPatchDesign(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, "Missing design ID", http.StatusBadRequest)
+		return
+	}
+
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if body.Name == "" {
+		jsonError(w, "Name is required", http.StatusBadRequest)
+		return
+	}
+
+	d, err := h.svc.RenameDesign(id, body.Name)
+	if err != nil {
+		if errors.Is(err, services.ErrDesignNotFound) {
+			jsonError(w, "Design not found", http.StatusNotFound)
+			return
+		}
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, d)
+}
+
+// APIDeleteDesign deletes a design by ID.
+// DELETE /api/designs/{id}
+func (h *DesignHandler) APIDeleteDesign(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, "Missing design ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.svc.DeleteByID(id); err != nil {
+		if errors.Is(err, services.ErrDesignNotFound) {
+			jsonError(w, "Design not found", http.StatusNotFound)
+			return
+		}
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "Design deleted"})
+}
+
+// APIActivateDesign sets a design as active on the display.
+// POST /api/designs/{id}/activate
+func (h *DesignHandler) APIActivateDesign(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, "Missing design ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.svc.ActivateByID(id); err != nil {
+		if errors.Is(err, services.ErrDesignNotFound) {
+			jsonError(w, "Design not found", http.StatusNotFound)
+			return
+		}
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "Design activated"})
+}
+
+// APIDuplicateDesign creates a copy of a design.
+// POST /api/designs/{id}/duplicate
+func (h *DesignHandler) APIDuplicateDesign(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, "Missing design ID", http.StatusBadRequest)
+		return
+	}
+
+	d, err := h.svc.DuplicateDesign(id)
+	if err != nil {
+		if errors.Is(err, services.ErrDesignNotFound) {
+			jsonError(w, "Design not found", http.StatusNotFound)
+			return
+		}
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, d)
+}
+
+// APIGetActiveDesign returns the currently active design.
+// GET /api/designs/active
+func (h *DesignHandler) APIGetActiveDesign(w http.ResponseWriter, r *http.Request) {
+	d, err := h.svc.GetActiveDesign()
+	if err != nil {
+		if errors.Is(err, services.ErrDesignNotFound) {
+			jsonError(w, "No active design", http.StatusNotFound)
+			return
+		}
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, d)
+}
+
+// APIGetHistory returns history entries for a design.
+// GET /api/designs/{id}/history
+func (h *DesignHandler) APIGetHistory(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		jsonError(w, "Missing design ID", http.StatusBadRequest)
+		return
+	}
+
+	entries, err := h.svc.ListHistory(id)
+	if err != nil {
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, entries)
+}
+
+// APIGetHistorySnapshot returns a specific history snapshot.
+// GET /api/designs/{id}/history/{timestamp}
+func (h *DesignHandler) APIGetHistorySnapshot(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	timestamp := r.PathValue("timestamp")
+
+	if id == "" || timestamp == "" {
+		jsonError(w, "Missing parameters", http.StatusBadRequest)
+		return
+	}
+
+	snap, err := h.svc.GetHistorySnapshot(id, timestamp)
+	if err != nil {
+		if errors.Is(err, services.ErrDesignNotFound) {
+			jsonError(w, "Snapshot not found", http.StatusNotFound)
+			return
+		}
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, snap)
+}
+
+// APIRestoreHistorySnapshot restores a design from a history snapshot.
+// POST /api/designs/{id}/history/{timestamp}/restore
+func (h *DesignHandler) APIRestoreHistorySnapshot(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	timestamp := r.PathValue("timestamp")
+
+	if id == "" || timestamp == "" {
+		jsonError(w, "Missing parameters", http.StatusBadRequest)
+		return
+	}
+
+	d, err := h.svc.RestoreHistorySnapshot(id, timestamp)
+	if err != nil {
+		if errors.Is(err, services.ErrDesignNotFound) {
+			jsonError(w, "Snapshot not found", http.StatusNotFound)
+			return
+		}
+		jsonError(w, "Server error", http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, d)
+}
