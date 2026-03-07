@@ -1,6 +1,8 @@
 package services
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"e-ink-picture/server/internal/models"
@@ -78,6 +81,8 @@ func (s *DesignService) loadDesign(filename string) (*models.DesignV2, error) {
 			return nil, err
 		}
 		d.Filename = filename
+		ensureID(&d)
+		ensureTimestamps(&d)
 		return &d, nil
 	}
 
@@ -477,6 +482,442 @@ func (s *DesignService) EnsureDesignExists() error {
 }
 
 func boolPtr(v bool) *bool { return &v }
+
+// generateID creates a short random hex ID.
+func generateID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}
+
+// filenameToID derives a design ID from its filename.
+func filenameToID(filename string) string {
+	return strings.TrimSuffix(filename, ".json")
+}
+
+// historyDir returns the history directory for a given design ID.
+func (s *DesignService) historyDir(designID string) string {
+	return filepath.Join(s.dataDir, "designs", "history", designID)
+}
+
+const maxSnapshots = 50
+
+// ensureID makes sure a design has an ID (derived from filename).
+func ensureID(d *models.DesignV2) {
+	if d.ID == "" && d.Filename != "" {
+		d.ID = filenameToID(d.Filename)
+	}
+}
+
+// ensureTimestamps sets created/updated timestamps if missing.
+func ensureTimestamps(d *models.DesignV2) {
+	now := time.Now().UTC()
+	if d.CreatedAt.IsZero() {
+		d.CreatedAt = now
+	}
+	if d.UpdatedAt.IsZero() {
+		d.UpdatedAt = now
+	}
+}
+
+// --- ID-based API methods ---
+
+// GetByID finds a design by its ID (derived from filename).
+func (s *DesignService) GetByID(id string) (*models.DesignV2, error) {
+	designs, err := s.loadAll()
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range designs {
+		ensureID(d)
+		if d.ID == id {
+			ensureTimestamps(d)
+			return d, nil
+		}
+	}
+	return nil, ErrDesignNotFound
+}
+
+// ListCards returns dashboard card metadata for all designs.
+func (s *DesignService) ListCards() ([]models.DesignCardMeta, error) {
+	designs, err := s.loadAll()
+	if err != nil {
+		return nil, err
+	}
+	cards := make([]models.DesignCardMeta, 0, len(designs))
+	for _, d := range designs {
+		ensureID(d)
+		ensureTimestamps(d)
+		cards = append(cards, models.DesignCardMeta{
+			ID:        d.ID,
+			Name:      d.Name,
+			Active:    d.Active,
+			CreatedAt: d.CreatedAt,
+			UpdatedAt: d.UpdatedAt,
+			Elements:  len(d.Elements),
+		})
+	}
+	// Sort by UpdatedAt descending (most recently edited first)
+	sort.Slice(cards, func(i, j int) bool {
+		return cards[i].UpdatedAt.After(cards[j].UpdatedAt)
+	})
+	return cards, nil
+}
+
+// CreateDesign creates a new design with a generated ID.
+func (s *DesignService) CreateDesign(name string, elements []models.Element, canvas models.CanvasConfig) (*models.DesignV2, error) {
+	if name == "" {
+		return nil, ErrInvalidDesign
+	}
+
+	now := time.Now().UTC()
+	id := "design_" + now.Format("2006-01-02_15-04-05") + "_" + generateID()[:6]
+	filename := id + ".json"
+
+	if canvas.Width == 0 {
+		canvas.Width = 800
+	}
+	if canvas.Height == 0 {
+		canvas.Height = 480
+	}
+	if canvas.Background == "" {
+		canvas.Background = "#FFFFFF"
+	}
+
+	if elements == nil {
+		elements = []models.Element{}
+	}
+
+	d := &models.DesignV2{
+		ID:        id,
+		Name:      name,
+		Version:   2,
+		Canvas:    canvas,
+		Elements:  elements,
+		Timestamp: now.Format("2006-01-02_15-04-05"),
+		Active:    false,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Filename:  filename,
+	}
+
+	if err := s.saveDesign(d); err != nil {
+		return nil, err
+	}
+
+	return d, nil
+}
+
+// UpdateDesignByID updates a design by its ID. Creates a history snapshot before saving.
+func (s *DesignService) UpdateDesignByID(id string, name string, elements []models.Element, canvas models.CanvasConfig, keepAlive bool) (*models.DesignV2, error) {
+	d, err := s.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Save history snapshot before overwriting
+	s.saveHistorySnapshot(d)
+
+	now := time.Now().UTC()
+	if name != "" {
+		d.Name = name
+	}
+	if elements != nil {
+		d.Elements = elements
+	}
+	if canvas.Width > 0 {
+		d.Canvas = canvas
+	}
+	d.KeepAlive = keepAlive
+	d.UpdatedAt = now
+	d.Version = 2
+
+	if err := s.saveDesign(d); err != nil {
+		return nil, err
+	}
+
+	return d, nil
+}
+
+// RenameDesign renames a design by ID.
+func (s *DesignService) RenameDesign(id, newName string) (*models.DesignV2, error) {
+	d, err := s.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	d.Name = newName
+	d.UpdatedAt = time.Now().UTC()
+
+	if err := s.saveDesign(d); err != nil {
+		return nil, err
+	}
+	return d, nil
+}
+
+// DeleteByID removes a design file by ID and its history.
+func (s *DesignService) DeleteByID(id string) error {
+	d, err := s.GetByID(id)
+	if err != nil {
+		return err
+	}
+
+	if err := os.Remove(filepath.Join(s.designsDir(), d.Filename)); err != nil {
+		return err
+	}
+
+	// Remove history directory (best effort)
+	histDir := s.historyDir(id)
+	if err := os.RemoveAll(histDir); err != nil {
+		slog.Warn("failed to remove history", "id", id, "error", err)
+	}
+
+	return s.EnsureActive()
+}
+
+// ActivateByID sets a design as active by its ID.
+func (s *DesignService) ActivateByID(id string) error {
+	designs, err := s.loadAll()
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, d := range designs {
+		ensureID(d)
+		if d.ID == id {
+			d.Active = true
+			found = true
+		} else {
+			d.Active = false
+		}
+		if err := s.saveDesign(d); err != nil {
+			return err
+		}
+	}
+	if !found {
+		return ErrDesignNotFound
+	}
+	return nil
+}
+
+// GetActiveDesign returns the currently active design (with ID ensured).
+func (s *DesignService) GetActiveDesign() (*models.DesignV2, error) {
+	d, err := s.GetActive()
+	if err != nil {
+		return nil, err
+	}
+	ensureID(d)
+	ensureTimestamps(d)
+	return d, nil
+}
+
+// DuplicateDesign creates a copy of a design with a new ID.
+func (s *DesignService) DuplicateDesign(id string) (*models.DesignV2, error) {
+	src, err := s.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	newID := "design_" + now.Format("2006-01-02_15-04-05") + "_" + generateID()[:6]
+
+	clone := *src
+	clone.ID = newID
+	clone.Name = "Kopie von " + src.Name
+	clone.Active = false
+	clone.Timestamp = now.Format("2006-01-02_15-04-05")
+	clone.CreatedAt = now
+	clone.UpdatedAt = now
+	clone.Filename = newID + ".json"
+
+	// Deep copy elements
+	clone.Elements = make([]models.Element, len(src.Elements))
+	copy(clone.Elements, src.Elements)
+
+	if err := s.saveDesign(&clone); err != nil {
+		return nil, err
+	}
+
+	return &clone, nil
+}
+
+// --- History methods ---
+
+// saveHistorySnapshot saves the current state of a design as a history entry.
+func (s *DesignService) saveHistorySnapshot(d *models.DesignV2) {
+	ensureID(d)
+	histDir := s.historyDir(d.ID)
+	if err := os.MkdirAll(histDir, 0755); err != nil {
+		slog.Warn("failed to create history dir", "error", err)
+		return
+	}
+
+	now := time.Now().UTC()
+	ts := now.Format("2006-01-02T15-04-05")
+
+	desc := fmt.Sprintf("%d elements", len(d.Elements))
+	if d.Name != "" {
+		desc = d.Name + " - " + desc
+	}
+
+	snapshot := models.HistorySnapshot{
+		Timestamp:   ts,
+		Description: desc,
+		SavedAt:     now,
+		Design:      *d,
+	}
+
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		slog.Warn("failed to marshal history snapshot", "error", err)
+		return
+	}
+
+	filename := ts + ".json"
+	if err := os.WriteFile(filepath.Join(histDir, filename), data, 0644); err != nil {
+		slog.Warn("failed to write history snapshot", "error", err)
+		return
+	}
+
+	// Enforce max snapshots (FIFO)
+	s.pruneHistory(histDir)
+}
+
+// pruneHistory removes the oldest snapshots if there are more than maxSnapshots.
+func (s *DesignService) pruneHistory(histDir string) {
+	entries, err := os.ReadDir(histDir)
+	if err != nil {
+		return
+	}
+
+	var jsonFiles []os.DirEntry
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".json" {
+			jsonFiles = append(jsonFiles, e)
+		}
+	}
+
+	if len(jsonFiles) <= maxSnapshots {
+		return
+	}
+
+	// Sort by name (timestamps sort lexicographically)
+	sort.Slice(jsonFiles, func(i, j int) bool {
+		return jsonFiles[i].Name() < jsonFiles[j].Name()
+	})
+
+	// Remove oldest
+	toRemove := len(jsonFiles) - maxSnapshots
+	for i := 0; i < toRemove; i++ {
+		p := filepath.Join(histDir, jsonFiles[i].Name())
+		if err := os.Remove(p); err != nil {
+			slog.Warn("failed to prune history", "file", p, "error", err)
+		}
+	}
+}
+
+// ListHistory returns history entries for a design.
+func (s *DesignService) ListHistory(designID string) ([]models.HistoryEntry, error) {
+	histDir := s.historyDir(designID)
+	entries, err := os.ReadDir(histDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []models.HistoryEntry{}, nil
+		}
+		return nil, err
+	}
+
+	var result []models.HistoryEntry
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+
+		ts := strings.TrimSuffix(e.Name(), ".json")
+
+		// Try to read description from snapshot
+		desc := ""
+		data, err := os.ReadFile(filepath.Join(histDir, e.Name()))
+		if err == nil {
+			var snap models.HistorySnapshot
+			if json.Unmarshal(data, &snap) == nil {
+				desc = snap.Description
+			}
+		}
+
+		result = append(result, models.HistoryEntry{
+			Timestamp:   ts,
+			Description: desc,
+			Size:        info.Size(),
+		})
+	}
+
+	// Sort newest first
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp > result[j].Timestamp
+	})
+
+	return result, nil
+}
+
+// GetHistorySnapshot returns a specific history snapshot.
+func (s *DesignService) GetHistorySnapshot(designID, timestamp string) (*models.HistorySnapshot, error) {
+	histDir := s.historyDir(designID)
+	filename := timestamp + ".json"
+	data, err := os.ReadFile(filepath.Join(histDir, filename))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrDesignNotFound
+		}
+		return nil, err
+	}
+
+	var snap models.HistorySnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return nil, err
+	}
+	return &snap, nil
+}
+
+// RestoreHistorySnapshot restores a design from a history snapshot.
+// It first saves the current state as a new snapshot, then overwrites with the old state.
+func (s *DesignService) RestoreHistorySnapshot(designID, timestamp string) (*models.DesignV2, error) {
+	// Get current design
+	current, err := s.GetByID(designID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the snapshot to restore
+	snap, err := s.GetHistorySnapshot(designID, timestamp)
+	if err != nil {
+		return nil, err
+	}
+
+	// Save current state as new snapshot first
+	s.saveHistorySnapshot(current)
+
+	// Restore: overwrite with snapshot data but keep ID/filename/active status
+	restored := snap.Design
+	restored.ID = current.ID
+	restored.Filename = current.Filename
+	restored.Active = current.Active
+	restored.UpdatedAt = time.Now().UTC()
+	restored.Version = 2
+
+	if err := s.saveDesign(&restored); err != nil {
+		return nil, err
+	}
+
+	return &restored, nil
+}
 
 // GetPropString extracts a string property from element properties.
 func GetPropString(props map[string]any, key, fallback string) string {
