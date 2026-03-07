@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 // Position represents an x/y coordinate within the design canvas.
 type Position struct {
 	X int `json:"x"`
@@ -71,6 +73,40 @@ type FileInfo struct {
 	Size int64  `json:"size"`
 }
 
+// ImageMeta holds metadata for an uploaded image.
+type ImageMeta struct {
+	Filename   string    `json:"filename"`
+	OrigName   string    `json:"original_name"`
+	UploadedAt time.Time `json:"uploaded_at"`
+	Size       int64     `json:"size"`
+	Width      int       `json:"width"`
+	Height     int       `json:"height"`
+	MimeType   string    `json:"mime_type"`
+	HasThumb   bool      `json:"has_thumb"`
+}
+
+// FontMeta holds metadata for an uploaded font.
+type FontMeta struct {
+	Filename   string    `json:"filename"`
+	OrigName   string    `json:"original_name"`
+	UploadedAt time.Time `json:"uploaded_at"`
+	Size       int64     `json:"size"`
+}
+
+// ImageListResponse is the paginated response for image listing.
+type ImageListResponse struct {
+	Images []ImageMeta `json:"images"`
+	Total  int         `json:"total"`
+	Page   int         `json:"page"`
+	Limit  int         `json:"limit"`
+}
+
+// MediaMeta is the top-level struct persisted in media_meta.json.
+type MediaMeta struct {
+	Images []ImageMeta `json:"images"`
+	Fonts  []FontMeta  `json:"fonts"`
+}
+
 // --- Design v2 format ---
 
 // Element represents a single design element (v2 format).
@@ -120,6 +156,7 @@ type CanvasConfig struct {
 
 // DesignV2 represents the new design format.
 type DesignV2 struct {
+	ID               string            `json:"id,omitempty"`
 	Name             string            `json:"name"`
 	Version          int               `json:"version"`
 	Canvas           CanvasConfig      `json:"canvas"`
@@ -128,6 +165,8 @@ type DesignV2 struct {
 	Timestamp        string            `json:"timestamp"`
 	Active           bool              `json:"active"`
 	KeepAlive        bool              `json:"keep_alive"`
+	CreatedAt        time.Time         `json:"created_at,omitempty"`
+	UpdatedAt        time.Time         `json:"updated_at,omitempty"`
 	Filename         string            `json:"-"`
 }
 
@@ -135,4 +174,29 @@ type DesignV2 struct {
 type DesignV2Meta struct {
 	Name   string `json:"name"`
 	Active bool   `json:"active"`
+}
+
+// DesignCardMeta holds metadata for the design dashboard cards.
+type DesignCardMeta struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Active    bool      `json:"active"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Elements  int       `json:"element_count"`
+}
+
+// HistoryEntry represents a single version history snapshot.
+type HistoryEntry struct {
+	Timestamp   string `json:"timestamp"`
+	Description string `json:"description"`
+	Size        int64  `json:"size"`
+}
+
+// HistorySnapshot is the full design state stored as a history entry.
+type HistorySnapshot struct {
+	Timestamp   string    `json:"timestamp"`
+	Description string    `json:"description"`
+	SavedAt     time.Time `json:"saved_at"`
+	Design      DesignV2  `json:"design"`
 }
