@@ -869,3 +869,132 @@ func TestPaletteQuantization(t *testing.T) {
 		t.Error("Expected paletted image after quantization")
 	}
 }
+
+func TestFullDesignAllElementTypes(t *testing.T) {
+	previewSvc, tmpDir := setupTestServices(t)
+
+	// Create a test image
+	testImg := image.NewRGBA(image.Rect(0, 0, 100, 100))
+	for y := 0; y < 100; y++ {
+		for x := 0; x < 100; x++ {
+			testImg.Set(x, y, color.RGBA{128, 64, 32, 255})
+		}
+	}
+	imgPath := filepath.Join(tmpDir, "uploaded_images", "test_full.png")
+	f, _ := os.Create(imgPath)
+	png.Encode(f, testImg)
+	f.Close()
+
+	vis := true
+	design := &models.DesignV2{
+		Name:    "test-full-design",
+		Version: 2,
+		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
+		Elements: []models.Element{
+			{ID: "bg", Type: "shape", X: 0, Y: 0, Width: 800, Height: 480, ZIndex: 0, Visible: &vis,
+				Properties: map[string]any{"fill": "#F0F0F0", "rx": float64(0)}},
+			{ID: "t1", Type: "text", X: 10, Y: 10, Width: 300, Height: 40, ZIndex: 1, Visible: &vis,
+				Properties: map[string]any{"text": "Hello E-Ink", "fontSize": float64(24), "color": "#000000", "textAlign": "left"}},
+			{ID: "t2", Type: "textbox", X: 10, Y: 60, Width: 300, Height: 80, ZIndex: 2, Visible: &vis,
+				Properties: map[string]any{"text": "Multiline text that wraps across lines", "fontSize": float64(16), "color": "#333333", "textAlign": "center", "verticalAlign": "middle"}},
+			{ID: "img1", Type: "image", X: 320, Y: 10, Width: 150, Height: 100, ZIndex: 3, Visible: &vis,
+				Properties: map[string]any{"image": "test_full.png"}},
+			{ID: "s1", Type: "shape", X: 500, Y: 10, Width: 120, Height: 60, ZIndex: 4, Visible: &vis,
+				Properties: map[string]any{"fill": "#0000FF", "stroke": "#000000", "strokeWidth": float64(2), "rx": float64(8)}},
+			{ID: "clk", Type: "widget_clock", X: 10, Y: 160, Width: 200, Height: 60, ZIndex: 5, Visible: &vis,
+				Properties: map[string]any{"layout": "digital_large", "fontSize": float64(48), "color": "#000000", "textAlign": "center"}},
+			{ID: "tmr", Type: "widget_timer", X: 220, Y: 160, Width: 250, Height: 50, ZIndex: 6, Visible: &vis,
+				Properties: map[string]any{"layout": "countdown_large", "fontSize": float64(20), "color": "#000000", "targetDate": "2027-01-01T00:00:00"}},
+			{ID: "sys", Type: "widget_system", X: 10, Y: 230, Width: 300, Height: 80, ZIndex: 7, Visible: &vis,
+				Properties: map[string]any{"layout": "vertical", "fontSize": float64(12), "color": "#000000"}},
+			{ID: "cust", Type: "widget_custom", X: 320, Y: 230, Width: 200, Height: 40, ZIndex: 8, Visible: &vis,
+				Properties: map[string]any{"fontSize": float64(16), "color": "#000000"}},
+		},
+	}
+
+	// Render raw (no quantization)
+	pngRaw, err := previewSvc.Render(design, true)
+	if err != nil {
+		t.Fatalf("Raw render failed: %v", err)
+	}
+	if len(pngRaw) == 0 {
+		t.Fatal("Raw render returned empty data")
+	}
+
+	imgRaw, err := png.Decode(bytes.NewReader(pngRaw))
+	if err != nil {
+		t.Fatalf("Failed to decode raw PNG: %v", err)
+	}
+
+	// Verify canvas dimensions
+	bounds := imgRaw.Bounds()
+	if bounds.Dx() != 800 || bounds.Dy() != 480 {
+		t.Errorf("Expected 800x480 canvas, got %dx%d", bounds.Dx(), bounds.Dy())
+	}
+
+	// Verify background is not pure white (we set #F0F0F0)
+	r, g, b, _ := imgRaw.At(700, 450).RGBA()
+	if r>>8 == 255 && g>>8 == 255 && b>>8 == 255 {
+		t.Error("Background should be #F0F0F0, not pure white")
+	}
+
+	// Verify text area has content
+	hasText := false
+	for y := 10; y < 50; y++ {
+		for x := 10; x < 310; x++ {
+			r, g, b, _ := imgRaw.At(x, y).RGBA()
+			if r>>8 < 200 || g>>8 < 200 || b>>8 < 200 {
+				hasText = true
+				break
+			}
+		}
+		if hasText {
+			break
+		}
+	}
+	if !hasText {
+		t.Error("No text rendered in text element area")
+	}
+
+	// Verify image area has non-background pixels
+	hasImage := false
+	for y := 10; y < 110; y++ {
+		for x := 320; x < 470; x++ {
+			r, _, _, _ := imgRaw.At(x, y).RGBA()
+			val := r >> 8
+			if val != 240 { // not #F0F0F0 background
+				hasImage = true
+				break
+			}
+		}
+		if hasImage {
+			break
+		}
+	}
+	if !hasImage {
+		t.Error("No image rendered in image element area")
+	}
+
+	// Verify blue shape
+	r, g, b, _ = imgRaw.At(560, 40).RGBA()
+	if b>>8 < 200 {
+		t.Errorf("Expected blue shape at (560,40), got R=%d G=%d B=%d", r>>8, g>>8, b>>8)
+	}
+
+	// Render with quantization
+	pngQuant, err := previewSvc.Render(design, false)
+	if err != nil {
+		t.Fatalf("Quantized render failed: %v", err)
+	}
+
+	imgQuant, err := png.Decode(bytes.NewReader(pngQuant))
+	if err != nil {
+		t.Fatalf("Failed to decode quantized PNG: %v", err)
+	}
+
+	if _, ok := imgQuant.(*image.Paletted); !ok {
+		t.Error("Quantized output should be paletted")
+	}
+
+	t.Logf("Full design rendered: raw=%d bytes, quantized=%d bytes", len(pngRaw), len(pngQuant))
+}
