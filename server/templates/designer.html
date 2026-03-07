@@ -7,15 +7,21 @@
     <link rel="stylesheet" href="/static/css/designer.css">
     <link rel="stylesheet" href="/static/css/panels.css">
     <link rel="stylesheet" href="/static/css/widgets.css">
+    <link rel="stylesheet" href="/static/css/media-dashboard.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
     <!-- TOP BAR -->
     <header class="topbar">
         <div class="topbar-left">
-            <span class="logo">E-Ink Designer</span>
+            <span class="logo" id="logo-btn" style="cursor:pointer;" title="Open Design Dashboard">E-Ink Designer</span>
             <div class="design-selector">
                 <select id="design-select"></select>
+                <div class="design-name-editor">
+                    <span id="design-name-display" class="design-name-display" title="Double-click to rename">Unnamed</span>
+                    <input type="text" id="design-name-input" class="design-name-input" style="display:none;">
+                    <span id="active-indicator" class="active-indicator" style="display:none;">&#9679; Active</span>
+                </div>
                 <button id="new-design-btn" title="New Design">+</button>
                 <button id="clone-design-btn" title="Clone Design">Clone</button>
                 <button id="delete-design-btn" title="Delete Design">Del</button>
@@ -35,7 +41,9 @@
         <div class="topbar-right">
             <button id="refresh-now-btn" class="btn-secondary" title="Refresh E-Ink Display">Refresh Display</button>
             <button id="preview-btn" class="btn-secondary">Preview</button>
+            <button id="history-btn" title="Version History">History</button>
             <button id="save-btn" class="btn-primary">Save</button>
+            <button id="activate-btn" class="btn-secondary" title="Set as active display design">Set Active</button>
             <button id="settings-btn" title="Settings">Settings</button>
             <button id="theme-toggle" title="Toggle Theme">Theme</button>
         </div>
@@ -240,23 +248,69 @@
 
     <div id="media-modal" class="modal" style="display:none;">
         <div class="modal-overlay"></div>
-        <div class="modal-content">
+        <div class="modal-content modal-content-lg">
             <div class="modal-header">
                 <h2>Media Library</h2>
                 <button class="modal-close">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="property-group">
-                    <label>Upload</label>
-                    <input type="file" id="media-upload-file" accept=".png,.jpg,.jpeg,.ttf,.otf">
-                    <button id="media-upload-btn" class="btn-primary" style="margin-top:8px;">Upload</button>
+                <!-- Tabs -->
+                <div class="tab-bar">
+                    <button class="tab-btn active" data-tab="images">Images</button>
+                    <button class="tab-btn" data-tab="fonts">Fonts</button>
                 </div>
-                <h3>Images</h3>
-                <div id="media-library" class="media-grid"></div>
-                <h3>Fonts</h3>
-                <div id="fonts-library" class="media-grid"></div>
+
+                <!-- Images Tab -->
+                <div class="tab-content active" id="media-tab-images">
+                    <div class="media-upload-zone" id="media-upload-zone-images">
+                        <span class="upload-icon">&#128247;</span>
+                        Drop images here or click to upload<br>
+                        <small>PNG, JPG, JPEG (max 10MB)</small>
+                        <input type="file" accept=".png,.jpg,.jpeg" multiple>
+                    </div>
+                    <div class="media-upload-progress" id="media-upload-progress-images">
+                        <div class="progress-bar"><div class="progress-fill"></div></div>
+                        <span class="progress-text"></span>
+                    </div>
+                    <div class="media-toolbar">
+                        <input type="text" id="media-image-search" class="media-search" placeholder="Search images...">
+                        <select id="media-image-sort" class="media-sort">
+                            <option value="date_desc">Newest first</option>
+                            <option value="date_asc">Oldest first</option>
+                            <option value="name_asc">Name A-Z</option>
+                            <option value="name_desc">Name Z-A</option>
+                            <option value="size_desc">Largest first</option>
+                            <option value="size_asc">Smallest first</option>
+                            <option value="width_desc">Widest first</option>
+                        </select>
+                    </div>
+                    <div class="media-bulk-actions" id="media-bulk-actions">
+                        <span class="bulk-count">0 selected</span>
+                        <button id="media-bulk-delete" class="btn-danger">Delete Selected</button>
+                    </div>
+                    <div class="media-grid-enhanced" id="media-images-grid"></div>
+                </div>
+
+                <!-- Fonts Tab -->
+                <div class="tab-content" id="media-tab-fonts">
+                    <div class="media-upload-zone" id="media-upload-zone-fonts">
+                        <span class="upload-icon">&#128396;</span>
+                        Drop fonts here or click to upload<br>
+                        <small>TTF, OTF (max 5MB)</small>
+                        <input type="file" accept=".ttf,.otf" multiple>
+                    </div>
+                    <div class="media-upload-progress" id="media-upload-progress-fonts">
+                        <div class="progress-bar"><div class="progress-fill"></div></div>
+                        <span class="progress-text"></span>
+                    </div>
+                    <div class="media-toolbar">
+                        <input type="text" id="media-font-search" class="media-search" placeholder="Search fonts...">
+                    </div>
+                    <div class="font-list" id="media-fonts-list"></div>
+                </div>
+
                 <div class="modal-actions">
-                    <button id="media-ok-btn" class="btn-primary">Select</button>
+                    <button id="media-select-btn" class="btn-primary">Select</button>
                     <button id="media-cancel-btn" class="btn-secondary">Cancel</button>
                 </div>
             </div>
@@ -303,6 +357,37 @@
         </div>
     </div>
 
+    <!-- Design Dashboard Overlay -->
+    <div id="dashboard-overlay" class="dashboard-overlay">
+        <div class="dashboard-header">
+            <h1>My Designs</h1>
+            <button id="dashboard-close-btn" class="btn-secondary">Back to Editor</button>
+        </div>
+        <div class="dashboard-body">
+            <div class="recent-designs-section">
+                <h2>Recently Edited</h2>
+                <div class="recent-designs-scroll" id="recent-designs-scroll"></div>
+            </div>
+            <div class="designs-section">
+                <h2>All Designs</h2>
+                <div class="designs-grid" id="designs-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Design Context Menu -->
+    <div id="design-context-menu" class="context-menu"></div>
+
+    <!-- History Sidebar -->
+    <div id="history-sidebar" class="history-sidebar">
+        <div class="history-sidebar-header">
+            <h2>Version History</h2>
+            <button id="history-close-btn" class="modal-close">&times;</button>
+        </div>
+        <div id="history-design-name" style="padding:0 20px 12px;font-size:12px;color:var(--text-muted);"></div>
+        <div class="history-list" id="history-list"></div>
+    </div>
+
     <!-- Notification Container -->
     <div id="notification-container"></div>
 
@@ -318,6 +403,8 @@
     <script src="/static/js/toolbar.js"></script>
     <script src="/static/js/conditions.js"></script>
     <script src="/static/js/storage.js"></script>
+    <script src="/static/js/media-library.js"></script>
+    <script src="/static/js/design-dashboard.js"></script>
     <script src="/static/js/shortcuts.js"></script>
     <script src="/static/js/designer.js"></script>
 </body>

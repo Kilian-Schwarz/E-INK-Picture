@@ -10,59 +10,17 @@ var LivePreview = {
     }
 };
 
+// MediaModal compatibility wrapper — delegates to new MediaLibrary
 var MediaModal = {
     callback: null,
     selectedMedia: null,
 
     open(callback) {
-        this.callback = callback;
-        this.selectedMedia = null;
-        this.loadMedia();
-        document.getElementById('media-modal').style.display = 'flex';
+        MediaLibrary.open(callback);
     },
 
     close() {
-        document.getElementById('media-modal').style.display = 'none';
-    },
-
-    async loadMedia() {
-        // Load images
-        try {
-            var resp = await fetch('/images_all');
-            var images = await resp.json();
-            var container = document.getElementById('media-library');
-            container.innerHTML = '';
-            var self = this;
-            (images || []).forEach(function(img) {
-                var item = document.createElement('div');
-                item.className = 'media-item';
-                item.innerHTML = '<img src="/image/' + img.name + '" alt="' + img.name + '"><span class="media-name">' + img.name + '</span>';
-                item.addEventListener('click', function() {
-                    container.querySelectorAll('.media-item').forEach(function(i) { i.classList.remove('selected'); });
-                    item.classList.add('selected');
-                    self.selectedMedia = img.name;
-                });
-                container.appendChild(item);
-            });
-        } catch (e) {
-            console.error('Failed to load images:', e);
-        }
-
-        // Load fonts
-        try {
-            var fresp = await fetch('/fonts_all');
-            var fonts = await fresp.json();
-            var fcontainer = document.getElementById('fonts-library');
-            fcontainer.innerHTML = '';
-            (fonts || []).forEach(function(f) {
-                var item = document.createElement('div');
-                item.className = 'media-item font-item';
-                item.textContent = f.name;
-                fcontainer.appendChild(item);
-            });
-        } catch (e) {
-            console.error('Failed to load fonts:', e);
-        }
+        MediaLibrary.close();
     }
 };
 
@@ -132,6 +90,11 @@ document.addEventListener('DOMContentLoaded', async function() {
         console.error('Failed to load settings:', e);
     }
 
+    // Initialize media library and dashboard
+    MediaLibrary.init();
+    DesignDashboard.init();
+    DesignHistory.init();
+
     // Load designs
     try {
         var designs = await Storage.loadDesigns();
@@ -150,7 +113,9 @@ document.addEventListener('DOMContentLoaded', async function() {
         if (designs && designs.length > 0) {
             var active = designs.find(function(d) { return d.active; }) || designs[0];
             Storage.currentDesignName = active.name;
+            Storage.currentDesignId = active.id || '';
             Storage.loadDesignToCanvas(active);
+            DesignDashboard.updateNameDisplay(active.name, active.active);
         }
     } catch (e) {
         console.error('Failed to load designs:', e);
@@ -164,7 +129,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             try {
                 var design = await Storage.loadDesign(name);
                 Storage.currentDesignName = name;
+                Storage.currentDesignId = design.id || '';
                 Storage.loadDesignToCanvas(design);
+                DesignDashboard.updateNameDisplay(design.name, design.active);
                 setTimeout(function() { WidgetPreview.refreshAllWidgets(); }, 500);
                 showNotification('Design loaded: ' + name);
             } catch (err) {
@@ -173,14 +140,34 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
-    // Save button
+    // Save button — use new API if we have an ID
     var saveBtn = document.getElementById('save-btn');
     if (saveBtn) {
         saveBtn.addEventListener('click', async function() {
-            var name = Storage.currentDesignName || 'Unnamed Design';
+            var name = Storage.currentDesignName;
+            if (!name) {
+                name = prompt('Please name your design:');
+                if (!name) return;
+            }
             var data = Storage.canvasToDesignJSON();
+
             try {
-                await Storage.saveDesign(name, data, false);
+                if (Storage.currentDesignId) {
+                    // Update via new API (creates history snapshot)
+                    await fetch('/api/designs/' + encodeURIComponent(Storage.currentDesignId), {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name: name,
+                            elements: data.elements,
+                            canvas: data.canvas,
+                            keep_alive: false
+                        })
+                    });
+                } else {
+                    // Fallback to legacy API
+                    await Storage.saveDesign(name, data, false);
+                }
                 showNotification('Design saved!', 'success');
             } catch (err) {
                 showNotification('Failed to save', 'error');
@@ -295,37 +282,40 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     });
 
-    // Media modal OK
-    var mediaOkBtn = document.getElementById('media-ok-btn');
-    if (mediaOkBtn) {
-        mediaOkBtn.addEventListener('click', function() {
-            if (MediaModal.selectedMedia && MediaModal.callback) {
-                MediaModal.callback(MediaModal.selectedMedia);
-            }
-            MediaModal.close();
-        });
-    }
-
     // Media modal Cancel
     var mediaCancelBtn = document.getElementById('media-cancel-btn');
     if (mediaCancelBtn) {
-        mediaCancelBtn.addEventListener('click', function() { MediaModal.close(); });
+        mediaCancelBtn.addEventListener('click', function() { MediaLibrary.close(); });
     }
 
-    // Media upload
-    var mediaUploadBtn = document.getElementById('media-upload-btn');
-    if (mediaUploadBtn) {
-        mediaUploadBtn.addEventListener('click', async function() {
-            var fileInput = document.getElementById('media-upload-file');
-            if (!fileInput.files.length) return;
-            var formData = new FormData();
-            formData.append('file', fileInput.files[0]);
+    // Logo click — open dashboard
+    var logoBtn = document.getElementById('logo-btn');
+    if (logoBtn) {
+        logoBtn.addEventListener('click', function() { DesignDashboard.open(); });
+    }
+
+    // History button
+    var historyBtn = document.getElementById('history-btn');
+    if (historyBtn) {
+        historyBtn.addEventListener('click', function() {
+            DesignHistory.open(Storage.currentDesignId, Storage.currentDesignName);
+        });
+    }
+
+    // Activate button
+    var activateBtn = document.getElementById('activate-btn');
+    if (activateBtn) {
+        activateBtn.addEventListener('click', async function() {
+            if (!Storage.currentDesignId) {
+                showNotification('No design selected', 'warning');
+                return;
+            }
             try {
-                await fetch('/upload_image', { method: 'POST', body: formData });
-                showNotification('File uploaded!', 'success');
-                MediaModal.loadMedia();
-            } catch (err) {
-                showNotification('Upload failed', 'error');
+                await fetch('/api/designs/' + encodeURIComponent(Storage.currentDesignId) + '/activate', { method: 'POST' });
+                showNotification('Design set as active!', 'success');
+                DesignDashboard.updateNameDisplay(Storage.currentDesignName, true);
+            } catch (e) {
+                showNotification('Failed to activate', 'error');
             }
         });
     }

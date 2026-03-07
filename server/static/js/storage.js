@@ -1,6 +1,7 @@
 // Design save/load via API
 var Storage = {
     currentDesignName: null,
+    currentDesignId: null,
 
     async loadDesigns() {
         var resp = await fetch('/designs');
