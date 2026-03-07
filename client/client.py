@@ -100,9 +100,10 @@ def display_image(img: Image.Image, display_config: dict) -> bool:
                 img = img.convert("RGB")
             logger.info("Sending to %d-color display...", len(colors))
         else:
-            # B/W display
+            # B/W display: server already applied Floyd-Steinberg dithering,
+            # so convert without additional dithering to preserve quality
             if img.mode != "1":
-                img = img.convert("1")
+                img = img.convert("L").point(lambda x: 0 if x < 128 else 255, "1")
             logger.info("Sending to B/W display...")
 
         epd.display(epd.getbuffer(img))
