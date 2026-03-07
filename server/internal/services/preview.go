@@ -20,6 +20,7 @@ import (
 
 	"e-ink-picture/server/internal/models"
 
+	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/font/gofont/goregular"
@@ -157,7 +158,7 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		switch elem.Type {
 		case "text", "i-text", "textbox":
 			content := s.fillTextContent(props)
-			s.renderTextV(img, x, y, w, h, content, face, bold, italic, strike, align, vAlign, textColor)
+			s.renderTextV(img, x, y, w, h, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
 
 		case "image":
 			s.renderImageElement(img, x, y, w, h, props)
@@ -167,35 +168,35 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 
 		case "widget_clock":
 			content := s.fillClockContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_weather":
 			content := s.fillWeatherContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_forecast":
 			content := s.fillForecastContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_calendar":
 			content := s.fillCalendarContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_news":
 			content := s.fillNewsContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_timer":
 			content := s.fillTimerContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_custom":
 			content := s.fillCustomContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
 
 		case "widget_system":
 			content := s.fillSystemContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, bold, italic, strike, align, vAlign, textColor)
+			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
 		}
 	}
 
@@ -775,8 +776,13 @@ func quantizeToPalette(img image.Image, hexColors []string) *image.Paletted {
 	return paletted
 }
 
-// RenderActive renders the currently active design.
+// RenderActive renders the currently active design with palette quantization.
 func (s *PreviewService) RenderActive() ([]byte, error) {
+	return s.RenderActiveRaw(false)
+}
+
+// RenderActiveRaw renders the currently active design. If raw is true, no palette quantization is applied.
+func (s *PreviewService) RenderActiveRaw(raw bool) ([]byte, error) {
 	design, err := s.design.GetActive()
 	if err != nil {
 		return nil, err
@@ -784,7 +790,7 @@ func (s *PreviewService) RenderActive() ([]byte, error) {
 	if design == nil {
 		return nil, fmt.Errorf("no active design")
 	}
-	return s.Render(design, false)
+	return s.Render(design, raw)
 }
 
 // --- Content filling helpers (legacy, used by v2 fill methods) ---
@@ -1042,11 +1048,11 @@ func newBasicFace(_ int) font.Face {
 
 // --- Text rendering ---
 
-func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string, face font.Face, bold, italic, strike bool, align string, textColor color.RGBA) {
-	s.renderTextV(img, x, y, w, h, text, face, bold, italic, strike, align, "top", textColor)
+func (s *PreviewService) renderText(img *image.RGBA, x, y, w, h int, text string, face font.Face, fontSize int, bold, italic, strike bool, align string, textColor color.RGBA) {
+	s.renderTextV(img, x, y, w, h, text, face, fontSize, bold, italic, strike, align, "top", textColor)
 }
 
-func (s *PreviewService) renderTextV(img *image.RGBA, x, y, w, h int, text string, face font.Face, bold, italic, strike bool, align, vAlign string, textColor color.RGBA) {
+func (s *PreviewService) renderTextV(img *image.RGBA, x, y, w, h int, text string, face font.Face, fontSize int, bold, italic, strike bool, align, vAlign string, textColor color.RGBA) {
 	if text == "" || w <= 0 || h <= 0 {
 		return
 	}
@@ -1087,7 +1093,11 @@ func (s *PreviewService) renderTextV(img *image.RGBA, x, y, w, h int, text strin
 
 	metrics := face.Metrics()
 	fSize := (metrics.Ascent + metrics.Descent).Ceil()
-	lineHeight := fSize + 2
+	// Match Fabric.js lineHeight: fontSize * 1.16 (default multiplier)
+	lineHeight := int(math.Round(float64(fontSize) * 1.16))
+	if lineHeight < 1 {
+		lineHeight = fSize + 2
+	}
 
 	// Render text to a temporary clipped buffer to prevent overflow
 	buf := image.NewRGBA(image.Rect(0, 0, w, h))
@@ -1112,7 +1122,7 @@ func (s *PreviewService) renderTextV(img *image.RGBA, x, y, w, h int, text strin
 	}
 
 	for _, line := range wrapped {
-		if iy+lineHeight > h {
+		if iy >= h {
 			break
 		}
 
@@ -1237,7 +1247,7 @@ func (s *PreviewService) renderImageRGBA(img *image.RGBA, x, y, w, h int, sd *mo
 
 	cropRect := image.Rect(cx, cy, cx+cw, cy+ch).Intersect(bounds)
 	cropped := cropSubImage(srcImg, cropRect)
-	resized := resizeNearest(cropped, w, h)
+	resized := resizeImage(cropped, w, h)
 
 	destRect := image.Rect(x, y, x+w, y+h).Intersect(img.Bounds())
 	draw.Draw(img, destRect, resized, image.Point{X: destRect.Min.X - x, Y: destRect.Min.Y - y}, draw.Over)
@@ -1252,23 +1262,16 @@ func cropSubImage(src image.Image, r image.Rectangle) image.Image {
 	return dst
 }
 
-func resizeNearest(src image.Image, dstW, dstH int) image.Image {
+// resizeImage scales an image using high-quality CatmullRom interpolation.
+// This produces smooth, sharp results equivalent to Lanczos resampling.
+func resizeImage(src image.Image, dstW, dstH int) image.Image {
 	srcBounds := src.Bounds()
-	srcW := srcBounds.Dx()
-	srcH := srcBounds.Dy()
-
-	if srcW == 0 || srcH == 0 || dstW == 0 || dstH == 0 {
+	if srcBounds.Dx() == 0 || srcBounds.Dy() == 0 || dstW == 0 || dstH == 0 {
 		return image.NewRGBA(image.Rect(0, 0, dstW, dstH))
 	}
 
 	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
-	for dy := 0; dy < dstH; dy++ {
-		sy := srcBounds.Min.Y + int(math.Floor(float64(dy)*float64(srcH)/float64(dstH)))
-		for dx := 0; dx < dstW; dx++ {
-			sx := srcBounds.Min.X + int(math.Floor(float64(dx)*float64(srcW)/float64(dstW)))
-			dst.Set(dx, dy, src.At(sx, sy))
-		}
-	}
+	xdraw.CatmullRom.Scale(dst, dst.Bounds(), src, srcBounds, xdraw.Over, nil)
 	return dst
 }
 
