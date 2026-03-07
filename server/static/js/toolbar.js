@@ -139,7 +139,7 @@ var Toolbar = {
         try {
             var designData = Storage.canvasToDesignJSON();
             designData.name = Storage.currentDesignName || 'preview';
-            var resp = await fetch('/api/preview_live', {
+            var resp = await fetch('/api/preview_live?raw=true', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(designData),

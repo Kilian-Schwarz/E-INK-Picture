@@ -34,7 +34,7 @@ func (h *PreviewHandler) Preview(w http.ResponseWriter, r *http.Request) {
 		}
 		pngData, err = h.svc.Render(design, raw)
 	} else {
-		pngData, err = h.svc.RenderActive()
+		pngData, err = h.svc.RenderActiveRaw(raw)
 	}
 
 	if err != nil {

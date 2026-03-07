@@ -171,6 +171,12 @@ func fetchSystemInfo(props map[string]any) string {
 				lines = append(lines, fmt.Sprintf("%s %s %s", parts[0], parts[1], parts[2]))
 			}
 		}
+	} else {
+		if showLabels {
+			lines = append(lines, "Load: N/A")
+		} else {
+			lines = append(lines, "N/A")
+		}
 	}
 
 	// Memory
@@ -193,6 +199,12 @@ func fetchSystemInfo(props map[string]any) string {
 				lines = append(lines, fmt.Sprintf("%dMB / %dMB", usedMB, totalMB))
 			}
 		}
+	} else {
+		if showLabels {
+			lines = append(lines, "RAM: N/A")
+		} else {
+			lines = append(lines, "N/A")
+		}
 	}
 
 	// CPU temperature
@@ -205,6 +217,12 @@ func fetchSystemInfo(props map[string]any) string {
 			} else {
 				lines = append(lines, fmt.Sprintf("%.1f°C", tempC))
 			}
+		}
+	} else {
+		if showLabels {
+			lines = append(lines, "Temp: N/A")
+		} else {
+			lines = append(lines, "N/A")
 		}
 	}
 
