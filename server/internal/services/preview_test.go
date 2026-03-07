@@ -631,3 +631,241 @@ func TestMultipleWidgetZOrder(t *testing.T) {
 		t.Errorf("Expected red outside overlap, got R=%d G=%d B=%d", r2>>8, g2>>8, b2>>8)
 	}
 }
+
+func TestRenderAllWidgetTypes(t *testing.T) {
+	previewSvc, _ := setupTestServices(t)
+	vis := true
+
+	widgetTypes := []struct {
+		typ   string
+		props map[string]any
+	}{
+		{"widget_weather", map[string]any{"layout": "compact", "fontSize": float64(18), "color": "#000000"}},
+		{"widget_forecast", map[string]any{"layout": "vertical", "fontSize": float64(13), "color": "#000000", "days": float64(3)}},
+		{"widget_timer", map[string]any{"layout": "countdown_large", "fontSize": float64(24), "color": "#000000", "targetDate": "2027-01-01T00:00:00"}},
+		{"widget_custom", map[string]any{"fontSize": float64(24), "color": "#000000"}},
+		{"widget_system", map[string]any{"layout": "vertical", "fontSize": float64(12), "color": "#000000"}},
+	}
+
+	for _, wt := range widgetTypes {
+		t.Run(wt.typ, func(t *testing.T) {
+			design := &models.DesignV2{
+				Name:    "test-" + wt.typ,
+				Version: 2,
+				Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
+				Elements: []models.Element{
+					{
+						ID: "w1", Type: wt.typ,
+						X: 50, Y: 50, Width: 300, Height: 100,
+						ZIndex: 0, Visible: &vis,
+						Properties: wt.props,
+					},
+				},
+			}
+
+			pngData, err := previewSvc.Render(design, true)
+			if err != nil {
+				t.Fatalf("Render %s failed: %v", wt.typ, err)
+			}
+
+			img, err := png.Decode(bytes.NewReader(pngData))
+			if err != nil {
+				t.Fatalf("Failed to decode PNG for %s: %v", wt.typ, err)
+			}
+
+			hasContent := false
+			for y := 50; y < 150; y++ {
+				for x := 50; x < 350; x++ {
+					r, g, b, _ := img.At(x, y).RGBA()
+					if r < 0xffff || g < 0xffff || b < 0xffff {
+						hasContent = true
+						break
+					}
+				}
+				if hasContent {
+					break
+				}
+			}
+
+			if !hasContent {
+				t.Errorf("Widget %s rendered no visible content", wt.typ)
+			}
+		})
+	}
+}
+
+func TestImageResizeQuality(t *testing.T) {
+	previewSvc, tmpDir := setupTestServices(t)
+
+	// Create a gradient test image (200x200) with fine detail
+	testImg := image.NewRGBA(image.Rect(0, 0, 200, 200))
+	for y := 0; y < 200; y++ {
+		for x := 0; x < 200; x++ {
+			// Create alternating thin stripes for detail testing
+			if (x/2)%2 == 0 {
+				testImg.Set(x, y, color.RGBA{0, 0, 0, 255})
+			} else {
+				testImg.Set(x, y, color.RGBA{255, 255, 255, 255})
+			}
+		}
+	}
+
+	imgPath := filepath.Join(tmpDir, "uploaded_images", "gradient.png")
+	f, err := os.Create(imgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	png.Encode(f, testImg)
+	f.Close()
+
+	vis := true
+	design := &models.DesignV2{
+		Name:    "test-resize-quality",
+		Version: 2,
+		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
+		Elements: []models.Element{
+			{
+				ID: "img1", Type: "image",
+				X: 0, Y: 0, Width: 100, Height: 100,
+				ZIndex: 0, Visible: &vis,
+				Properties: map[string]any{"image": "gradient.png"},
+			},
+		},
+	}
+
+	pngData, err := previewSvc.Render(design, true)
+	if err != nil {
+		t.Fatalf("Render failed: %v", err)
+	}
+
+	img, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		t.Fatalf("Failed to decode PNG: %v", err)
+	}
+
+	// With CatmullRom downsampling, the striped pattern should produce
+	// intermediate gray values (anti-aliasing), not just pure black/white.
+	// Count pixels that are neither pure black nor pure white.
+	intermediateCount := 0
+	for y := 10; y < 90; y++ {
+		for x := 10; x < 90; x++ {
+			r, _, _, _ := img.At(x, y).RGBA()
+			val := r >> 8
+			if val > 20 && val < 235 {
+				intermediateCount++
+			}
+		}
+	}
+
+	// CatmullRom should produce many intermediate values from the stripe pattern
+	if intermediateCount == 0 {
+		t.Error("No intermediate gray values found — image resampling may be using nearest-neighbor")
+	}
+	t.Logf("Intermediate pixel count: %d (expected >0 for CatmullRom quality)", intermediateCount)
+}
+
+func TestTextNotOutsideBoundingBox(t *testing.T) {
+	previewSvc, _ := setupTestServices(t)
+
+	vis := true
+	design := &models.DesignV2{
+		Name:    "test-clip-strict",
+		Version: 2,
+		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
+		Elements: []models.Element{
+			{
+				ID: "clip1", Type: "text",
+				X: 200, Y: 200, Width: 150, Height: 40,
+				ZIndex: 0, Visible: &vis,
+				Properties: map[string]any{
+					"text":      "This text overflows the box definitely",
+					"fontSize":  32,
+					"color":     "#000000",
+					"textAlign": "left",
+				},
+			},
+		},
+	}
+
+	pngData, err := previewSvc.Render(design, true)
+	if err != nil {
+		t.Fatalf("Render failed: %v", err)
+	}
+
+	img, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		t.Fatalf("Failed to decode PNG: %v", err)
+	}
+
+	// Check NO pixels rendered outside bounding box in any direction
+	// Below the box
+	for y := 241; y < 300; y++ {
+		for x := 200; x < 350; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if r < 0xffff || g < 0xffff || b < 0xffff {
+				t.Fatalf("Text overflows below bounding box at (%d, %d)", x, y)
+			}
+		}
+	}
+
+	// Right of the box
+	for y := 200; y < 240; y++ {
+		for x := 351; x < 500; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if r < 0xffff || g < 0xffff || b < 0xffff {
+				t.Fatalf("Text overflows right of bounding box at (%d, %d)", x, y)
+			}
+		}
+	}
+
+	// Left of the box
+	for y := 200; y < 240; y++ {
+		for x := 150; x < 200; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if r < 0xffff || g < 0xffff || b < 0xffff {
+				t.Fatalf("Text overflows left of bounding box at (%d, %d)", x, y)
+			}
+		}
+	}
+}
+
+func TestPaletteQuantization(t *testing.T) {
+	previewSvc, _ := setupTestServices(t)
+
+	vis := true
+	design := &models.DesignV2{
+		Name:    "test-quantize",
+		Version: 2,
+		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
+		Elements: []models.Element{
+			{
+				ID: "s1", Type: "shape",
+				X: 0, Y: 0, Width: 400, Height: 240,
+				ZIndex: 0, Visible: &vis,
+				Properties: map[string]any{"fill": "#FF0000"},
+			},
+			{
+				ID: "s2", Type: "shape",
+				X: 400, Y: 0, Width: 400, Height: 240,
+				ZIndex: 0, Visible: &vis,
+				Properties: map[string]any{"fill": "#0000FF"},
+			},
+		},
+	}
+
+	// Render with quantization (raw=false)
+	pngData, err := previewSvc.Render(design, false)
+	if err != nil {
+		t.Fatalf("Render with quantization failed: %v", err)
+	}
+
+	img, err := png.Decode(bytes.NewReader(pngData))
+	if err != nil {
+		t.Fatalf("Failed to decode PNG: %v", err)
+	}
+
+	// The quantized image should be a paletted image
+	if _, ok := img.(*image.Paletted); !ok {
+		t.Error("Expected paletted image after quantization")
+	}
+}
