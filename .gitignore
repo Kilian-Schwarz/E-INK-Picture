@@ -32,10 +32,16 @@ CLAUDE.local.md
 # Data (user content, not tracked)
 data/settings.json
 data/designs/*.json
+data/designs/history/
 data/uploaded_images/*
+data/uploaded_images/thumbs/
 data/fonts/*
 data/weather_styles/*
+data/media_meta.json
 !data/**/.gitkeep
+
+# Server local data (created by go run)
+server/data/
 
 # Temp
 *.log
