@@ -33,8 +33,9 @@ func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 // UpdateSettings saves new settings and returns the updated state.
 func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		DisplayType     models.DisplayType `json:"display_type"`
-		RefreshInterval *int               `json:"refresh_interval,omitempty"`
+		DisplayType     models.DisplayType    `json:"display_type"`
+		RefreshInterval *int                  `json:"refresh_interval,omitempty"`
+		RenderQuality   models.RenderQuality  `json:"render_quality,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -58,6 +59,16 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 
 	if req.RefreshInterval != nil && *req.RefreshInterval > 0 {
 		current.RefreshInterval = *req.RefreshInterval
+	}
+
+	if req.RenderQuality != "" {
+		switch req.RenderQuality {
+		case models.RenderQualityHigh, models.RenderQualityMedium, models.RenderQualityFast:
+			current.RenderQuality = req.RenderQuality
+		default:
+			jsonError(w, "invalid render_quality: "+string(req.RenderQuality), http.StatusBadRequest)
+			return
+		}
 	}
 
 	if err := h.settings.SaveSettings(current); err != nil {
