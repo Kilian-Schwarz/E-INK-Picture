@@ -48,6 +48,12 @@ start_server() {
         return 0
     fi
 
+    if [ ! -f "$SERVER_BIN" ]; then
+        echo -e "${RED}Server binary not found: $SERVER_BIN${NC}"
+        echo "Run ./setup.sh first to build the server."
+        return 1
+    fi
+
     echo -n "Starting server... "
     mkdir -p "$LOGS_DIR"
 

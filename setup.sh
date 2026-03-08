@@ -84,8 +84,10 @@ fi
 info "Checking Go installation..."
 
 go_installed=false
+export PATH="/usr/local/go/bin:$PATH"
+
 if command -v go &>/dev/null; then
-    GO_CURRENT=$(go version | grep -oP 'go(\d+\.\d+)' | head -1 | sed 's/go//')
+    GO_CURRENT=$(go version | sed 's/.*go\([0-9]*\.[0-9]*\).*/\1/')
     GO_CUR_MAJOR=$(echo "$GO_CURRENT" | cut -d. -f1)
     GO_CUR_MINOR=$(echo "$GO_CURRENT" | cut -d. -f2)
     if [ "$GO_CUR_MAJOR" -ge "$REQUIRED_GO_MAJOR" ] && [ "$GO_CUR_MINOR" -ge "$REQUIRED_GO_MINOR" ]; then
@@ -97,17 +99,21 @@ if command -v go &>/dev/null; then
 fi
 
 if [ "$go_installed" = false ]; then
-    info "Installing Go $GO_VERSION for $GO_ARCH..."
     GO_TAR="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
     GO_URL="https://go.dev/dl/${GO_TAR}"
+    info "Downloading Go $GO_VERSION for $GO_ARCH..."
+    info "URL: $GO_URL"
 
-    wget -q "$GO_URL" -O "/tmp/$GO_TAR"
+    if ! wget --progress=bar:force -O "/tmp/$GO_TAR" "$GO_URL"; then
+        error "Go download failed! Check your internet connection."
+        error "You can also install Go manually: https://go.dev/dl/"
+        exit 1
+    fi
+
+    info "Extracting Go (this may take a few minutes on Pi Zero)..."
     sudo rm -rf /usr/local/go
     sudo tar -C /usr/local -xzf "/tmp/$GO_TAR"
     rm -f "/tmp/$GO_TAR"
-
-    # Add to PATH for current session
-    export PATH="/usr/local/go/bin:$PATH"
 
     # Add to profile if not already there
     if ! grep -q '/usr/local/go/bin' "$HOME/.profile" 2>/dev/null; then
@@ -115,11 +121,11 @@ if [ "$go_installed" = false ]; then
         info "Added Go to PATH in ~/.profile"
     fi
 
-    info "Go $(go version | grep -oP 'go[\d.]+') installed"
+    info "Go $(go version) installed"
 fi
 
 # ----- 5. Build Go Server -----
-info "Building Go server..."
+info "Building Go server (this may take several minutes on Pi Zero)..."
 cd "$SCRIPT_DIR/server"
 
 export CGO_ENABLED=0
@@ -129,8 +135,14 @@ if [ -n "$GO_ARM" ]; then
     export GOARM=$GO_ARM
 fi
 
+info "Downloading Go modules..."
 go mod download
-go build -ldflags="-s -w" -o "$SCRIPT_DIR/server/eink-server" .
+
+info "Compiling server binary..."
+if ! go build -ldflags="-s -w" -o "$SCRIPT_DIR/server/eink-server" .; then
+    error "Go build failed!"
+    exit 1
+fi
 info "Server binary built: server/eink-server ($(du -h "$SCRIPT_DIR/server/eink-server" | cut -f1))"
 
 cd "$SCRIPT_DIR"
@@ -151,17 +163,17 @@ pip install --no-cache-dir --upgrade pip setuptools wheel 2>/dev/null || true
 
 info "Installing Python dependencies..."
 pip install --no-cache-dir \
-    requests>=2.31.0 \
-    Pillow>=10.0.0 \
-    2>/dev/null
+    "requests>=2.31.0" \
+    "Pillow>=10.0.0" \
+    || { error "Failed to install core Python packages"; exit 1; }
 
 # Hardware dependencies (may fail on non-Pi)
 pip install --no-cache-dir \
-    RPi.GPIO>=0.7.1 \
-    spidev>=3.6 \
-    gpiod>=2.0.2 \
-    gpiozero>=2.0 \
-    lgpio>=0.2 \
+    "RPi.GPIO>=0.7.1" \
+    "spidev>=3.6" \
+    "gpiod>=2.0.2" \
+    "gpiozero>=2.0" \
+    "lgpio>=0.2" \
     2>/dev/null || warn "Some GPIO packages failed (normal on non-Pi hardware)"
 
 # Waveshare EPD driver
