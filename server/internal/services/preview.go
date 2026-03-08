@@ -65,6 +65,19 @@ func NewPreviewService(d *DesignService, w *WeatherService, i *ImageService, s *
 	}
 }
 
+// supersampleScale returns the render scale factor based on render quality setting.
+func (s *PreviewService) supersampleScale() float64 {
+	q := s.settings.GetRenderQuality()
+	switch q {
+	case models.RenderQualityMedium:
+		return 1.5
+	case models.RenderQualityFast:
+		return 1.0
+	default: // high
+		return 2.0
+	}
+}
+
 // Render fills dynamic content and renders a v2 design to a palette-quantized PNG.
 // If raw is true, no palette quantization is applied (debug mode).
 func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, error) {
@@ -79,8 +92,13 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		canvasH = einkHeight
 	}
 
-	// Render to full-color RGBA canvas
-	img := image.NewRGBA(image.Rect(0, 0, canvasW, canvasH))
+	// Supersampling: render at higher resolution for anti-aliased edges
+	scale := s.supersampleScale()
+	renderW := int(float64(canvasW) * scale)
+	renderH := int(float64(canvasH) * scale)
+
+	// Render to full-color RGBA canvas at supersampled resolution
+	img := image.NewRGBA(image.Rect(0, 0, renderW, renderH))
 
 	// Background color
 	var bgColor color.Color = color.White
@@ -102,12 +120,13 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 			continue
 		}
 
-		x := int(elem.X)
-		y := int(elem.Y)
-		w := int(elem.Width)
-		h := int(elem.Height)
+		// Scale element coordinates/dimensions for supersampling
+		x := int(elem.X * scale)
+		y := int(elem.Y * scale)
+		w := int(elem.Width * scale)
+		h := int(elem.Height * scale)
 
-		if x+w < 0 || x > canvasW || y+h < 0 || y > canvasH {
+		if x+w < 0 || x > renderW || y+h < 0 || y > renderH {
 			continue
 		}
 
@@ -132,7 +151,7 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		case "text":
 			defaultFontSize = 24
 		}
-		fontSize := GetPropInt(props, "fontSize", defaultFontSize)
+		fontSize := int(float64(GetPropInt(props, "fontSize", defaultFontSize)) * scale)
 		// Frontend exports fontWeight:"bold" and fontStyle:"italic" as strings
 		bold := GetPropString(props, "fontWeight", "normal") == "bold" || GetPropBool(props, "bold", false)
 		italic := GetPropString(props, "fontStyle", "normal") == "italic" || GetPropBool(props, "italic", false)
@@ -148,11 +167,11 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		}
 		face := s.loadFontFace(fontPtr, fontSize)
 
-		// Widget padding for consistent positioning with designer
+		// Widget padding for consistent positioning with designer (scaled)
 		px, py := 0, 0
 		if strings.HasPrefix(elem.Type, "widget_") {
-			px = 8
-			py = 4
+			px = int(8 * scale)
+			py = int(4 * scale)
 		}
 
 		switch elem.Type {
@@ -200,12 +219,20 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		}
 	}
 
+	// Downscale supersampled image to target resolution with CatmullRom anti-aliasing
+	var finalImg image.Image = img
+	if scale > 1.0 {
+		dst := image.NewRGBA(image.Rect(0, 0, canvasW, canvasH))
+		xdraw.CatmullRom.Scale(dst, dst.Bounds(), img, img.Bounds(), xdraw.Over, nil)
+		finalImg = dst
+	}
+
 	// Quantize to display palette (unless raw mode)
 	var output image.Image
 	if raw {
-		output = img
+		output = finalImg
 	} else {
-		output = quantizeToPalette(img, displayCfg.Colors)
+		output = quantizeToPalette(finalImg, displayCfg.Colors)
 	}
 
 	var buf bytes.Buffer

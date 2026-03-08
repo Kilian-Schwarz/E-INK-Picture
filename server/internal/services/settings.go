@@ -58,6 +58,9 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 	if settings.RefreshInterval <= 0 {
 		settings.RefreshInterval = defaultRefreshInterval
 	}
+	if settings.RenderQuality == "" {
+		settings.RenderQuality = models.RenderQualityHigh
+	}
 
 	return &settings, nil
 }
@@ -93,7 +96,17 @@ func (s *SettingsService) GetSettingsResponse() (*models.SettingsResponse, error
 		DisplayType:     settings.DisplayType,
 		Display:         models.GetDisplayConfig(settings.DisplayType),
 		RefreshInterval: settings.RefreshInterval,
+		RenderQuality:   settings.RenderQuality,
 	}, nil
+}
+
+// GetRenderQuality returns the configured render quality setting.
+func (s *SettingsService) GetRenderQuality() models.RenderQuality {
+	settings, err := s.GetSettings()
+	if err != nil {
+		return models.RenderQualityHigh
+	}
+	return settings.RenderQuality
 }
 
 // TriggerRefresh sets the last refresh trigger timestamp.
