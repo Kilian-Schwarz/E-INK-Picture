@@ -36,10 +36,10 @@ if [ "$OS" != "Linux" ]; then
 fi
 
 case "$ARCH" in
-    aarch64) GO_ARCH="arm64"; GO_ARM="" ;;
-    armv7l)  GO_ARCH="arm";   GO_ARM="7" ;;
-    armv6l)  GO_ARCH="arm";   GO_ARM="6" ;;
-    x86_64)  GO_ARCH="amd64"; GO_ARM="" ;;
+    aarch64) GO_ARCH="arm64";  GO_DL_ARCH="arm64";  GO_ARM="" ;;
+    armv7l)  GO_ARCH="arm";    GO_DL_ARCH="armv6l"; GO_ARM="7" ;;
+    armv6l)  GO_ARCH="arm";    GO_DL_ARCH="armv6l"; GO_ARM="6" ;;
+    x86_64)  GO_ARCH="amd64";  GO_DL_ARCH="amd64";  GO_ARM="" ;;
     *)       error "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
@@ -99,7 +99,7 @@ if command -v go &>/dev/null; then
 fi
 
 if [ "$go_installed" = false ]; then
-    GO_TAR="go${GO_VERSION}.linux-${GO_ARCH}.tar.gz"
+    GO_TAR="go${GO_VERSION}.linux-${GO_DL_ARCH}.tar.gz"
     GO_URL="https://go.dev/dl/${GO_TAR}"
     info "Downloading Go $GO_VERSION for $GO_ARCH..."
     info "URL: $GO_URL"
