@@ -429,6 +429,31 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
+    // Render quality selector
+    var renderQualitySelect = document.getElementById('render-quality');
+    if (renderQualitySelect) {
+        try {
+            var qResp = await fetch('/settings');
+            var qData = await qResp.json();
+            if (qData.render_quality) {
+                renderQualitySelect.value = qData.render_quality;
+            }
+        } catch (e) {}
+
+        renderQualitySelect.addEventListener('change', async function() {
+            try {
+                await fetch('/update_settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ render_quality: renderQualitySelect.value }),
+                });
+                showNotification('Render quality updated', 'success');
+            } catch (e) {
+                showNotification('Failed to update render quality', 'error');
+            }
+        });
+    }
+
     // Client status polling
     async function updateClientStatus() {
         try {
