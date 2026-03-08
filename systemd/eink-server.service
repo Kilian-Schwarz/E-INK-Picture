@@ -1,0 +1,19 @@
+[Unit]
+Description=E-Ink Picture Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%USER%
+WorkingDirectory=%INSTALL_DIR%/server
+EnvironmentFile=%INSTALL_DIR%/.env
+Environment=DATA_DIR=%INSTALL_DIR%/data
+ExecStart=%INSTALL_DIR%/server/eink-server
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:%INSTALL_DIR%/logs/server.log
+StandardError=append:%INSTALL_DIR%/logs/server.log
+
+[Install]
+WantedBy=multi-user.target

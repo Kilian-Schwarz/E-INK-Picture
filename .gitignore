@@ -12,6 +12,7 @@ env/
 
 # Go
 server/server
+server/eink-server
 *.exe
 
 # Environment
