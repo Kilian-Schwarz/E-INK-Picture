@@ -55,3 +55,6 @@ preview_output.png
 
 # OS
 .DS_Store
+
+# HIL evidence (screenshots, panel images) - never tracked
+artifacts/
