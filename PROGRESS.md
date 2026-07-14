@@ -41,11 +41,12 @@ Epic: E1 | Nächste Tasks: E1.1 (Golden Files) + E1.3 (Default-Konsistenz) — S
 | HW-Baseline | hardware-validator: Pi 3B + epd7in3e + Docker-Modus festgestellt, keine Kamera (L4 entfällt) | n/a (read-only) | — |
 | E1.2 | Client schreibt eink_last_sent.png (atomar, fehlertolerant, EINK_LAST_SENT_PATH) | L1✅ L5✅ (APPROVE, Mutationstest 5/5) L2 n/a, L3 folgt, L4 – | 614ac53 |
 | gofmt-Chore | Format-Drift in 6 Server-Dateien bereinigt (rein mechanisch, Tests grün) | L1✅ | 86507fa |
+| E1.1 | Golden-File-Harness: 4 Golden-PNGs, TestPaletteExactness (3 Quality × 2 Profile), Determinismus, Font-Pinning | L1✅ L2✅ (Reviewer: eigene Farbzählung + Sichtprüfung) L5✅ APPROVE | 7752a1a |
+| E1.3 | Konsistenter Display-Default via EINK_DISPLAY_TYPE (Fallback waveshare_7in3_e, settings.json gewinnt immer) + CHANGELOG.md angelegt | L1✅ L2✅ (Goldens unverändert) L5✅ APPROVE | d8419e6 |
 
 ## Offen / Blockiert
 
-- E1.1: Spec fertig (specs/E1.1-golden-file-harness.md), Implementierung läuft (test-engineer)
-- E1.3: Spec fertig (specs/E1.3-display-default-consistency.md), wartet auf E1.1 (sequenziell, gleiche Package-Nachbarschaft)
+- E1.4 + E1.5: Specs in Arbeit (spec-writer)
 - L3-Nachweis E1.2: beim nächsten Hardware-Durchlauf /tmp/eink_last_sent.png vom Pi holen und gegen Server-Preview vergleichen
 - Entscheidung Kilian: refresh_interval 900 s auf dem Test-Pi beibehalten oder erhöhen? (Panel-Verschleiß)
 - Entscheidung Kilian: Test-Pi von Docker- auf Nativ-Betrieb umstellen für E2-Tests? (data/ wird vorher gesichert)
