@@ -369,34 +369,61 @@ var PropertiesPanel = {
                                 updateCropInputs(scale);
                             }
                         };
+                        // pointerup and pointercancel (browser aborts the
+                        // gesture: notification, edge swipe, palm rejection)
+                        // both end the drag cleanly.
                         var upHandler = function() {
                             dragging = false;
                             drawing = false;
                         };
-                        selection.onmousedown = function(ev) {
+                        var selectionDownHandler = function(ev) {
+                            if (!ev.isPrimary) return;
                             ev.stopPropagation();
                             dragging = true;
                             startX = ev.clientX;
                             startY = ev.clientY;
                             origL = selection.offsetLeft;
                             origT = selection.offsetTop;
+                            try {
+                                selection.setPointerCapture(ev.pointerId);
+                            } catch (e) {
+                                // Synthetic event or pointer already released
+                            }
                         };
-                        container.onmousedown = function(ev) {
+                        var containerDownHandler = function(ev) {
+                            if (!ev.isPrimary) return;
                             if (ev.target === selection) return;
                             drawing = true;
                             var rect = container.getBoundingClientRect();
                             drawStartX = ev.clientX - rect.left;
                             drawStartY = ev.clientY - rect.top;
+                            try {
+                                container.setPointerCapture(ev.pointerId);
+                            } catch (e) {
+                                // Synthetic event or pointer already released
+                            }
                         };
-                        document.addEventListener('mousemove', moveHandler);
-                        document.addEventListener('mouseup', upHandler);
+                        // move/up/cancel listeners live on the capturing
+                        // elements (not document): real events are routed
+                        // there via pointer capture, synthetic test events
+                        // reach them via direct dispatch.
+                        selection.addEventListener('pointerdown', selectionDownHandler);
+                        container.addEventListener('pointerdown', containerDownHandler);
+                        [selection, container].forEach(function(el) {
+                            el.addEventListener('pointermove', moveHandler);
+                            el.addEventListener('pointerup', upHandler);
+                            el.addEventListener('pointercancel', upHandler);
+                        });
 
                         // Store cleanup for later
                         cropModal._cleanupDrag = function() {
-                            document.removeEventListener('mousemove', moveHandler);
-                            document.removeEventListener('mouseup', upHandler);
-                            selection.onmousedown = null;
-                            container.onmousedown = null;
+                            selection.removeEventListener('pointerdown', selectionDownHandler);
+                            container.removeEventListener('pointerdown', containerDownHandler);
+                            [selection, container].forEach(function(el) {
+                                el.removeEventListener('pointermove', moveHandler);
+                                el.removeEventListener('pointerup', upHandler);
+                                el.removeEventListener('pointercancel', upHandler);
+                            });
                         };
                     };
                 } else {

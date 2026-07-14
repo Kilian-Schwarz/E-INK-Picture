@@ -355,17 +355,25 @@ var DesignDashboard = {
             }
         });
 
-        // Design name click-to-edit in topbar
+        // Design name edit in topbar: explicit button (touch) shares the
+        // same code path as the double-click handler (desktop convenience)
         var nameDisplay = document.getElementById('design-name-display');
         var nameInput = document.getElementById('design-name-input');
         if (nameDisplay && nameInput) {
-            nameDisplay.addEventListener('dblclick', function() {
+            var openTopbarRename = function() {
                 nameDisplay.style.display = 'none';
                 nameInput.style.display = 'block';
                 nameInput.value = Storage.currentDesignName || '';
                 nameInput.focus();
                 nameInput.select();
-            });
+            };
+
+            nameDisplay.addEventListener('dblclick', openTopbarRename);
+
+            var editBtn = document.getElementById('design-name-edit-btn');
+            if (editBtn) {
+                editBtn.addEventListener('click', openTopbarRename);
+            }
 
             nameInput.addEventListener('blur', function() {
                 nameInput.style.display = 'none';

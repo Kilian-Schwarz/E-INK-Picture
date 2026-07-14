@@ -9,12 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Explicit rename button (`#design-name-edit-btn`) in the designer topbar next to the design name — a touch-friendly alternative to the double-click rename, which remains available for desktop use.
+
 - New settings `dither_algorithm` (`floyd_steinberg` | `atkinson`, default `floyd_steinberg`) and `calibration` (`default` | `off`, default `default`), persisted in `settings.json`, exposed via `GET /settings` and validated by `POST /update_settings` (unknown values return 400). Configuration is API-only for now (no settings UI yet).
 - Atkinson dithering as an alternative error-diffusion algorithm (integer-only, 6 neighbors at 1/8 weight each — higher local contrast and brighter highlights, often a calmer image on e-ink).
 - Panel calibration profiles (`server/internal/models/calibration.go`): a perceptual Spectra-6 panel palette (community-measured appearance values, white-point adapted) plus a per-profile gamma/saturation/contrast precompensation preset. Values are an initial guess and tunable at the physical panel without format changes.
 - Deterministic calibration test design (`server/internal/services/testdata/designs/calibration.json`): 6 driver-color swatches, a 16-step gray ramp, skin-tone and mixed-color patches, and a text matrix for on-panel A/B evaluation via `POST /api/designs` → activate → `POST /api/trigger_refresh`.
 
 ### Changed
+
+- The designer is now operable by touch and pen input: the Fabric.js canvas runs in Pointer Events mode (`enablePointerEvents`, with feature detection), so select/drag/resize/rotate use one unified input path for mouse, touch, and stylus. The crop dialog was migrated from mouse events to pointer events (pointer capture, `pointercancel` handling, `touch-action: none` on the crop area), making crop selection draggable and drawable by finger. Desktop mouse behavior is unchanged.
 
 - **Calibrated dithering is now the default for the 6-color panel (`waveshare_7in3_e`):** error diffusion runs against the measured panel appearance of the six Spectra-6 colors (plus a mild saturation precompensation) and maps the result index-preserving back onto the pure driver colors. The PNG sent to the client still contains exclusively the 6 ideal driver colors — client and driver are unchanged — but the rendered dithering pattern (and thus the panel image) changes visibly. **Escape hatch:** `POST /update_settings` with `{"calibration":"off"}` restores the previous output byte-exactly. The B/W profile (`waveshare_7in5_v2`) uses an identity profile and is completely unaffected.
 

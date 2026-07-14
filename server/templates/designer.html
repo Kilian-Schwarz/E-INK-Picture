@@ -18,8 +18,9 @@
             <div class="design-selector">
                 <select id="design-select"></select>
                 <div class="design-name-editor">
-                    <span id="design-name-display" class="design-name-display" title="Double-click to rename">Unnamed</span>
+                    <span id="design-name-display" class="design-name-display" title="Rename">Unnamed</span>
                     <input type="text" id="design-name-input" class="design-name-input" style="display:none;">
+                    <button id="design-name-edit-btn" title="Rename Design">&#9998;</button>
                     <span id="active-indicator" class="active-indicator" style="display:none;">&#9679; Active</span>
                 </div>
                 <button id="new-design-btn" title="New Design">+</button>
@@ -334,9 +335,9 @@
                 <button class="modal-close">&times;</button>
             </div>
             <div class="modal-body">
-                <div id="crop-preview-container" style="position:relative;display:inline-block;margin-bottom:16px;max-width:100%;overflow:hidden;background:#ccc;">
+                <div id="crop-preview-container" style="position:relative;display:inline-block;margin-bottom:16px;max-width:100%;overflow:hidden;background:#ccc;touch-action:none;">
                     <img id="crop-preview-img" src="" style="max-width:100%;display:block;">
-                    <div id="crop-selection" style="position:absolute;border:2px dashed #89b4fa;background:rgba(137,180,250,0.15);cursor:move;display:none;"></div>
+                    <div id="crop-selection" style="position:absolute;border:2px dashed #89b4fa;background:rgba(137,180,250,0.15);cursor:move;display:none;touch-action:none;"></div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
                     <div class="property-group" style="flex:1;min-width:80px;">

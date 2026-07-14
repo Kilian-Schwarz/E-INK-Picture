@@ -18,6 +18,9 @@ const CanvasManager = {
             backgroundColor: '#FFFFFF',
             selection: true,
             preserveObjectStacking: true,
+            // Unified pointer path for mouse/touch/pen; must be set at
+            // construction time (fabric binds listeners in the constructor).
+            enablePointerEvents: 'PointerEvent' in window,
         });
 
         // Custom control styling
