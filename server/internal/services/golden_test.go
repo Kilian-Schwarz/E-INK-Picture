@@ -29,7 +29,7 @@ import (
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
 
 // goldenDesigns are the deterministic test designs under testdata/designs/.
-var goldenDesigns = []string{"basic", "gradient"}
+var goldenDesigns = []string{"basic", "gradient", "rotation"}
 
 // goldenDisplays are the display profiles covered by the golden harness.
 var goldenDisplays = []models.DisplayType{
@@ -197,9 +197,11 @@ func TestGoldenRender(t *testing.T) {
 }
 
 // TestPaletteExactness proves palette fidelity of the quantized output: the
-// gradient design (which forces real dithering) is rendered for all render
-// quality levels and both display profiles, and every unique RGB value in the
-// output must be a member of the display palette — no intermediate tones.
+// gradient design (which forces real dithering) and the rotation design
+// (whose anti-aliased rotated edges must be dithered BEFORE quantization)
+// are rendered for all render quality levels and both display profiles, and
+// every unique RGB value in the output must be a member of the display
+// palette — no intermediate tones.
 func TestPaletteExactness(t *testing.T) {
 	hexToRGB := func(hex string) color.RGBA {
 		c := parseHexColor(hex)
@@ -226,54 +228,58 @@ func TestPaletteExactness(t *testing.T) {
 		models.RenderQualityHigh,
 	}
 
-	for _, displayType := range goldenDisplays {
-		for _, quality := range qualities {
-			t.Run(fmt.Sprintf("%s__%s", displayType, quality), func(t *testing.T) {
-				previewSvc, _ := setupGoldenServices(t, displayType, quality)
-				design := loadTestDesign(t, "gradient")
+	ditherDesigns := []string{"gradient", "rotation"}
 
-				pngData, err := previewSvc.Render(design, false)
-				if err != nil {
-					t.Fatalf("Render failed: %v", err)
-				}
+	for _, designName := range ditherDesigns {
+		for _, displayType := range goldenDisplays {
+			for _, quality := range qualities {
+				t.Run(fmt.Sprintf("%s__%s__%s", designName, displayType, quality), func(t *testing.T) {
+					previewSvc, _ := setupGoldenServices(t, displayType, quality)
+					design := loadTestDesign(t, designName)
 
-				img, err := png.Decode(bytes.NewReader(pngData))
-				if err != nil {
-					t.Fatalf("decode PNG: %v", err)
-				}
-				if _, ok := img.(*image.Paletted); !ok {
-					t.Errorf("expected *image.Paletted output, got %T", img)
-				}
+					pngData, err := previewSvc.Render(design, false)
+					if err != nil {
+						t.Fatalf("Render failed: %v", err)
+					}
 
-				allowed := allowedColors[displayType]
-				seen := make(map[color.RGBA]bool)
-				foreign := make(map[color.RGBA]int)
-				bounds := img.Bounds()
-				for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-					for x := bounds.Min.X; x < bounds.Max.X; x++ {
-						r, g, b, _ := img.At(x, y).RGBA()
-						c := color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: 255}
-						if allowed[c] {
-							seen[c] = true
-						} else {
-							foreign[c]++
+					img, err := png.Decode(bytes.NewReader(pngData))
+					if err != nil {
+						t.Fatalf("decode PNG: %v", err)
+					}
+					if _, ok := img.(*image.Paletted); !ok {
+						t.Errorf("expected *image.Paletted output, got %T", img)
+					}
+
+					allowed := allowedColors[displayType]
+					seen := make(map[color.RGBA]bool)
+					foreign := make(map[color.RGBA]int)
+					bounds := img.Bounds()
+					for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+						for x := bounds.Min.X; x < bounds.Max.X; x++ {
+							r, g, b, _ := img.At(x, y).RGBA()
+							c := color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: 255}
+							if allowed[c] {
+								seen[c] = true
+							} else {
+								foreign[c]++
+							}
 						}
 					}
-				}
 
-				if len(foreign) > 0 {
-					var lines []string
-					for c, count := range foreign {
-						lines = append(lines, fmt.Sprintf("#%02X%02X%02X: %d pixels", c.R, c.G, c.B, count))
+					if len(foreign) > 0 {
+						var lines []string
+						for c, count := range foreign {
+							lines = append(lines, fmt.Sprintf("#%02X%02X%02X: %d pixels", c.R, c.G, c.B, count))
+						}
+						sort.Strings(lines)
+						t.Errorf("found %d RGB values outside the %s palette:\n%s",
+							len(foreign), displayType, strings.Join(lines, "\n"))
 					}
-					sort.Strings(lines)
-					t.Errorf("found %d RGB values outside the %s palette:\n%s",
-						len(foreign), displayType, strings.Join(lines, "\n"))
-				}
-				if len(seen) < 2 {
-					t.Errorf("only %d palette colors used — gradient content did not exercise dithering", len(seen))
-				}
-			})
+					if len(seen) < 2 {
+						t.Errorf("only %d palette colors used — %s content did not exercise dithering", len(seen), designName)
+					}
+				})
+			}
 		}
 	}
 }

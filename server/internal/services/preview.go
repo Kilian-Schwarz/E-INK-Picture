@@ -25,6 +25,7 @@ import (
 	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/math/f64"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -126,8 +127,17 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		w := int(elem.Width * scale)
 		h := int(elem.Height * scale)
 
-		if x+w < 0 || x > renderW || y+h < 0 || y > renderH {
-			continue
+		// Culling: unrotated box for rotation 0, rotated AABB otherwise
+		rot := normalizeRotation(elem.Rotation)
+		if rot == 0 {
+			if x+w < 0 || x > renderW || y+h < 0 || y > renderH {
+				continue
+			}
+		} else {
+			minX, minY, maxX, maxY := rotatedAABB(x, y, w, h, rot)
+			if maxX < 0 || minX > float64(renderW) || maxY < 0 || minY > float64(renderH) {
+				continue
+			}
 		}
 
 		props := elem.Properties
@@ -174,48 +184,20 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 			py = int(4 * scale)
 		}
 
-		switch elem.Type {
-		case "text", "i-text", "textbox":
-			content := s.fillTextContent(props)
-			s.renderTextV(img, x, y, w, h, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+		if rot == 0 {
+			// Direct path: draw straight into the supersampled canvas
+			s.drawElement(img, elem.Type, props, x, y, w, h, px, py, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+		} else if w > 0 && h > 0 {
+			// Rotated path: draw into a transparent offscreen buffer at origin
+			// (0,0), then composite it into the supersampled canvas with an
+			// affine rotation around the top-left anchor (x, y). This happens
+			// BEFORE downscale/quantization, so anti-aliased edges get dithered.
+			offscreen := image.NewRGBA(image.Rect(0, 0, w, h))
+			s.drawElement(offscreen, elem.Type, props, 0, 0, w, h, px, py, face, fontSize, bold, italic, strike, align, vAlign, textColor)
 
-		case "image":
-			s.renderImageElement(img, x, y, w, h, props)
-
-		case "shape":
-			s.renderShapeElement(img, x, y, w, h, props, textColor)
-
-		case "widget_clock":
-			content := s.fillClockContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-		case "widget_weather":
-			content := s.fillWeatherContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-		case "widget_forecast":
-			content := s.fillForecastContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-		case "widget_calendar":
-			content := s.fillCalendarContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-		case "widget_news":
-			content := s.fillNewsContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-		case "widget_timer":
-			content := s.fillTimerContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-		case "widget_custom":
-			content := s.fillCustomContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-		case "widget_system":
-			content := s.fillSystemContent(props)
-			s.renderTextV(img, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+			cos, sin := rotationCoeffs(rot)
+			aff := f64.Aff3{cos, -sin, float64(x), sin, cos, float64(y)}
+			xdraw.CatmullRom.Transform(img, aff, offscreen, offscreen.Bounds(), xdraw.Over, nil)
 		}
 	}
 
@@ -240,6 +222,114 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		return nil, fmt.Errorf("encode png: %w", err)
 	}
 	return buf.Bytes(), nil
+}
+
+// drawElement draws a single element of the given type into dst with its
+// top-left anchor at (x, y). w and h are the scaled, unrotated element
+// dimensions; px and py the scaled widget padding.
+func (s *PreviewService) drawElement(dst *image.RGBA, elemType string, props map[string]any, x, y, w, h, px, py int, face font.Face, fontSize int, bold, italic, strike bool, align, vAlign string, textColor color.RGBA) {
+	switch elemType {
+	case "text", "i-text", "textbox":
+		content := s.fillTextContent(props)
+		s.renderTextV(dst, x, y, w, h, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+
+	case "image":
+		s.renderImageElement(dst, x, y, w, h, props)
+
+	case "shape":
+		s.renderShapeElement(dst, x, y, w, h, props, textColor)
+
+	case "widget_clock":
+		content := s.fillClockContent(props)
+		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+
+	case "widget_weather":
+		content := s.fillWeatherContent(props)
+		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+
+	case "widget_forecast":
+		content := s.fillForecastContent(props)
+		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+
+	case "widget_calendar":
+		content := s.fillCalendarContent(props)
+		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+
+	case "widget_news":
+		content := s.fillNewsContent(props)
+		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+
+	case "widget_timer":
+		content := s.fillTimerContent(props)
+		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+
+	case "widget_custom":
+		content := s.fillCustomContent(props)
+		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+
+	case "widget_system":
+		content := s.fillSystemContent(props)
+		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+	}
+}
+
+// --- Rotation helpers ---
+//
+// Fabric.js semantics (verified in the designer frontend): Element.Rotation is
+// in degrees, clockwise, around the element's unrotated top-left anchor (x, y).
+// width/height stay unrotated. In image coordinates (y pointing down) a
+// clockwise rotation is the standard rotation matrix, mapping an offscreen
+// point (u, v) to canvas coordinates:
+//
+//	dstX = x + u*cos(θ) - v*sin(θ)
+//	dstY = y + u*sin(θ) + v*cos(θ)
+
+// normalizeRotation maps a rotation in degrees to the range [0, 360).
+func normalizeRotation(deg float64) float64 {
+	m := math.Mod(deg, 360)
+	if m < 0 {
+		m += 360
+	}
+	return m
+}
+
+// rotationCoeffs returns (cos θ, sin θ) for a clockwise rotation of deg
+// degrees (deg must be normalized to [0, 360)). Exact multiples of 90° use
+// exact {-1, 0, 1} coefficients because math.Cos/Sin leave float dust there
+// (e.g. cos(π/2) ≈ 6.1e-17), which would break exact axis parallelism.
+func rotationCoeffs(deg float64) (cos, sin float64) {
+	switch deg {
+	case 90:
+		return 0, 1
+	case 180:
+		return -1, 0
+	case 270:
+		return 0, -1
+	}
+	rad := deg * math.Pi / 180
+	return math.Cos(rad), math.Sin(rad)
+}
+
+// rotatedAABB returns the axis-aligned bounding box of a w×h element rotated
+// by deg degrees (normalized) around its top-left anchor (x, y).
+func rotatedAABB(x, y, w, h int, deg float64) (minX, minY, maxX, maxY float64) {
+	cos, sin := rotationCoeffs(deg)
+	fx, fy := float64(x), float64(y)
+	corners := [4][2]float64{{0, 0}, {float64(w), 0}, {0, float64(h)}, {float64(w), float64(h)}}
+	for i, c := range corners {
+		cx := fx + c[0]*cos - c[1]*sin
+		cy := fy + c[0]*sin + c[1]*cos
+		if i == 0 {
+			minX, maxX = cx, cx
+			minY, maxY = cy, cy
+			continue
+		}
+		minX = math.Min(minX, cx)
+		maxX = math.Max(maxX, cx)
+		minY = math.Min(minY, cy)
+		maxY = math.Max(maxY, cy)
+	}
+	return minX, minY, maxX, maxY
 }
 
 // --- Content filling methods for v2 elements ---

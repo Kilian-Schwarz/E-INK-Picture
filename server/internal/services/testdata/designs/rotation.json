@@ -1,0 +1,32 @@
+{
+  "name": "golden-rotation",
+  "version": 2,
+  "canvas": { "width": 800, "height": 480, "background": "#FFFFFF" },
+  "elements": [
+    {
+      "id": "t_rot30", "type": "text",
+      "x": 80, "y": 60, "width": 300, "height": 40, "rotation": 30, "zIndex": 1, "visible": true,
+      "properties": { "text": "Rotated 30 deg", "fontSize": 28, "color": "#000000", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "s_rot45", "type": "shape",
+      "x": 500, "y": 80, "width": 160, "height": 90, "rotation": 45, "zIndex": 2, "visible": true,
+      "properties": { "fill": "#FF0000", "stroke": "#000000", "strokeWidth": 4 }
+    },
+    {
+      "id": "i_rot90", "type": "image",
+      "x": 300, "y": 250, "width": 180, "height": 120, "rotation": 90, "zIndex": 3, "visible": true,
+      "properties": { "image": "gradient_photo.png" }
+    },
+    {
+      "id": "s_ref", "type": "shape",
+      "x": 680, "y": 320, "width": 90, "height": 90, "rotation": 0, "zIndex": 2, "visible": true,
+      "properties": { "fill": "#0000FF", "stroke": "#000000", "strokeWidth": 4 }
+    },
+    {
+      "id": "t_ref", "type": "text",
+      "x": 420, "y": 420, "width": 340, "height": 40, "rotation": 0, "zIndex": 1, "visible": true,
+      "properties": { "text": "Reference unrotated", "fontSize": 24, "color": "#000000", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    }
+  ]
+}
