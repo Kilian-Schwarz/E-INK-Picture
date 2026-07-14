@@ -29,14 +29,14 @@ Epic: Bootstrap | Task: Discovery (repo-cartographer) + Hardware-Baseline (hardw
 
 | Task | Beschreibung | Gates | Commit |
 |------|--------------|-------|--------|
-| Bootstrap | Subagent-Roster (.claude/agents/, 11 Agents) + PROGRESS.md angelegt | n/a (keine Code-Änderung) | — |
+| Bootstrap | Subagent-Roster (.claude/agents/, 11 Agents) + PROGRESS.md angelegt | n/a (keine Code-Änderung) | 162e3ec |
+| CLAUDE.md-Fix | Überholte server/static/-Regel entfernt (handgepflegter Frontend-Code) | n/a (docs-only, Diff manuell geprüft) | f51d46e |
 
 ## Offen / Blockiert
 
 - Discovery: repo-cartographer verifiziert Gap-Analyse G1–G10 — läuft
 - Hardware-Baseline: hardware-validator ermittelt Pi-Modell, Panel, Kamera, SSH-Zugang — läuft
-- CLAUDE.md-Korrektur (server/static/-Regel überholt): docs-writer — läuft
-- E1.2 (eink_last_sent.png): wartet auf Spec — Vorbedingung für alle L3-Gates
+- E1.2 (eink_last_sent.png): Spec in Arbeit (spec-writer) — Vorbedingung für alle L3-Gates
 
 ## Übersprungene Gates
 
