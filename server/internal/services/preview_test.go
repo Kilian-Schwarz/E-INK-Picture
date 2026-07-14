@@ -834,47 +834,6 @@ func TestTextNotOutsideBoundingBox(t *testing.T) {
 	}
 }
 
-func TestPaletteQuantization(t *testing.T) {
-	previewSvc, _ := setupTestServices(t)
-
-	vis := true
-	design := &models.DesignV2{
-		Name:    "test-quantize",
-		Version: 2,
-		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
-		Elements: []models.Element{
-			{
-				ID: "s1", Type: "shape",
-				X: 0, Y: 0, Width: 400, Height: 240,
-				ZIndex: 0, Visible: &vis,
-				Properties: map[string]any{"fill": "#FF0000"},
-			},
-			{
-				ID: "s2", Type: "shape",
-				X: 400, Y: 0, Width: 400, Height: 240,
-				ZIndex: 0, Visible: &vis,
-				Properties: map[string]any{"fill": "#0000FF"},
-			},
-		},
-	}
-
-	// Render with quantization (raw=false)
-	pngData, err := previewSvc.Render(design, false)
-	if err != nil {
-		t.Fatalf("Render with quantization failed: %v", err)
-	}
-
-	img, err := png.Decode(bytes.NewReader(pngData))
-	if err != nil {
-		t.Fatalf("Failed to decode PNG: %v", err)
-	}
-
-	// The quantized image should be a paletted image
-	if _, ok := img.(*image.Paletted); !ok {
-		t.Error("Expected paletted image after quantization")
-	}
-}
-
 func TestFullDesignAllElementTypes(t *testing.T) {
 	previewSvc, tmpDir := setupTestServices(t)
 

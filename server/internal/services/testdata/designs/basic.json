@@ -1,0 +1,72 @@
+{
+  "name": "golden-basic",
+  "version": 2,
+  "canvas": { "width": 800, "height": 480, "background": "#FFFFFF" },
+  "elements": [
+    {
+      "id": "t_title", "type": "text",
+      "x": 24, "y": 16, "width": 560, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "text": "E-INK Golden Master", "fontSize": 36, "color": "#000000", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "t_center", "type": "text",
+      "x": 24, "y": 84, "width": 480, "height": 40, "zIndex": 1, "visible": true,
+      "properties": { "text": "Centered text 24px", "fontSize": 24, "color": "#0000FF", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "t_right", "type": "text",
+      "x": 24, "y": 132, "width": 480, "height": 32, "zIndex": 1, "visible": true,
+      "properties": { "text": "Right aligned 18px", "fontSize": 18, "color": "#FF0000", "textAlign": "right", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "t_small", "type": "text",
+      "x": 24, "y": 172, "width": 480, "height": 26, "zIndex": 1, "visible": true,
+      "properties": { "text": "Small print 14px for glyph fidelity", "fontSize": 14, "color": "#000000", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "t_bottom", "type": "textbox",
+      "x": 540, "y": 84, "width": 236, "height": 114, "zIndex": 1, "visible": true,
+      "properties": { "text": "Bottom anchored", "fontSize": 20, "color": "#000000", "textAlign": "center", "verticalAlign": "bottom", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "s_black", "type": "shape",
+      "x": 24, "y": 220, "width": 108, "height": 70, "zIndex": 2, "visible": true,
+      "properties": { "fill": "#000000" }
+    },
+    {
+      "id": "s_white", "type": "shape",
+      "x": 152, "y": 220, "width": 108, "height": 70, "zIndex": 2, "visible": true,
+      "properties": { "fill": "#FFFFFF", "stroke": "#000000", "strokeWidth": 3 }
+    },
+    {
+      "id": "s_red", "type": "shape",
+      "x": 280, "y": 220, "width": 108, "height": 70, "zIndex": 2, "visible": true,
+      "properties": { "fill": "#FF0000", "rx": 12 }
+    },
+    {
+      "id": "s_yellow", "type": "shape",
+      "x": 408, "y": 220, "width": 108, "height": 70, "zIndex": 2, "visible": true,
+      "properties": { "fill": "#FFFF00", "stroke": "#000000", "strokeWidth": 2, "rx": 12 }
+    },
+    {
+      "id": "s_green", "type": "shape",
+      "x": 536, "y": 220, "width": 108, "height": 70, "zIndex": 2, "visible": true,
+      "properties": { "fill": "#00FF00" }
+    },
+    {
+      "id": "s_blue", "type": "shape",
+      "x": 664, "y": 220, "width": 108, "height": 70, "zIndex": 2, "visible": true,
+      "properties": { "fill": "#0000FF", "rx": 20 }
+    },
+    {
+      "id": "s_panel", "type": "shape",
+      "x": 24, "y": 320, "width": 752, "height": 132, "zIndex": 3, "visible": true,
+      "properties": { "fill": "#FFFFFF", "stroke": "#0000FF", "strokeWidth": 4, "rx": 16 }
+    },
+    {
+      "id": "t_footer", "type": "text",
+      "x": 40, "y": 336, "width": 720, "height": 100, "zIndex": 4, "visible": true,
+      "properties": { "text": "Palette: black white red yellow green blue", "fontSize": 22, "color": "#000000", "textAlign": "center", "verticalAlign": "middle", "fontFamily": "testfont.ttf" }
+    }
+  ]
+}

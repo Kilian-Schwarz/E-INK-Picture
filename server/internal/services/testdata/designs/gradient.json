@@ -1,0 +1,12 @@
+{
+  "name": "golden-gradient",
+  "version": 2,
+  "canvas": { "width": 800, "height": 480, "background": "#FFFFFF" },
+  "elements": [
+    {
+      "id": "photo", "type": "image",
+      "x": 0, "y": 0, "width": 800, "height": 480, "zIndex": 0, "visible": true,
+      "properties": { "image": "gradient_photo.png" }
+    }
+  ]
+}
