@@ -43,10 +43,13 @@ Epic: E1 | Nächste Tasks: E1.1 (Golden Files) + E1.3 (Default-Konsistenz) — S
 | gofmt-Chore | Format-Drift in 6 Server-Dateien bereinigt (rein mechanisch, Tests grün) | L1✅ | 86507fa |
 | E1.1 | Golden-File-Harness: 4 Golden-PNGs, TestPaletteExactness (3 Quality × 2 Profile), Determinismus, Font-Pinning | L1✅ L2✅ (Reviewer: eigene Farbzählung + Sichtprüfung) L5✅ APPROVE | 7752a1a |
 | E1.3 | Konsistenter Display-Default via EINK_DISPLAY_TYPE (Fallback waveshare_7in3_e, settings.json gewinnt immer) + CHANGELOG.md angelegt | L1✅ L2✅ (Goldens unverändert) L5✅ APPROVE | d8419e6 |
+| E1.4 | Client-Resize-Guard: NEAREST statt LANCZOS, WARNING mit beiden Größen | L1✅ (30 Tests, Negativprobe rot unter LANCZOS) L5✅ APPROVE | a4bc72e |
+| E1.5 | Element-Rotation im Renderer (Fabric-Semantik, exakte 90°-Koeffizienten, rotiertes Culling); alte Goldens sha-identisch | L1✅ L2✅ (Reviewer: eigene Sichtprüfung + Farbzählung + Negativprobe) L5✅ APPROVE | 89cc9f4 |
 
 ## Offen / Blockiert
 
-- E1.4 + E1.5: Specs in Arbeit (spec-writer)
+- E1.6 (Kalibrierung): Spec in Arbeit (spec-writer, inkl. Recherche gemessener Spectra-6-Farbwerte)
+- HIL-Lauf (L3-Gate E1.2): läuft — Docker-Build auf dem Pi, danach Refresh + Artefakt-Abgleich
 - L3-Nachweis E1.2: beim nächsten Hardware-Durchlauf /tmp/eink_last_sent.png vom Pi holen und gegen Server-Preview vergleichen
 - Entscheidung Kilian: refresh_interval 900 s auf dem Test-Pi beibehalten oder erhöhen? (Panel-Verschleiß)
 - Entscheidung Kilian: Test-Pi von Docker- auf Nativ-Betrieb umstellen für E2-Tests? (data/ wird vorher gesichert)
