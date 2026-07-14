@@ -259,6 +259,87 @@ func TestSettingsService_InvalidDefaultDisplayTypeFallsBack(t *testing.T) {
 	}
 }
 
+// E1.6 AC1: missing settings.json and settings.json without the new fields
+// both resolve to dither_algorithm=floyd_steinberg and calibration=default.
+func TestSettingsService_DitherCalibrationDefaults(t *testing.T) {
+	t.Run("missing_file", func(t *testing.T) {
+		svc := NewSettingsService(t.TempDir(), models.DisplayWaveshare73E)
+
+		settings, err := svc.GetSettings()
+		if err != nil {
+			t.Fatalf("GetSettings: %v", err)
+		}
+		if settings.DitherAlgorithm != models.DitherFloydSteinberg {
+			t.Errorf("expected dither_algorithm %q, got %q", models.DitherFloydSteinberg, settings.DitherAlgorithm)
+		}
+		if settings.Calibration != models.CalibrationDefault {
+			t.Errorf("expected calibration %q, got %q", models.CalibrationDefault, settings.Calibration)
+		}
+	})
+
+	t.Run("file_without_fields", func(t *testing.T) {
+		dir := t.TempDir()
+		legacy := `{"display_type":"waveshare_7in3_e","refresh_interval":3600}`
+		if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(legacy), 0644); err != nil {
+			t.Fatalf("write settings.json: %v", err)
+		}
+		svc := NewSettingsService(dir, models.DisplayWaveshare73E)
+
+		settings, err := svc.GetSettings()
+		if err != nil {
+			t.Fatalf("GetSettings: %v", err)
+		}
+		if settings.DitherAlgorithm != models.DitherFloydSteinberg {
+			t.Errorf("expected dither_algorithm %q, got %q", models.DitherFloydSteinberg, settings.DitherAlgorithm)
+		}
+		if settings.Calibration != models.CalibrationDefault {
+			t.Errorf("expected calibration %q, got %q", models.CalibrationDefault, settings.Calibration)
+		}
+	})
+
+	t.Run("getters", func(t *testing.T) {
+		svc := NewSettingsService(t.TempDir(), models.DisplayWaveshare73E)
+		if got := svc.GetDitherAlgorithm(); got != models.DitherFloydSteinberg {
+			t.Errorf("GetDitherAlgorithm: expected %q, got %q", models.DitherFloydSteinberg, got)
+		}
+		if got := svc.GetCalibration(); got != models.CalibrationDefault {
+			t.Errorf("GetCalibration: expected %q, got %q", models.CalibrationDefault, got)
+		}
+	})
+}
+
+// E1.6 AC1: non-default values survive a save/load roundtrip and are
+// reflected by the getters.
+func TestSettingsService_DitherCalibrationRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewSettingsService(dir, models.DisplayWaveshare73E)
+
+	settings, _ := svc.GetSettings()
+	settings.DitherAlgorithm = models.DitherAtkinson
+	settings.Calibration = models.CalibrationOff
+	if err := svc.SaveSettings(settings); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+
+	fresh := NewSettingsService(dir, models.DisplayWaveshare73E)
+	loaded, err := fresh.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings after save: %v", err)
+	}
+	if loaded.DitherAlgorithm != models.DitherAtkinson {
+		t.Errorf("expected dither_algorithm %q, got %q", models.DitherAtkinson, loaded.DitherAlgorithm)
+	}
+	if loaded.Calibration != models.CalibrationOff {
+		t.Errorf("expected calibration %q, got %q", models.CalibrationOff, loaded.Calibration)
+	}
+	if got := fresh.GetDitherAlgorithm(); got != models.DitherAtkinson {
+		t.Errorf("GetDitherAlgorithm: expected %q, got %q", models.DitherAtkinson, got)
+	}
+	if got := fresh.GetCalibration(); got != models.CalibrationOff {
+		t.Errorf("GetCalibration: expected %q, got %q", models.CalibrationOff, got)
+	}
+}
+
 // AC6: on a fresh install, TriggerRefresh and RecordClientRefresh persist the
 // configured default instead of pinning the old hardcoded B/W profile.
 func TestSettingsService_FreshInstallPersistsConfiguredDefault(t *testing.T) {

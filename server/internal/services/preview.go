@@ -209,12 +209,14 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		finalImg = dst
 	}
 
-	// Quantize to display palette (unless raw mode)
+	// Quantize to display palette (unless raw mode). The two-stage pipeline
+	// in quantize.go dithers against the perceptual panel palette (when
+	// calibration is active) and swaps back to the pure driver colors.
 	var output image.Image
 	if raw {
 		output = finalImg
 	} else {
-		output = quantizeToPalette(finalImg, displayCfg.Colors)
+		output = quantizeForDisplay(finalImg, displayCfg, s.settings.GetDitherAlgorithm(), s.settings.GetCalibration())
 	}
 
 	var buf bytes.Buffer
@@ -873,23 +875,6 @@ func parseHexColor(hex string) color.RGBA {
 		return color.RGBA{0, 0, 0, 255}
 	}
 	return color.RGBA{r, g, b, 255}
-}
-
-// quantizeToPalette reduces an image to a specific color palette using Floyd-Steinberg dithering.
-func quantizeToPalette(img image.Image, hexColors []string) *image.Paletted {
-	pal := make(color.Palette, 0, len(hexColors))
-	for _, hex := range hexColors {
-		pal = append(pal, parseHexColor(hex))
-	}
-
-	if len(pal) == 0 {
-		pal = color.Palette{color.White, color.Black}
-	}
-
-	bounds := img.Bounds()
-	paletted := image.NewPaletted(bounds, pal)
-	draw.FloydSteinberg.Draw(paletted, bounds, img, image.Point{})
-	return paletted
 }
 
 // RenderActive renders the currently active design with palette quantization.

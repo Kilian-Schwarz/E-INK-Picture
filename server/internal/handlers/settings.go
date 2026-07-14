@@ -33,9 +33,11 @@ func (h *SettingsHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
 // UpdateSettings saves new settings and returns the updated state.
 func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		DisplayType     models.DisplayType   `json:"display_type"`
-		RefreshInterval *int                 `json:"refresh_interval,omitempty"`
-		RenderQuality   models.RenderQuality `json:"render_quality,omitempty"`
+		DisplayType     models.DisplayType     `json:"display_type"`
+		RefreshInterval *int                   `json:"refresh_interval,omitempty"`
+		RenderQuality   models.RenderQuality   `json:"render_quality,omitempty"`
+		DitherAlgorithm models.DitherAlgorithm `json:"dither_algorithm,omitempty"`
+		Calibration     models.CalibrationMode `json:"calibration,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -67,6 +69,26 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 			current.RenderQuality = req.RenderQuality
 		default:
 			jsonError(w, "invalid render_quality: "+string(req.RenderQuality), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if req.DitherAlgorithm != "" {
+		switch req.DitherAlgorithm {
+		case models.DitherFloydSteinberg, models.DitherAtkinson:
+			current.DitherAlgorithm = req.DitherAlgorithm
+		default:
+			jsonError(w, "invalid dither_algorithm: "+string(req.DitherAlgorithm), http.StatusBadRequest)
+			return
+		}
+	}
+
+	if req.Calibration != "" {
+		switch req.Calibration {
+		case models.CalibrationDefault, models.CalibrationOff:
+			current.Calibration = req.Calibration
+		default:
+			jsonError(w, "invalid calibration: "+string(req.Calibration), http.StatusBadRequest)
 			return
 		}
 	}

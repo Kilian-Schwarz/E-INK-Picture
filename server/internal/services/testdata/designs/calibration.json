@@ -1,0 +1,257 @@
+{
+  "name": "calibration",
+  "version": 2,
+  "canvas": { "width": 800, "height": 480, "background": "#FFFFFF" },
+  "elements": [
+    {
+      "id": "sw_black", "type": "shape",
+      "x": 8, "y": 8, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#000000" }
+    },
+    {
+      "id": "sw_white", "type": "shape",
+      "x": 140, "y": 8, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FFFFFF", "stroke": "#000000", "strokeWidth": 2 }
+    },
+    {
+      "id": "sw_red", "type": "shape",
+      "x": 272, "y": 8, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FF0000" }
+    },
+    {
+      "id": "sw_yellow", "type": "shape",
+      "x": 404, "y": 8, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FFFF00" }
+    },
+    {
+      "id": "sw_green", "type": "shape",
+      "x": 536, "y": 8, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#00FF00" }
+    },
+    {
+      "id": "sw_blue", "type": "shape",
+      "x": 668, "y": 8, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#0000FF" }
+    },
+    {
+      "id": "gray_00", "type": "shape",
+      "x": 0, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#000000" }
+    },
+    {
+      "id": "gray_01", "type": "shape",
+      "x": 50, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#111111" }
+    },
+    {
+      "id": "gray_02", "type": "shape",
+      "x": 100, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#222222" }
+    },
+    {
+      "id": "gray_03", "type": "shape",
+      "x": 150, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#333333" }
+    },
+    {
+      "id": "gray_04", "type": "shape",
+      "x": 200, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#444444" }
+    },
+    {
+      "id": "gray_05", "type": "shape",
+      "x": 250, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#555555" }
+    },
+    {
+      "id": "gray_06", "type": "shape",
+      "x": 300, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#666666" }
+    },
+    {
+      "id": "gray_07", "type": "shape",
+      "x": 350, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#777777" }
+    },
+    {
+      "id": "gray_08", "type": "shape",
+      "x": 400, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#888888" }
+    },
+    {
+      "id": "gray_09", "type": "shape",
+      "x": 450, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#999999" }
+    },
+    {
+      "id": "gray_10", "type": "shape",
+      "x": 500, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#AAAAAA" }
+    },
+    {
+      "id": "gray_11", "type": "shape",
+      "x": 550, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#BBBBBB" }
+    },
+    {
+      "id": "gray_12", "type": "shape",
+      "x": 600, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#CCCCCC" }
+    },
+    {
+      "id": "gray_13", "type": "shape",
+      "x": 650, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#DDDDDD" }
+    },
+    {
+      "id": "gray_14", "type": "shape",
+      "x": 700, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#EEEEEE" }
+    },
+    {
+      "id": "gray_15", "type": "shape",
+      "x": 750, "y": 80, "width": 50, "height": 56, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FFFFFF" }
+    },
+    {
+      "id": "skin_light", "type": "shape",
+      "x": 8, "y": 144, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#F1C27D" }
+    },
+    {
+      "id": "skin_medium", "type": "shape",
+      "x": 140, "y": 144, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#C68642" }
+    },
+    {
+      "id": "skin_dark", "type": "shape",
+      "x": 272, "y": 144, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#8D5524" }
+    },
+    {
+      "id": "mix_orange", "type": "shape",
+      "x": 404, "y": 144, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FF8000" }
+    },
+    {
+      "id": "mix_violet", "type": "shape",
+      "x": 536, "y": 144, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#8000FF" }
+    },
+    {
+      "id": "mix_cyan", "type": "shape",
+      "x": 668, "y": 144, "width": 124, "height": 64, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#00FFFF" }
+    },
+    {
+      "id": "tw_black", "type": "text",
+      "x": 8, "y": 216, "width": 124, "height": 32, "zIndex": 1, "visible": true,
+      "properties": { "text": "Black", "fontSize": 20, "color": "#000000", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tw_white", "type": "text",
+      "x": 140, "y": 216, "width": 124, "height": 32, "zIndex": 1, "visible": true,
+      "properties": { "text": "White", "fontSize": 20, "color": "#FFFFFF", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tw_red", "type": "text",
+      "x": 272, "y": 216, "width": 124, "height": 32, "zIndex": 1, "visible": true,
+      "properties": { "text": "Red", "fontSize": 20, "color": "#FF0000", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tw_yellow", "type": "text",
+      "x": 404, "y": 216, "width": 124, "height": 32, "zIndex": 1, "visible": true,
+      "properties": { "text": "Yellow", "fontSize": 20, "color": "#FFFF00", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tw_green", "type": "text",
+      "x": 536, "y": 216, "width": 124, "height": 32, "zIndex": 1, "visible": true,
+      "properties": { "text": "Green", "fontSize": 20, "color": "#00FF00", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tw_blue", "type": "text",
+      "x": 668, "y": 216, "width": 124, "height": 32, "zIndex": 1, "visible": true,
+      "properties": { "text": "Blue", "fontSize": 20, "color": "#0000FF", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "strip_black", "type": "shape",
+      "x": 0, "y": 252, "width": 800, "height": 44, "zIndex": 2, "visible": true,
+      "properties": { "fill": "#000000" }
+    },
+    {
+      "id": "tb_black", "type": "text",
+      "x": 8, "y": 258, "width": 124, "height": 32, "zIndex": 3, "visible": true,
+      "properties": { "text": "Black", "fontSize": 20, "color": "#000000", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tb_white", "type": "text",
+      "x": 140, "y": 258, "width": 124, "height": 32, "zIndex": 3, "visible": true,
+      "properties": { "text": "White", "fontSize": 20, "color": "#FFFFFF", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tb_red", "type": "text",
+      "x": 272, "y": 258, "width": 124, "height": 32, "zIndex": 3, "visible": true,
+      "properties": { "text": "Red", "fontSize": 20, "color": "#FF0000", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tb_yellow", "type": "text",
+      "x": 404, "y": 258, "width": 124, "height": 32, "zIndex": 3, "visible": true,
+      "properties": { "text": "Yellow", "fontSize": 20, "color": "#FFFF00", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tb_green", "type": "text",
+      "x": 536, "y": 258, "width": 124, "height": 32, "zIndex": 3, "visible": true,
+      "properties": { "text": "Green", "fontSize": 20, "color": "#00FF00", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tb_blue", "type": "text",
+      "x": 668, "y": 258, "width": 124, "height": 32, "zIndex": 3, "visible": true,
+      "properties": { "text": "Blue", "fontSize": 20, "color": "#0000FF", "textAlign": "center", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "field_red", "type": "shape",
+      "x": 8, "y": 304, "width": 384, "height": 64, "zIndex": 2, "visible": true,
+      "properties": { "fill": "#FF0000" }
+    },
+    {
+      "id": "tr_black", "type": "text",
+      "x": 24, "y": 320, "width": 170, "height": 32, "zIndex": 3, "visible": true,
+      "properties": { "text": "Black on red", "fontSize": 20, "color": "#000000", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tr_white", "type": "text",
+      "x": 206, "y": 320, "width": 170, "height": 32, "zIndex": 3, "visible": true,
+      "properties": { "text": "White on red", "fontSize": 20, "color": "#FFFFFF", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "field_blue", "type": "shape",
+      "x": 408, "y": 304, "width": 384, "height": 64, "zIndex": 2, "visible": true,
+      "properties": { "fill": "#0000FF" }
+    },
+    {
+      "id": "tu_black", "type": "text",
+      "x": 424, "y": 320, "width": 170, "height": 32, "zIndex": 3, "visible": true,
+      "properties": { "text": "Black on blue", "fontSize": 20, "color": "#000000", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "tu_white", "type": "text",
+      "x": 606, "y": 320, "width": 170, "height": 32, "zIndex": 3, "visible": true,
+      "properties": { "text": "White on blue", "fontSize": 20, "color": "#FFFFFF", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "large_skin", "type": "shape",
+      "x": 8, "y": 376, "width": 256, "height": 96, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#F1C27D" }
+    },
+    {
+      "id": "large_gray", "type": "shape",
+      "x": 272, "y": 376, "width": 256, "height": 96, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#808080" }
+    },
+    {
+      "id": "large_sky", "type": "shape",
+      "x": 536, "y": 376, "width": 256, "height": 96, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#4A90D9" }
+    }
+  ]
+}

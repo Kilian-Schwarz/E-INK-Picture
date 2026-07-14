@@ -51,6 +51,8 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 			return &models.Settings{
 				DisplayType:     s.defaultDisplayType,
 				RefreshInterval: defaultRefreshInterval,
+				DitherAlgorithm: models.DitherFloydSteinberg,
+				Calibration:     models.CalibrationDefault,
 			}, nil
 		}
 		return nil, err
@@ -61,6 +63,8 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 		return &models.Settings{
 			DisplayType:     s.defaultDisplayType,
 			RefreshInterval: defaultRefreshInterval,
+			DitherAlgorithm: models.DitherFloydSteinberg,
+			Calibration:     models.CalibrationDefault,
 		}, nil
 	}
 
@@ -72,6 +76,12 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 	}
 	if settings.RenderQuality == "" {
 		settings.RenderQuality = models.RenderQualityHigh
+	}
+	if settings.DitherAlgorithm == "" {
+		settings.DitherAlgorithm = models.DitherFloydSteinberg
+	}
+	if settings.Calibration == "" {
+		settings.Calibration = models.CalibrationDefault
 	}
 
 	return &settings, nil
@@ -109,6 +119,8 @@ func (s *SettingsService) GetSettingsResponse() (*models.SettingsResponse, error
 		Display:         models.GetDisplayConfig(settings.DisplayType),
 		RefreshInterval: settings.RefreshInterval,
 		RenderQuality:   settings.RenderQuality,
+		DitherAlgorithm: settings.DitherAlgorithm,
+		Calibration:     settings.Calibration,
 	}, nil
 }
 
@@ -119,6 +131,24 @@ func (s *SettingsService) GetRenderQuality() models.RenderQuality {
 		return models.RenderQualityHigh
 	}
 	return settings.RenderQuality
+}
+
+// GetDitherAlgorithm returns the configured dithering algorithm.
+func (s *SettingsService) GetDitherAlgorithm() models.DitherAlgorithm {
+	settings, err := s.GetSettings()
+	if err != nil {
+		return models.DitherFloydSteinberg
+	}
+	return settings.DitherAlgorithm
+}
+
+// GetCalibration returns the configured calibration mode.
+func (s *SettingsService) GetCalibration() models.CalibrationMode {
+	settings, err := s.GetSettings()
+	if err != nil {
+		return models.CalibrationDefault
+	}
+	return settings.Calibration
 }
 
 // TriggerRefresh sets the last refresh trigger timestamp.
