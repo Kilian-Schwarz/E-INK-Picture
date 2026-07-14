@@ -1,13 +1,50 @@
 #!/usr/bin/env python3
 """Tests for E-Ink Picture Client with mock display."""
 
+import importlib
 import json
+import logging
+import os
+import tempfile
 import time
 import unittest
 from io import BytesIO
 from unittest.mock import MagicMock, patch, PropertyMock
 
 from PIL import Image
+
+DEFAULT_LAST_SENT_PATH = "/tmp/eink_last_sent.png"
+
+COLOR_DISPLAY_CONFIG = {
+    "colors": ["#000000", "#FFFFFF", "#FF0000", "#00FF00", "#0000FF", "#FFFF00"]
+}
+BW_DISPLAY_CONFIG = {"colors": ["#000000", "#FFFFFF"]}
+
+
+def _snapshot_default_artifact_paths():
+    """Existence/mtime of the real default artifact path and its temp sibling."""
+    state = {}
+    for path in (DEFAULT_LAST_SENT_PATH, DEFAULT_LAST_SENT_PATH + ".tmp"):
+        state[path] = os.path.getmtime(path) if os.path.exists(path) else None
+    return state
+
+
+_default_artifact_before = None
+
+
+def setUpModule():
+    global _default_artifact_before
+    _default_artifact_before = _snapshot_default_artifact_paths()
+
+
+def tearDownModule():
+    """AC7 guard: no test may create or modify the real default /tmp artifact."""
+    after = _snapshot_default_artifact_paths()
+    if after != _default_artifact_before:
+        raise AssertionError(
+            "AC7 violated: test suite touched the default artifact path "
+            f"(before={_default_artifact_before}, after={after})"
+        )
 
 
 class MockEPD:
@@ -35,6 +72,29 @@ class MockEPD:
         self.initialized = False
 
 
+class RecordingEPD(MockEPD):
+    """MockEPD that records the exact PIL image passed to getbuffer().
+
+    Optionally also records whether the artifact file already existed at the
+    moment display() was called (write point must be before the driver call).
+    """
+
+    def __init__(self, artifact_path=None):
+        super().__init__()
+        self.artifact_path = artifact_path
+        self.getbuffer_image = None
+        self.artifact_existed_at_display = None
+
+    def getbuffer(self, image):
+        self.getbuffer_image = image.copy()
+        return super().getbuffer(image)
+
+    def display(self, buffer):
+        if self.artifact_path is not None:
+            self.artifact_existed_at_display = os.path.exists(self.artifact_path)
+        super().display(buffer)
+
+
 def make_test_png(width=800, height=480, color=(255, 255, 255)):
     """Create a test PNG image in memory."""
     img = Image.new("RGB", (width, height), color)
@@ -42,6 +102,41 @@ def make_test_png(width=800, height=480, color=(255, 255, 255)):
     img.save(buf, format="PNG")
     buf.seek(0)
     return buf.getvalue()
+
+
+def make_gradient_image(width=800, height=480):
+    """Create a non-uniform RGB test image so pixel-identity checks are meaningful."""
+    base = Image.linear_gradient("L").resize((width, height))
+    return Image.merge(
+        "RGB",
+        (
+            base,
+            base.transpose(Image.Transpose.ROTATE_180),
+            base.transpose(Image.Transpose.FLIP_LEFT_RIGHT),
+        ),
+    )
+
+
+class ArtifactSandboxMixin:
+    """Redirect config.LAST_SENT_PATH into a per-test temp directory (AC7).
+
+    Every test that can reach display_image() must use this mixin so no test
+    ever writes to the real default /tmp path. Also restores client.epd.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import client
+        import config
+        self.client = client
+        tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tmpdir.cleanup)
+        self.artifact_dir = tmpdir.name
+        self.artifact_path = os.path.join(self.artifact_dir, "eink_last_sent.png")
+        patcher = patch.object(config, "LAST_SENT_PATH", self.artifact_path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(setattr, client, "epd", client.epd)
 
 
 class TestFetchPreview(unittest.TestCase):
@@ -95,7 +190,7 @@ class TestFetchPreview(unittest.TestCase):
         self.assertIsNone(img)
 
 
-class TestDisplayImage(unittest.TestCase):
+class TestDisplayImage(ArtifactSandboxMixin, unittest.TestCase):
     """Test image display on mock EPD hardware."""
 
     def test_display_bw_image(self):
@@ -168,6 +263,167 @@ class TestDisplayImage(unittest.TestCase):
         result = client.display_image(img, display_config)
 
         self.assertFalse(result)
+
+
+class TestLastSentPathConfig(unittest.TestCase):
+    """AC1: config.LAST_SENT_PATH default value and env override."""
+
+    def tearDown(self):
+        # Restore module state from the real environment after reload tests.
+        import config
+        importlib.reload(config)
+
+    def test_last_sent_path_default(self):
+        """Without EINK_LAST_SENT_PATH the default is /tmp/eink_last_sent.png."""
+        import config
+        with patch.dict(os.environ):
+            os.environ.pop("EINK_LAST_SENT_PATH", None)
+            importlib.reload(config)
+            self.assertEqual(config.LAST_SENT_PATH, DEFAULT_LAST_SENT_PATH)
+
+    def test_last_sent_path_env_override(self):
+        """EINK_LAST_SENT_PATH overrides the default after module reload."""
+        import config
+        override = "/custom/debug/last_sent.png"
+        with patch.dict(os.environ, {"EINK_LAST_SENT_PATH": override}):
+            importlib.reload(config)
+            self.assertEqual(config.LAST_SENT_PATH, override)
+
+
+class TestLastSentArtifact(ArtifactSandboxMixin, unittest.TestCase):
+    """AC2-AC6: last-sent debug artifact written by display_image()."""
+
+    def test_last_sent_artifact_color(self):
+        """AC2/AC3: artifact is pixel-identical to the RGB image given to the driver.
+
+        Oversized non-uniform input proves the write point is after resize;
+        RecordingEPD proves it is before epd.display().
+        """
+        mock_epd = RecordingEPD(artifact_path=self.artifact_path)
+        self.client.epd = mock_epd
+
+        img = make_gradient_image(1600, 960)
+        result = self.client.display_image(img, COLOR_DISPLAY_CONFIG)
+
+        self.assertTrue(result)
+        self.assertIsNotNone(mock_epd.getbuffer_image)
+        self.assertTrue(os.path.exists(self.artifact_path))
+        with Image.open(self.artifact_path) as artifact:
+            artifact.load()
+            self.assertEqual(artifact.size, (800, 480))
+            self.assertEqual(artifact.mode, "RGB")
+            self.assertEqual(artifact.tobytes(), mock_epd.getbuffer_image.tobytes())
+        # Write point: artifact was already on disk when epd.display() ran.
+        self.assertTrue(mock_epd.artifact_existed_at_display)
+        # No leftover temp files next to the artifact.
+        self.assertEqual(os.listdir(self.artifact_dir), ["eink_last_sent.png"])
+
+    def test_last_sent_artifact_bw(self):
+        """AC3: B/W path writes a mode-'1' artifact, pixel-identical to driver input."""
+        mock_epd = RecordingEPD(artifact_path=self.artifact_path)
+        self.client.epd = mock_epd
+
+        img = make_gradient_image()
+        result = self.client.display_image(img, BW_DISPLAY_CONFIG)
+
+        self.assertTrue(result)
+        self.assertIsNotNone(mock_epd.getbuffer_image)
+        self.assertEqual(mock_epd.getbuffer_image.mode, "1")
+        self.assertTrue(os.path.exists(self.artifact_path))
+        with Image.open(self.artifact_path) as artifact:
+            artifact.load()
+            self.assertEqual(artifact.size, (800, 480))
+            self.assertEqual(artifact.mode, "1")
+            self.assertEqual(artifact.tobytes(), mock_epd.getbuffer_image.tobytes())
+            # 1-bit artifact: only pure black/white pixels survive the threshold.
+            self.assertEqual(set(artifact.convert("L").getdata()) - {0, 255}, set())
+        self.assertTrue(mock_epd.artifact_existed_at_display)
+
+    def test_last_sent_artifact_atomic(self):
+        """AC4: temp file in the target directory + os.replace, never a direct save."""
+        mock_epd = RecordingEPD(artifact_path=self.artifact_path)
+        self.client.epd = mock_epd
+        img = make_gradient_image()
+
+        with patch("client.os.replace") as mock_replace:
+            result = self.client.display_image(img, COLOR_DISPLAY_CONFIG)
+
+        self.assertTrue(result)
+        mock_replace.assert_called_once()
+        src, dst = mock_replace.call_args[0]
+        self.assertEqual(dst, self.artifact_path)
+        self.assertNotEqual(src, dst)
+        # Temp file must live in the same directory (os.replace atomicity).
+        self.assertEqual(os.path.dirname(src), os.path.dirname(dst))
+        # os.replace was a no-op, so the temp file is still there: it must be
+        # a complete PNG identical to the image passed to the driver.
+        self.assertTrue(os.path.exists(src))
+        with Image.open(src) as tmp_png:
+            tmp_png.load()
+            self.assertEqual(tmp_png.tobytes(), mock_epd.getbuffer_image.tobytes())
+        # The target was never written directly (would exist otherwise).
+        self.assertFalse(os.path.exists(self.artifact_path))
+
+    def test_last_sent_artifact_write_failure_does_not_break_refresh(self):
+        """AC5: save into a missing directory logs a warning, refresh continues."""
+        mock_epd = RecordingEPD()
+        self.client.epd = mock_epd
+        img = make_gradient_image()
+        missing = os.path.join(self.artifact_dir, "does-not-exist", "eink_last_sent.png")
+
+        import config
+        with patch.object(config, "LAST_SENT_PATH", missing):
+            with self.assertLogs("eink-client", level="WARNING") as logs:
+                result = self.client.display_image(img, COLOR_DISPLAY_CONFIG)
+
+        self.assertTrue(result)
+        self.assertIsNotNone(mock_epd.displayed_buffer)
+        self.assertTrue(mock_epd.sleeping)
+        self.assertTrue(
+            any(
+                record.levelno == logging.WARNING and missing in record.getMessage()
+                for record in logs.records
+            ),
+            f"expected WARNING mentioning {missing}, got: {logs.output}",
+        )
+        self.assertFalse(os.path.exists(missing))
+
+    def test_last_sent_artifact_replace_failure_does_not_break_refresh(self):
+        """AC5: os.replace failure logs a warning, epd.display() still runs."""
+        mock_epd = RecordingEPD()
+        self.client.epd = mock_epd
+        img = make_gradient_image()
+
+        with patch("client.os.replace", side_effect=OSError("read-only filesystem")):
+            with self.assertLogs("eink-client", level="WARNING") as logs:
+                result = self.client.display_image(img, COLOR_DISPLAY_CONFIG)
+
+        self.assertTrue(result)
+        self.assertIsNotNone(mock_epd.displayed_buffer)
+        self.assertTrue(
+            any(
+                record.levelno == logging.WARNING
+                and self.artifact_path in record.getMessage()
+                for record in logs.records
+            ),
+            f"expected WARNING mentioning {self.artifact_path}, got: {logs.output}",
+        )
+        self.assertFalse(os.path.exists(self.artifact_path))
+
+    def test_no_artifact_without_hardware(self):
+        """AC6: with epd is None only preview_output.png is saved, no artifact."""
+        self.client.epd = None
+        img = make_gradient_image()
+
+        with patch("client.os.replace") as mock_replace, \
+                patch.object(img, "save") as mock_save:
+            result = self.client.display_image(img, {})
+
+        self.assertTrue(result)
+        mock_save.assert_called_once_with("preview_output.png")
+        mock_replace.assert_not_called()
+        self.assertFalse(os.path.exists(self.artifact_path))
+        self.assertEqual(os.listdir(self.artifact_dir), [])
 
 
 class TestRefreshStatus(unittest.TestCase):

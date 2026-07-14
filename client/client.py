@@ -2,6 +2,7 @@
 """E-Ink Picture Client — fetches rendered preview from server and displays on E-Ink."""
 
 import logging
+import os
 import signal
 import sys
 import time
@@ -76,6 +77,27 @@ def fetch_preview() -> Optional[Image.Image]:
     return None
 
 
+def save_last_sent_artifact(img: Image.Image) -> None:
+    """Atomically save the exact image passed to the EPD driver as a PNG debug artifact.
+
+    Writes to a temp file in the same directory as the target and renames via
+    os.replace(), so a concurrent scp never sees a half-written PNG. Any write
+    failure is logged as a warning and never interrupts the display refresh.
+    """
+    last_sent_path = config.LAST_SENT_PATH
+    tmp_path = f"{last_sent_path}.tmp"
+    try:
+        img.save(tmp_path, format="PNG")
+        os.replace(tmp_path, last_sent_path)
+        logger.debug("Last-sent artifact written to %s", last_sent_path)
+    except Exception as e:
+        logger.warning("Failed to write last-sent artifact to %s: %s", last_sent_path, e)
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 def display_image(img: Image.Image, display_config: dict) -> bool:
     """Send image to E-Ink display via SPI."""
     if not epd:
@@ -105,6 +127,8 @@ def display_image(img: Image.Image, display_config: dict) -> bool:
             if img.mode != "1":
                 img = img.convert("L").point(lambda x: 0 if x < 128 else 255, "1")
             logger.info("Sending to B/W display...")
+
+        save_last_sent_artifact(img)
 
         epd.display(epd.getbuffer(img))
 
