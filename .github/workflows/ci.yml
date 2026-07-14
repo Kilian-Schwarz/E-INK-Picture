@@ -1,0 +1,117 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs, but only on PRs — runs on main always complete
+# so every trunk commit keeps its full result.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      # gofmt must come from the setup-go toolchain (matching go.mod), never a
+      # separately installed Go — format rules can change between Go minor
+      # versions and version drift would cause phantom failures.
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test
+        run: go test ./... -count=1
+
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # Deployment floor: the target Pi runs Debian 13 with Python >= 3.11;
+          # the test suite needs >= 3.10 (assertNoLogs). CI tests what ships.
+          python-version: "3.11"
+
+      # Deliberately NOT `pip install -r requirements.txt`: that file contains
+      # Pi hardware bindings (RPi.GPIO, spidev, gpiod, gpiozero, lgpio) which
+      # partly fail to build on ubuntu-latest and are irrelevant here —
+      # client.py catches the missing waveshare_epd via ImportError and the
+      # tests mock the driver completely. Only the two pure-Python/portable
+      # deps are installed, with the same constraints as requirements.txt
+      # (keep in sync with client/requirements.txt).
+      - name: install dependencies
+        run: python3 -m pip install "requests>=2.31.0" "Pillow>=10.0.0"
+
+      - name: py_compile
+        run: python3 -m py_compile client.py config.py
+
+      - name: unittest
+        run: python3 -m unittest discover -v
+
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      # A broken target must not swallow the results of the other three —
+      # armv6/armv7 have no test hardware; these builds are their only
+      # regression protection.
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: arm64
+            goarm: ""
+            artifact: server-linux-arm64
+          - goarch: arm
+            goarm: "6"
+            artifact: server-linux-armv6
+          - goarch: arm
+            goarm: "7"
+            artifact: server-linux-armv7
+          - goarch: amd64
+            goarm: ""
+            artifact: server-linux-amd64
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: build ${{ matrix.artifact }}
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: "0"
+        run: go build -o ${{ matrix.artifact }} .
+
+      - name: verify binary
+        run: test -s ${{ matrix.artifact }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: server/${{ matrix.artifact }}
+          retention-days: 7
