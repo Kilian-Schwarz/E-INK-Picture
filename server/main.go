@@ -15,6 +15,7 @@ import (
 	"e-ink-picture/server/internal/config"
 	"e-ink-picture/server/internal/handlers"
 	"e-ink-picture/server/internal/middleware"
+	"e-ink-picture/server/internal/models"
 	"e-ink-picture/server/internal/services"
 )
 
@@ -54,7 +55,7 @@ func main() {
 	designSvc := services.NewDesignService(cfg.DataDir)
 	imageSvc := services.NewImageService(cfg.DataDir)
 	weatherSvc := services.NewWeatherService(cfg.WeatherAPIKey, cfg.WeatherLocation, cfg.DataDir)
-	settingsSvc := services.NewSettingsService(cfg.DataDir)
+	settingsSvc := services.NewSettingsService(cfg.DataDir, models.DisplayType(cfg.EInkDisplayType))
 	previewSvc := services.NewPreviewService(designSvc, weatherSvc, imageSvc, settingsSvc, cfg.DataDir)
 
 	// Ensure at least one design exists (like Python's ensure_active_design on startup)

@@ -11,6 +11,7 @@ type Config struct {
 	WeatherAPIKey      string
 	WeatherLocation    string
 	EInkClientURL      string
+	EInkDisplayType    string
 }
 
 func Load() *Config {
@@ -23,6 +24,7 @@ func Load() *Config {
 		WeatherAPIKey:      getEnv("WEATHER_API_KEY", ""),
 		WeatherLocation:    getEnv("WEATHER_LOCATION", ""),
 		EInkClientURL:      getEnv("EINK_CLIENT_URL", ""),
+		EInkDisplayType:    getEnv("EINK_DISPLAY_TYPE", ""),
 	}
 }
 

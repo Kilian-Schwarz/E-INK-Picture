@@ -15,13 +15,25 @@ const defaultRefreshInterval = 3600
 
 // SettingsService manages application settings persistence.
 type SettingsService struct {
-	dataDir string
-	mu      sync.RWMutex
+	dataDir            string
+	defaultDisplayType models.DisplayType
+	mu                 sync.RWMutex
 }
 
-// NewSettingsService creates a new SettingsService.
-func NewSettingsService(dataDir string) *SettingsService {
-	return &SettingsService{dataDir: dataDir}
+// NewSettingsService creates a new SettingsService. defaultDisplayType is used
+// whenever settings.json has no display_type value; an empty value falls back
+// to models.DisplayWaveshare73E (the panel matching the client's default
+// driver epd7in3e), an unknown value logs a warning and falls back likewise.
+func NewSettingsService(dataDir string, defaultDisplayType models.DisplayType) *SettingsService {
+	if defaultDisplayType == "" {
+		defaultDisplayType = models.DisplayWaveshare73E
+	} else if _, ok := models.DisplayProfiles[defaultDisplayType]; !ok {
+		slog.Warn("unknown display type default, falling back",
+			"value", string(defaultDisplayType),
+			"fallback", string(models.DisplayWaveshare73E))
+		defaultDisplayType = models.DisplayWaveshare73E
+	}
+	return &SettingsService{dataDir: dataDir, defaultDisplayType: defaultDisplayType}
 }
 
 func (s *SettingsService) filePath() string {
@@ -37,7 +49,7 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &models.Settings{
-				DisplayType:     models.DisplayWaveshare75V2,
+				DisplayType:     s.defaultDisplayType,
 				RefreshInterval: defaultRefreshInterval,
 			}, nil
 		}
@@ -47,13 +59,13 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 	var settings models.Settings
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return &models.Settings{
-			DisplayType:     models.DisplayWaveshare75V2,
+			DisplayType:     s.defaultDisplayType,
 			RefreshInterval: defaultRefreshInterval,
 		}, nil
 	}
 
 	if settings.DisplayType == "" {
-		settings.DisplayType = models.DisplayWaveshare75V2
+		settings.DisplayType = s.defaultDisplayType
 	}
 	if settings.RefreshInterval <= 0 {
 		settings.RefreshInterval = defaultRefreshInterval
@@ -81,7 +93,7 @@ func (s *SettingsService) SaveSettings(settings *models.Settings) error {
 func (s *SettingsService) GetDisplayConfig() models.DisplayConfig {
 	settings, err := s.GetSettings()
 	if err != nil {
-		return models.GetDisplayConfig(models.DisplayWaveshare75V2)
+		return models.GetDisplayConfig(s.defaultDisplayType)
 	}
 	return models.GetDisplayConfig(settings.DisplayType)
 }
@@ -120,7 +132,7 @@ func (s *SettingsService) TriggerRefresh() (string, error) {
 		json.Unmarshal(data, &settings)
 	}
 	if settings.DisplayType == "" {
-		settings.DisplayType = models.DisplayWaveshare75V2
+		settings.DisplayType = s.defaultDisplayType
 	}
 	if settings.RefreshInterval <= 0 {
 		settings.RefreshInterval = defaultRefreshInterval
@@ -146,7 +158,7 @@ func (s *SettingsService) RecordClientRefresh(_ string) error {
 		json.Unmarshal(data, &settings)
 	}
 	if settings.DisplayType == "" {
-		settings.DisplayType = models.DisplayWaveshare75V2
+		settings.DisplayType = s.defaultDisplayType
 	}
 	if settings.RefreshInterval <= 0 {
 		settings.RefreshInterval = defaultRefreshInterval

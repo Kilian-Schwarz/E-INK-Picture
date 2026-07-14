@@ -29,7 +29,7 @@ func setupPreviewTestServices(t *testing.T) (*PreviewHandler, string) {
 	designSvc := services.NewDesignService(tmpDir)
 	imageSvc := services.NewImageService(tmpDir)
 	weatherSvc := services.NewWeatherService("", "", tmpDir)
-	settingsSvc := services.NewSettingsService(tmpDir)
+	settingsSvc := services.NewSettingsService(tmpDir, models.DisplayWaveshare75V2)
 	previewSvc := services.NewPreviewService(designSvc, weatherSvc, imageSvc, settingsSvc, tmpDir)
 
 	handler := NewPreviewHandler(previewSvc, designSvc)

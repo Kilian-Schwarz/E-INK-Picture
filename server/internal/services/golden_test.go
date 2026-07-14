@@ -75,7 +75,7 @@ func newGoldenPreviewService(tmpDir string) *PreviewService {
 	designSvc := NewDesignService(tmpDir)
 	imageSvc := NewImageService(tmpDir)
 	weatherSvc := NewWeatherService("", "", tmpDir)
-	settingsSvc := NewSettingsService(tmpDir)
+	settingsSvc := NewSettingsService(tmpDir, models.DisplayWaveshare75V2)
 	return NewPreviewService(designSvc, weatherSvc, imageSvc, settingsSvc, tmpDir)
 }
 

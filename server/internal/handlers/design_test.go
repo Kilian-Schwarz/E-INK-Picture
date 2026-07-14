@@ -30,7 +30,7 @@ func setupDesignTestServices(t *testing.T) (*DesignHandler, *PreviewHandler, *Se
 	designSvc := services.NewDesignService(tmpDir)
 	imageSvc := services.NewImageService(tmpDir)
 	weatherSvc := services.NewWeatherService("", "", tmpDir)
-	settingsSvc := services.NewSettingsService(tmpDir)
+	settingsSvc := services.NewSettingsService(tmpDir, models.DisplayWaveshare75V2)
 	previewSvc := services.NewPreviewService(designSvc, weatherSvc, imageSvc, settingsSvc, tmpDir)
 
 	designH := NewDesignHandler(designSvc, previewSvc)

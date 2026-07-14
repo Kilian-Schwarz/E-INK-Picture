@@ -7,12 +7,13 @@ import (
 	"strings"
 	"testing"
 
+	"e-ink-picture/server/internal/models"
 	"e-ink-picture/server/internal/services"
 )
 
 func newTestSettingsHandler(t *testing.T) *SettingsHandler {
 	t.Helper()
-	svc := services.NewSettingsService(t.TempDir())
+	svc := services.NewSettingsService(t.TempDir(), models.DisplayWaveshare75V2)
 	return NewSettingsHandler(svc)
 }
 
