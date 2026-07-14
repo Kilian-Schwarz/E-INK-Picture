@@ -46,11 +46,12 @@ Epic: E1 code-komplett (E1.1–E1.6 gemergt) | Offen: HIL-Lauf (L3 E1.2) + Kilia
 | E1.4 | Client-Resize-Guard: NEAREST statt LANCZOS, WARNING mit beiden Größen | L1✅ (30 Tests, Negativprobe rot unter LANCZOS) L5✅ APPROVE | a4bc72e |
 | E1.5 | Element-Rotation im Renderer (Fabric-Semantik, exakte 90°-Koeffizienten, rotiertes Culling); alte Goldens sha-identisch | L1✅ L2✅ (Reviewer: eigene Sichtprüfung + Farbzählung + Negativprobe) L5✅ APPROVE | 89cc9f4 |
 | E1.6 | Kalibriertes Dithering (gemessene Spectra-6-Farben, Index-Swap auf Treiber-Codes), Atkinson wählbar, Precomp-LUT, Kalibrier-Testbild; Fluchtweg calibration="off" byte-identisch legacy | L1✅ L2✅ (Reviewer: Matrix-Nachrechnung, Palette-Zensus, Vorher/Nachher) L5✅ APPROVE; L3 (Kilians A/B am Panel) offen | 3616b9d |
+| E6.1 | GitHub-Actions-CI: gofmt/vet/test (inkl. Golden-Suite), Python 3.11 unittest, Cross-Builds arm64/armv7/armv6/amd64 mit Artefakten | L1✅ L5✅ APPROVE; L2✅ erster Runner-Lauf GRÜN auf 865dcb2 (Golden-Suite auf Linux byte-identisch — Font-Pinning bewiesen) | 865dcb2 |
 
 ## Offen / Blockiert
 
 - E1.6-Feintuning: Kilian muss das Kalibrier-Testbild am physischen Panel beurteilen (Design "calibration" importieren, Anleitung in specs/E1.6-panel-calibration.md); Fluchtweg {"calibration":"off"}. Der Pi läuft noch auf Stand cd053b4 (ohne E1.4–E1.6) — nächster HIL-Lauf bringt die Kalibrierung aufs Panel.
-- E6.1 (CI) + E3.1 (Pointer Events): Specs in Arbeit (spec-writer ×2)
+- E3.1 (Pointer Events): Implementierung läuft (frontend-designer, isolierter Worktree); danach mobiles Browser-Review 390×844 per Chrome-Automation
 - NEU (aus HIL-Lauf): Server-RSS ~98 MB im Docker-Betrieb — weit über dem 25-MB-Ziel aus dem v1.0-Auftrag; Preview-Render dauert 4,1 s. Braucht eigenen E5-Task (Speicherprofil: Render-Buffer, GOMEMLIMIT, Render-Semaphore). CLAUDE.md-Angabe "~10 MB" ist überholt.
 - L3-Nachweis E1.2: beim nächsten Hardware-Durchlauf /tmp/eink_last_sent.png vom Pi holen und gegen Server-Preview vergleichen
 - Entscheidung Kilian: refresh_interval 900 s auf dem Test-Pi beibehalten oder erhöhen? (Panel-Verschleiß)
