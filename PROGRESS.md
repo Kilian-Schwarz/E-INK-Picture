@@ -39,7 +39,7 @@ Epic: E1 code-komplett (E1.1–E1.6 gemergt) | Offen: HIL-Lauf (L3 E1.2) + Kilia
 | CLAUDE.md-Fix | Überholte server/static/-Regel entfernt (handgepflegter Frontend-Code) | n/a (docs-only, Diff manuell geprüft) | f51d46e |
 | Discovery | repo-cartographer: Gap-Analyse verifiziert, G1 im Kern widerlegt, E1-Plan überarbeitet | n/a (read-only) | — |
 | HW-Baseline | hardware-validator: Pi 3B + epd7in3e + Docker-Modus festgestellt, keine Kamera (L4 entfällt) | n/a (read-only) | — |
-| E1.2 | Client schreibt eink_last_sent.png (atomar, fehlertolerant, EINK_LAST_SENT_PATH) | L1✅ L5✅ (APPROVE, Mutationstest 5/5) L2 n/a, L3 folgt, L4 – | 614ac53 |
+| E1.2 | Client schreibt eink_last_sent.png (atomar, fehlertolerant, EINK_LAST_SENT_PATH) | L1✅ L5✅ (APPROVE, Mutationstest 5/5) **L3✅ PASS** (HIL 2026-07-15: beide Bilder exakt 6 Palettenfarben, statisch pixelidentisch, Diff 0,325 % = Widget-Zeitversatz; Evidenz artifacts/hil-e12/) L4 – | 614ac53 |
 | gofmt-Chore | Format-Drift in 6 Server-Dateien bereinigt (rein mechanisch, Tests grün) | L1✅ | 86507fa |
 | E1.1 | Golden-File-Harness: 4 Golden-PNGs, TestPaletteExactness (3 Quality × 2 Profile), Determinismus, Font-Pinning | L1✅ L2✅ (Reviewer: eigene Farbzählung + Sichtprüfung) L5✅ APPROVE | 7752a1a |
 | E1.3 | Konsistenter Display-Default via EINK_DISPLAY_TYPE (Fallback waveshare_7in3_e, settings.json gewinnt immer) + CHANGELOG.md angelegt | L1✅ L2✅ (Goldens unverändert) L5✅ APPROVE | d8419e6 |
@@ -49,8 +49,9 @@ Epic: E1 code-komplett (E1.1–E1.6 gemergt) | Offen: HIL-Lauf (L3 E1.2) + Kilia
 
 ## Offen / Blockiert
 
-- HIL-Lauf (L3-Gate E1.2): läuft — Docker-Build auf dem Pi ungewöhnlich lang, Statusabfrage gestellt
-- E1.6-Feintuning: Kilian muss das Kalibrier-Testbild am physischen Panel beurteilen (Design "calibration" importieren, Anleitung in specs/E1.6-panel-calibration.md); Fluchtweg {"calibration":"off"}
+- E1.6-Feintuning: Kilian muss das Kalibrier-Testbild am physischen Panel beurteilen (Design "calibration" importieren, Anleitung in specs/E1.6-panel-calibration.md); Fluchtweg {"calibration":"off"}. Der Pi läuft noch auf Stand cd053b4 (ohne E1.4–E1.6) — nächster HIL-Lauf bringt die Kalibrierung aufs Panel.
+- E6.1 (CI) + E3.1 (Pointer Events): Specs in Arbeit (spec-writer ×2)
+- NEU (aus HIL-Lauf): Server-RSS ~98 MB im Docker-Betrieb — weit über dem 25-MB-Ziel aus dem v1.0-Auftrag; Preview-Render dauert 4,1 s. Braucht eigenen E5-Task (Speicherprofil: Render-Buffer, GOMEMLIMIT, Render-Semaphore). CLAUDE.md-Angabe "~10 MB" ist überholt.
 - L3-Nachweis E1.2: beim nächsten Hardware-Durchlauf /tmp/eink_last_sent.png vom Pi holen und gegen Server-Preview vergleichen
 - Entscheidung Kilian: refresh_interval 900 s auf dem Test-Pi beibehalten oder erhöhen? (Panel-Verschleiß)
 - Entscheidung Kilian: Test-Pi von Docker- auf Nativ-Betrieb umstellen für E2-Tests? (data/ wird vorher gesichert)
