@@ -11,11 +11,11 @@ import (
 	"log/slog"
 	"math"
 	"os"
-	"sync"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"e-ink-picture/server/internal/models"
@@ -44,12 +44,12 @@ type fontCacheKey struct {
 
 // PreviewService renders design previews as PNGs with display-appropriate palette.
 type PreviewService struct {
-	design   *DesignService
-	weather  *WeatherService
-	image    *ImageService
-	settings *SettingsService
-	dataDir  string
-	fontMu   sync.RWMutex
+	design    *DesignService
+	weather   *WeatherService
+	image     *ImageService
+	settings  *SettingsService
+	dataDir   string
+	fontMu    sync.RWMutex
 	fontCache map[fontCacheKey]font.Face
 }
 
@@ -759,7 +759,6 @@ func (s *PreviewService) renderShapeElement(img *image.RGBA, x, y, w, h int, pro
 	}
 }
 
-
 // resolveTextColor parses a hex color from style data, defaulting to black.
 func resolveTextColor(textColor *string, _ models.DisplayConfig) color.RGBA {
 	if textColor != nil && len(*textColor) == 7 && (*textColor)[0] == '#' {
@@ -1281,7 +1280,9 @@ func (s *PreviewService) renderImageRGBA(img *image.RGBA, x, y, w, h int, sd *mo
 }
 
 func cropSubImage(src image.Image, r image.Rectangle) image.Image {
-	if si, ok := src.(interface{ SubImage(image.Rectangle) image.Image }); ok {
+	if si, ok := src.(interface {
+		SubImage(image.Rectangle) image.Image
+	}); ok {
 		return si.SubImage(r)
 	}
 	dst := image.NewRGBA(image.Rect(0, 0, r.Dx(), r.Dy()))

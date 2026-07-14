@@ -1,10 +1,10 @@
 package services
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/png"
-	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,13 +46,13 @@ func TestRenderTextWidget(t *testing.T) {
 		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
 		Elements: []models.Element{
 			{
-				ID:     "t1",
-				Type:   "text",
-				X:      100,
-				Y:      50,
-				Width:  200,
-				Height: 60,
-				ZIndex: 0,
+				ID:      "t1",
+				Type:    "text",
+				X:       100,
+				Y:       50,
+				Width:   200,
+				Height:  60,
+				ZIndex:  0,
 				Visible: &vis,
 				Properties: map[string]any{
 					"text":      "Hello World",
@@ -107,13 +107,13 @@ func TestRenderWidgetClock(t *testing.T) {
 		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
 		Elements: []models.Element{
 			{
-				ID:     "c1",
-				Type:   "widget_clock",
-				X:      50,
-				Y:      50,
-				Width:  300,
-				Height: 80,
-				ZIndex: 0,
+				ID:      "c1",
+				Type:    "widget_clock",
+				X:       50,
+				Y:       50,
+				Width:   300,
+				Height:  80,
+				ZIndex:  0,
 				Visible: &vis,
 				Properties: map[string]any{
 					"layout":   "digital_large",
@@ -164,13 +164,13 @@ func TestRenderAlignmentCenter(t *testing.T) {
 		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
 		Elements: []models.Element{
 			{
-				ID:     "a1",
-				Type:   "text",
-				X:      0,
-				Y:      0,
-				Width:  400,
-				Height: 60,
-				ZIndex: 0,
+				ID:      "a1",
+				Type:    "text",
+				X:       0,
+				Y:       0,
+				Width:   400,
+				Height:  60,
+				ZIndex:  0,
 				Visible: &vis,
 				Properties: map[string]any{
 					"text":      "X",
@@ -222,13 +222,13 @@ func TestRenderAlignmentRight(t *testing.T) {
 		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
 		Elements: []models.Element{
 			{
-				ID:     "a2",
-				Type:   "text",
-				X:      0,
-				Y:      0,
-				Width:  400,
-				Height: 60,
-				ZIndex: 0,
+				ID:      "a2",
+				Type:    "text",
+				X:       0,
+				Y:       0,
+				Width:   400,
+				Height:  60,
+				ZIndex:  0,
 				Visible: &vis,
 				Properties: map[string]any{
 					"text":      "X",
@@ -278,13 +278,13 @@ func TestTextOverflow(t *testing.T) {
 		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
 		Elements: []models.Element{
 			{
-				ID:     "o1",
-				Type:   "text",
-				X:      100,
-				Y:      100,
-				Width:  100,
-				Height: 30,
-				ZIndex: 0,
+				ID:      "o1",
+				Type:    "text",
+				X:       100,
+				Y:       100,
+				Width:   100,
+				Height:  30,
+				ZIndex:  0,
 				Visible: &vis,
 				Properties: map[string]any{
 					"text":      "This is a very long text that should be clipped within the bounding box",
@@ -349,13 +349,13 @@ func TestRenderImageWithCrop(t *testing.T) {
 		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
 		Elements: []models.Element{
 			{
-				ID:     "i1",
-				Type:   "image",
-				X:      0,
-				Y:      0,
-				Width:  50,
-				Height: 50,
-				ZIndex: 0,
+				ID:      "i1",
+				Type:    "image",
+				X:       0,
+				Y:       0,
+				Width:   50,
+				Height:  50,
+				ZIndex:  0,
 				Visible: &vis,
 				Properties: map[string]any{
 					"image": "test.png",
@@ -396,13 +396,13 @@ func TestRenderDesignPosition(t *testing.T) {
 		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
 		Elements: []models.Element{
 			{
-				ID:     "p1",
-				Type:   "text",
-				X:      100,
-				Y:      50,
-				Width:  200,
-				Height: 80,
-				ZIndex: 0,
+				ID:      "p1",
+				Type:    "text",
+				X:       100,
+				Y:       50,
+				Width:   200,
+				Height:  80,
+				ZIndex:  0,
 				Visible: &vis,
 				Properties: map[string]any{
 					"text":      "Position Test",
@@ -464,13 +464,13 @@ func TestVerticalAlignMiddle(t *testing.T) {
 		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
 		Elements: []models.Element{
 			{
-				ID:     "vm1",
-				Type:   "text",
-				X:      0,
-				Y:      0,
-				Width:  200,
-				Height: 200,
-				ZIndex: 0,
+				ID:      "vm1",
+				Type:    "text",
+				X:       0,
+				Y:       0,
+				Width:   200,
+				Height:  200,
+				ZIndex:  0,
 				Visible: &vis,
 				Properties: map[string]any{
 					"text":          "X",
@@ -524,13 +524,13 @@ func TestVerticalAlignBottom(t *testing.T) {
 		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
 		Elements: []models.Element{
 			{
-				ID:     "vb1",
-				Type:   "text",
-				X:      0,
-				Y:      0,
-				Width:  200,
-				Height: 200,
-				ZIndex: 0,
+				ID:      "vb1",
+				Type:    "text",
+				X:       0,
+				Y:       0,
+				Width:   200,
+				Height:  200,
+				ZIndex:  0,
 				Visible: &vis,
 				Properties: map[string]any{
 					"text":          "X",
@@ -581,26 +581,26 @@ func TestMultipleWidgetZOrder(t *testing.T) {
 		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
 		Elements: []models.Element{
 			{
-				ID:     "bg",
-				Type:   "shape",
-				X:      0,
-				Y:      0,
-				Width:  400,
-				Height: 200,
-				ZIndex: 0,
+				ID:      "bg",
+				Type:    "shape",
+				X:       0,
+				Y:       0,
+				Width:   400,
+				Height:  200,
+				ZIndex:  0,
 				Visible: &vis,
 				Properties: map[string]any{
 					"fill": "#FF0000",
 				},
 			},
 			{
-				ID:     "fg",
-				Type:   "shape",
-				X:      50,
-				Y:      50,
-				Width:  100,
-				Height: 100,
-				ZIndex: 1,
+				ID:      "fg",
+				Type:    "shape",
+				X:       50,
+				Y:       50,
+				Width:   100,
+				Height:  100,
+				ZIndex:  1,
 				Visible: &vis,
 				Properties: map[string]any{
 					"fill": "#0000FF",
@@ -825,7 +825,7 @@ func TestTextNotOutsideBoundingBox(t *testing.T) {
 
 	// Left of the box (2+ pixels away)
 	for y := 200; y < 240; y++ {
-		for x := 150; x < 200 - strictMargin; x++ {
+		for x := 150; x < 200-strictMargin; x++ {
 			r, g, b, _ := img.At(x, y).RGBA()
 			if r < aaThreshold || g < aaThreshold || b < aaThreshold {
 				t.Fatalf("Text overflows left of bounding box at (%d, %d)", x, y)

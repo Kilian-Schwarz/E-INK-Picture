@@ -64,12 +64,12 @@ type openMeteoResponse struct {
 		WeatherCode int     `json:"weathercode"`
 	} `json:"current_weather"`
 	Daily struct {
-		Time            []string  `json:"time"`
-		WeatherCode     []int     `json:"weathercode"`
-		TemperatureMax  []float64 `json:"temperature_2m_max"`
-		TemperatureMin  []float64 `json:"temperature_2m_min"`
-		Sunrise         []string  `json:"sunrise"`
-		Sunset          []string  `json:"sunset"`
+		Time           []string  `json:"time"`
+		WeatherCode    []int     `json:"weathercode"`
+		TemperatureMax []float64 `json:"temperature_2m_max"`
+		TemperatureMin []float64 `json:"temperature_2m_min"`
+		Sunrise        []string  `json:"sunrise"`
+		Sunset         []string  `json:"sunset"`
 	} `json:"daily"`
 	Hourly struct {
 		Time          []string  `json:"time"`

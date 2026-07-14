@@ -214,8 +214,8 @@ func (h *DesignHandler) APIListDesigns(w http.ResponseWriter, r *http.Request) {
 // POST /api/designs
 func (h *DesignHandler) APICreateDesign(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name     string            `json:"name"`
-		Elements []models.Element  `json:"elements"`
+		Name     string              `json:"name"`
+		Elements []models.Element    `json:"elements"`
 		Canvas   models.CanvasConfig `json:"canvas"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

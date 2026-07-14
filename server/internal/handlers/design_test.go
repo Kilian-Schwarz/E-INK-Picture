@@ -48,9 +48,9 @@ func makeDesign(name string, elements []models.Element) models.DesignV2 {
 		}
 	}
 	return models.DesignV2{
-		Name:    name,
-		Version: 2,
-		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
+		Name:     name,
+		Version:  2,
+		Canvas:   models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
 		Elements: elements,
 	}
 }
