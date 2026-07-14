@@ -112,8 +112,18 @@ def display_image(img: Image.Image, display_config: dict) -> bool:
         display_width = epd.width
         display_height = epd.height
         if img.size != (display_width, display_height):
-            img = img.resize((display_width, display_height), Image.Resampling.LANCZOS)
-            logger.info("Resized to %dx%d", display_width, display_height)
+            # Size mismatch signals a misconfiguration (wrong display profile
+            # or wrong server). Log the actual size before resizing.
+            logger.warning(
+                "Preview size %dx%d does not match display %dx%d - "
+                "resizing with NEAREST (check server display settings)",
+                img.size[0], img.size[1], display_width, display_height,
+            )
+            # The server output is already dithered to the panel palette.
+            # NEAREST is the only resample that keeps palette colors intact,
+            # explicitly for all image modes - do not rely on Pillow's silent
+            # P-mode resample coercion.
+            img = img.resize((display_width, display_height), Image.Resampling.NEAREST)
 
         colors = display_config.get("colors", ["#000000", "#FFFFFF"])
         if len(colors) > 2:

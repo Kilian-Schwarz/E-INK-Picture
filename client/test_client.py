@@ -20,6 +20,16 @@ COLOR_DISPLAY_CONFIG = {
 }
 BW_DISPLAY_CONFIG = {"colors": ["#000000", "#FFFFFF"]}
 
+# The 6-color panel palette as RGB tuples (matches COLOR_DISPLAY_CONFIG).
+PANEL_PALETTE_RGB = [
+    (0, 0, 0),
+    (255, 255, 255),
+    (255, 0, 0),
+    (0, 255, 0),
+    (0, 0, 255),
+    (255, 255, 0),
+]
+
 
 def _snapshot_default_artifact_paths():
     """Existence/mtime of the real default artifact path and its temp sibling."""
@@ -115,6 +125,40 @@ def make_gradient_image(width=800, height=480):
             base.transpose(Image.Transpose.FLIP_LEFT_RIGHT),
         ),
     )
+
+
+def make_paletted_panel_image(width=400, height=240):
+    """Mode-'P' image with the 6-color panel palette and a high-frequency pattern.
+
+    Adjacent pixels always differ (diagonal stripes over all 6 palette
+    indices), so any interpolating resample would create mixed colors.
+    """
+    img = Image.new("P", (width, height))
+    img.putpalette([channel for rgb in PANEL_PALETTE_RGB for channel in rgb])
+    img.putdata([(x + y) % 6 for y in range(height) for x in range(width)])
+    return img
+
+
+def make_rgb_panel_image(width=400, height=240):
+    """RGB image containing only the 6 panel palette colors, high-frequency pattern."""
+    img = Image.new("RGB", (width, height))
+    img.putdata(
+        [PANEL_PALETTE_RGB[(x + y) % 6] for y in range(height) for x in range(width)]
+    )
+    return img
+
+
+def make_bw_rgb_image(width=400, height=240):
+    """RGB image with pure 0/255 pixels only (high-frequency checkerboard)."""
+    img = Image.new("RGB", (width, height))
+    img.putdata(
+        [
+            (0, 0, 0) if (x + y) % 2 == 0 else (255, 255, 255)
+            for y in range(height)
+            for x in range(width)
+        ]
+    )
+    return img
 
 
 class ArtifactSandboxMixin:
@@ -424,6 +468,123 @@ class TestLastSentArtifact(ArtifactSandboxMixin, unittest.TestCase):
         mock_replace.assert_not_called()
         self.assertFalse(os.path.exists(self.artifact_path))
         self.assertEqual(os.listdir(self.artifact_dir), [])
+
+
+class TestResizeGuard(ArtifactSandboxMixin, unittest.TestCase):
+    """E1.4 AC1-AC6: size mismatch must never destroy server-side dithering."""
+
+    def _unique_rgb_colors(self, img):
+        """Set of unique RGB tuples in an image (any mode)."""
+        colors = img.convert("RGB").getcolors(1_000_000)
+        self.assertIsNotNone(colors, "more than 1,000,000 unique colors")
+        return {rgb for _, rgb in colors}
+
+    def _assert_single_mismatch_warning(self, logs):
+        """AC4: exactly one WARNING containing both actual and target size."""
+        warnings = [r for r in logs.records if r.levelno == logging.WARNING]
+        self.assertEqual(
+            len(warnings), 1,
+            f"expected exactly one WARNING, got: {logs.output}",
+        )
+        message = warnings[0].getMessage()
+        self.assertIn("400x240", message)
+        self.assertIn("800x480", message)
+
+    def test_resize_mismatch_paletted_input_preserves_palette(self):
+        """AC1/AC4: mode-'P' input in foreign size keeps only palette colors."""
+        mock_epd = RecordingEPD()
+        self.client.epd = mock_epd
+
+        img = make_paletted_panel_image(400, 240)
+        with self.assertLogs("eink-client", level="WARNING") as logs:
+            result = self.client.display_image(img, COLOR_DISPLAY_CONFIG)
+
+        self.assertTrue(result)
+        self.assertIsNotNone(mock_epd.displayed_buffer)
+        self.assertIsNotNone(mock_epd.getbuffer_image)
+        self.assertEqual(mock_epd.getbuffer_image.size, (800, 480))
+        unique = self._unique_rgb_colors(mock_epd.getbuffer_image)
+        self.assertLessEqual(
+            unique, set(PANEL_PALETTE_RGB),
+            f"non-palette colors survived the resize: {sorted(unique - set(PANEL_PALETTE_RGB))[:10]}",
+        )
+        self._assert_single_mismatch_warning(logs)
+
+    def test_resize_mismatch_rgb_input_preserves_palette(self):
+        """AC2/AC4: RGB input in foreign size keeps only palette colors.
+
+        Regression proof against LANCZOS: an interpolating resample of this
+        high-frequency image produces hundreds of mixed colors (spec context
+        point 4) - this test must be red against the old code.
+        """
+        mock_epd = RecordingEPD()
+        self.client.epd = mock_epd
+
+        img = make_rgb_panel_image(400, 240)
+        with self.assertLogs("eink-client", level="WARNING") as logs:
+            result = self.client.display_image(img, COLOR_DISPLAY_CONFIG)
+
+        self.assertTrue(result)
+        self.assertIsNotNone(mock_epd.getbuffer_image)
+        self.assertEqual(mock_epd.getbuffer_image.size, (800, 480))
+        unique = self._unique_rgb_colors(mock_epd.getbuffer_image)
+        self.assertLessEqual(
+            unique, set(PANEL_PALETTE_RGB),
+            f"non-palette colors survived the resize: {sorted(unique - set(PANEL_PALETTE_RGB))[:10]}",
+        )
+        self._assert_single_mismatch_warning(logs)
+
+    def test_resize_mismatch_bw_threshold_after_resize(self):
+        """AC3/AC4: B/W path resizes with NEAREST, threshold acts on the scaled image."""
+        mock_epd = RecordingEPD()
+        self.client.epd = mock_epd
+
+        img = make_bw_rgb_image(400, 240)
+        with self.assertLogs("eink-client", level="WARNING") as logs:
+            result = self.client.display_image(img, BW_DISPLAY_CONFIG)
+
+        self.assertTrue(result)
+        self.assertIsNotNone(mock_epd.getbuffer_image)
+        self.assertEqual(mock_epd.getbuffer_image.mode, "1")
+        self.assertEqual(mock_epd.getbuffer_image.size, (800, 480))
+        gray_values = set(mock_epd.getbuffer_image.convert("L").tobytes())
+        self.assertEqual(gray_values - {0, 255}, set())
+        self._assert_single_mismatch_warning(logs)
+
+    def test_no_warning_on_exact_size(self):
+        """AC5: exact-size input triggers no resize, no WARNING, byte-identical output."""
+        mock_epd = RecordingEPD()
+        self.client.epd = mock_epd
+
+        img = make_gradient_image(800, 480)
+        expected_bytes = img.tobytes()
+        with patch.object(img, "resize", wraps=img.resize) as resize_spy:
+            with self.assertNoLogs("eink-client", level="WARNING"):
+                result = self.client.display_image(img, COLOR_DISPLAY_CONFIG)
+
+        self.assertTrue(result)
+        resize_spy.assert_not_called()
+        self.assertIsNotNone(mock_epd.getbuffer_image)
+        # RGB input on the 6-color path passes through unchanged.
+        self.assertEqual(mock_epd.getbuffer_image.tobytes(), expected_bytes)
+
+    def test_resize_artifact_matches_driver_image(self):
+        """AC6: in the mismatch case the E1.2 artifact equals the driver image."""
+        mock_epd = RecordingEPD(artifact_path=self.artifact_path)
+        self.client.epd = mock_epd
+
+        img = make_rgb_panel_image(400, 240)
+        result = self.client.display_image(img, COLOR_DISPLAY_CONFIG)
+
+        self.assertTrue(result)
+        self.assertIsNotNone(mock_epd.getbuffer_image)
+        self.assertTrue(os.path.exists(self.artifact_path))
+        with Image.open(self.artifact_path) as artifact:
+            artifact.load()
+            self.assertEqual(artifact.size, (800, 480))
+            self.assertEqual(artifact.mode, mock_epd.getbuffer_image.mode)
+            self.assertEqual(artifact.tobytes(), mock_epd.getbuffer_image.tobytes())
+        self.assertTrue(mock_epd.artifact_existed_at_display)
 
 
 class TestRefreshStatus(unittest.TestCase):
