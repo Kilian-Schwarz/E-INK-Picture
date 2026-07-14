@@ -34,9 +34,9 @@
 - Python: snake_case, type hints, logging module
 - Config: Environment variables, .env.example
 - Git: Conventional Commits, trunk-based
+- Frontend: server/static/ and server/templates/ are hand-maintained code (Vanilla JS/CSS, no build step, served via go:embed) -- edit directly
 
 ## Niemals bearbeiten
-- server/static/ (extracted from HTML, treat as generated)
 - node_modules/, dist/, .next/ (don't exist but standard rule)
 
 ## Refresh API
