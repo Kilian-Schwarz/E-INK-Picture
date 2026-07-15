@@ -1,0 +1,224 @@
+# release — a tag push `v*` builds the four cross-compiled server binaries,
+# stamps them with the tag via -ldflags, and publishes a GitHub release with
+# exactly 6 assets: 4 binaries, install.sh, sha256sums.txt. Release notes come
+# from the matching CHANGELOG.md section (hard fail when missing — no
+# auto-notes fallback). Spec: specs/E6.2-release-workflow.md
+#
+# Release process (convention, AC6 — only the manager tags):
+#   1. Rename '## [Unreleased]' in CHANGELOG.md to '## [X.Y.Z] - YYYY-MM-DD'
+#      and add a fresh empty '## [Unreleased]' block above it; commit as
+#      "chore(release): prepare vX.Y.Z" on main.
+#   2. Wait for green CI on that commit, then tag:
+#      git tag vX.Y.Z && git push origin vX.Y.Z
+#   3. This workflow does the rest; verify the release page afterwards
+#      (6 assets, notes = CHANGELOG section, `go version -m` shows the stamp).
+#
+# Notes:
+# - The gate job and the build matrix are deliberate duplicates of ci.yml
+#   (source of truth; no workflow_call refactor) — keep them in sync when
+#   ci.yml checks or targets change.
+# - Releases are created with the preinstalled `gh` CLI — no third-party
+#   action in the supply chain. Documented alternative if gh quirks ever
+#   block a release: softprops/action-gh-release@v2 (major-pinned).
+# - install.sh is attached so a fresh install can pin the exact tag state:
+#   `EINK_REPO_BRANCH=<tag>` (clone lands in detached HEAD; updating such a
+#   checkout is E2.4, not this workflow).
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Creating releases and uploading assets needs contents: write; repo default
+# permissions may be more restrictive, so it is explicit here.
+permissions:
+  contents: write
+
+# Deliberately no concurrency group: releases are rare and a half-cancelled
+# release run (tag without release, missing assets) is worse than a queued one.
+
+jobs:
+  # Mirrors the ci.yml go + python jobs (keep commands identical to ci.yml).
+  # A tag can point at a commit that never ran through CI — no release may be
+  # cut from an untested state.
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      # gofmt must come from the setup-go toolchain (matching go.mod), never a
+      # separately installed Go — format rules can change between Go minor
+      # versions and version drift would cause phantom failures.
+      - name: gofmt
+        working-directory: server
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        working-directory: server
+        run: go vet ./...
+
+      - name: go test
+        working-directory: server
+        run: go test ./... -count=1
+
+      - uses: actions/setup-python@v5
+        with:
+          # Deployment floor: the target Pi runs Debian 13 with Python >= 3.11;
+          # the test suite needs >= 3.10 (assertNoLogs). CI tests what ships.
+          python-version: "3.11"
+
+      # Only the two pure-Python deps, same rationale as ci.yml: the Pi
+      # hardware bindings in requirements.txt don't build on ubuntu-latest
+      # and the tests mock the display driver completely.
+      - name: install python dependencies
+        working-directory: client
+        run: python3 -m pip install "requests>=2.31.0" "Pillow>=10.0.0"
+
+      - name: py_compile
+        working-directory: client
+        run: python3 -m py_compile client.py config.py
+
+      - name: unittest
+        working-directory: client
+        run: python3 -m unittest discover -v
+
+  # Same 4-target matrix as ci.yml cross-build (deliberate duplicate, see
+  # header), plus release specifics: version in the artifact name and the
+  # -ldflags version stamp (-s -w matches setup.sh build_server).
+  build:
+    needs: gate
+    runs-on: ubuntu-latest
+    strategy:
+      # A broken target must not swallow the results of the other three —
+      # armv6/armv7 have no test hardware; these builds are their only
+      # regression protection.
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: arm64
+            goarm: ""
+            artifact: server-linux-arm64
+          - goarch: arm
+            goarm: "6"
+            artifact: server-linux-armv6
+          - goarch: arm
+            goarm: "7"
+            artifact: server-linux-armv7
+          - goarch: amd64
+            goarm: ""
+            artifact: server-linux-amd64
+    env:
+      # Tag name via env, not inline interpolation, so a hostile-looking ref
+      # name can never be interpreted by the shell.
+      RELEASE_TAG: ${{ github.ref_name }}
+      ARTIFACT: ${{ matrix.artifact }}-${{ github.ref_name }}
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: build ${{ matrix.artifact }}-${{ github.ref_name }}
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: "0"
+        run: go build -ldflags "-s -w -X main.version=$RELEASE_TAG" -o "$ARTIFACT" .
+
+      # `go version -m` reads the embedded buildinfo (survives -s -w) and
+      # proves the ldflags stamp without executing the binary — works for the
+      # ARM targets on the amd64 runner.
+      - name: verify binary + version stamp
+        run: |
+          test -s "$ARTIFACT"
+          go version -m "$ARTIFACT" | grep -F "main.version=$RELEASE_TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-${{ github.ref_name }}
+          path: server/${{ matrix.artifact }}-${{ github.ref_name }}
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      # Checks out the tagged commit (push ref) — source of install.sh and
+      # CHANGELOG.md exactly at the released state.
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # sha256sums.txt uses bare filenames so a user can verify downloads
+      # with `sha256sum -c sha256sums.txt` in the download directory.
+      # Explicit file list: a missing artifact fails here, loudly.
+      - name: create sha256sums.txt
+        run: |
+          cp install.sh dist/
+          cd dist
+          sha256sum \
+            "server-linux-arm64-$RELEASE_TAG" \
+            "server-linux-armv6-$RELEASE_TAG" \
+            "server-linux-armv7-$RELEASE_TAG" \
+            "server-linux-amd64-$RELEASE_TAG" \
+            install.sh > sha256sums.txt
+          cat sha256sums.txt
+
+      # Notes = the CHANGELOG section between '## [X.Y.Z]' and the next
+      # '## [' heading (tag carries the v prefix, the heading does not).
+      # Missing or empty section => hard fail: the release process (header
+      # comment, step 1) was skipped. Deliberately no auto-notes fallback.
+      - name: extract release notes from CHANGELOG.md
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          awk -v ver="$VERSION" '
+            !found && index($0, "## [" ver "]") == 1 { found = 1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error file=CHANGELOG.md::No non-empty section '## [$VERSION]' found for tag $RELEASE_TAG. Rename '## [Unreleased]' to '## [$VERSION] - YYYY-MM-DD' first (see release process in .github/workflows/release.yml)."
+            exit 1
+          fi
+          echo "--- release notes ---"
+          cat notes.md
+
+      # Exactly 6 assets. --verify-tag refuses to create the release if the
+      # tag is missing on the remote (guards against moved/deleted tags).
+      # A hyphen in the tag (v1.0.0-rc.1 style) marks a prerelease.
+      - name: create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          extra_args=()
+          case "$RELEASE_TAG" in
+            *-*) extra_args+=(--prerelease) ;;
+          esac
+          gh release create "$RELEASE_TAG" \
+            --verify-tag \
+            --title "$RELEASE_TAG" \
+            --notes-file notes.md \
+            "${extra_args[@]}" \
+            "dist/server-linux-arm64-$RELEASE_TAG" \
+            "dist/server-linux-armv6-$RELEASE_TAG" \
+            "dist/server-linux-armv7-$RELEASE_TAG" \
+            "dist/server-linux-amd64-$RELEASE_TAG" \
+            dist/install.sh \
+            dist/sha256sums.txt

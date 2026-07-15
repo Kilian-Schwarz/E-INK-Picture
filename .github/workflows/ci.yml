@@ -67,6 +67,8 @@ jobs:
       - name: unittest
         run: python3 -m unittest discover -v
 
+  # NOTE: release.yml duplicates this matrix (deliberately, no workflow_call —
+  # see specs/E6.2-release-workflow.md) — keep both in sync when targets change.
   cross-build:
     runs-on: ubuntu-latest
     strategy:
