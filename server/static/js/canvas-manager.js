@@ -101,10 +101,12 @@ const CanvasManager = {
 
     setupSelectionEvents() {
         this.canvas.on('selection:created', (e) => {
+            this.updateTouchCorners(this.canvas.getActiveObject());
             PropertiesPanel.show(e.selected[0]);
             LayersPanel.refresh();
         });
         this.canvas.on('selection:updated', (e) => {
+            this.updateTouchCorners(this.canvas.getActiveObject());
             PropertiesPanel.show(e.selected[0]);
             LayersPanel.refresh();
         });
@@ -199,6 +201,7 @@ const CanvasManager = {
                 }
             }
 
+            this.updateTouchCorners(obj); // resize changes the on-screen size
             HistoryManager.saveState();
             PropertiesPanel.updateFromCanvas();
             LayersPanel.refresh();
@@ -314,6 +317,25 @@ const CanvasManager = {
         });
         this.updateZoomDisplay();
         this.centerCanvas();
+        this.updateTouchCorners(this.canvas.getActiveObject());
+    },
+
+    // Clamp fabric's touch hit area so mid-edge handles never swallow the
+    // object's center at small on-screen sizes (E3.3 verification finding:
+    // a 200x60 text at fit-zoom ~0.47 is 94x28px on screen; the default
+    // 24px mt/mb touch corners overlap the center and turn every center
+    // drag into scaleY). touchCornerSize is a per-object instance property
+    // read by _setCornerCoords (fabric.js 5.3.1:17927, default 24 at 14617);
+    // it only affects the touch hit polygon, never rendering or the 8px
+    // mouse-path cornerSize.
+    updateTouchCorners(obj) {
+        if (!obj) return;
+        const screenMin = Math.min(
+            obj.getScaledWidth() * this.zoom,
+            obj.getScaledHeight() * this.zoom
+        );
+        obj.touchCornerSize = Math.max(12, Math.min(24, Math.floor(screenMin / 3)));
+        obj.setCoords();
     },
 
     updateZoomDisplay() {
