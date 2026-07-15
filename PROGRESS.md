@@ -34,7 +34,15 @@ E1 komplett | E2.1+E2.3 gemergt — **E2.5 (native Installation) durch HIL-3 als
 - **Native RAM (L3 E5.6) BLOCKIERT** — native Services liefen nie. Docker-Messung (nicht vergleichbar): Server ~47,4 MB / Client ~35,9 MB.
 - **Throttle:** vorher/nachher `0x70000` unverändert (nur historische Bits seit Boot, keine aktiven) — der schwere Build hat **keine** akute Unterspannung ausgelöst.
 - **E5.2/E5.5 Spot-Checks inkonklusiv** (altes Image): Content-Skip verhaltensbasiert ok (1 Write / 8 Zyklen), aber kein expliziter Skip-Log-Marker; data/cache/weather.json nicht angelegt (Image älter als E5.5 oder kein Wetter-Widget).
-- **NEU: v1.0-Blocker E2.5** — die native „ein Befehl"-Installation funktioniert auf Kernel-6.12-RaspiOS NICHT (GPIO-Toolchain). Fix nötig in setup.sh (lgpio-Wheel bauen können ODER Pin-Factory erzwingen: `GPIOZERO_PIN_FACTORY=lgpio`/`rpigpio` statt kaputte NativeFactory). Spec: specs/E2.5a-native-gpio-fix.md.
+- **NEU: v1.0-Blocker E2.5** — die native „ein Befehl"-Installation funktioniert auf Kernel-6.12-RaspiOS NICHT (GPIO-Toolchain). Fix nötig in setup.sh. Spec: specs/E2.5a-native-gpio-fix.md.
+
+### HIL-3 Fortsetzung (b061b85 LIVE via Docker-Rebuild) — Grundwahrheit + L3-Gewinne
+
+- **Kilian testbar:** `http://10.33.0.106:5000`, aktueller Code b061b85 (Docker frisch gebaut), Panel getrieben (19,7 s, exakt 6 Farben, artifacts/hil-3/eink_last_sent_b061b85.png). **Login nötig** — data/auth.json (bcrypt, mtime 22:48) offenbar von Kilian in Parallel-Session gesetzt. Reset falls unbekannt = auth.json löschen (Backup vorhanden, hardware-validator hat es NICHT angefasst → Freigabe nötig). Client-Token in .env gesetzt (Auth aktiv).
+- **E2.5a-Grundwahrheit (Path 1 durchgetestet):** Auf Kernel 6.12 funktioniert **NUR `lgpio`** — `native`/sysfs raus (Errno 22), `rpigpio` scheitert an Edge-Detection (RuntimeError), `pigpio` kein Daemon, `lgpio`-Python-Modul fehlt (Wheel-Build gescheitert). Zusatz-Bug: gepinntes `waveshareteam/e-Paper` zieht **Jetson.GPIO**, dessen Shim RPi.GPIO überschattet. Docker geht, weil dort lgpio sauber baut + kein Jetson.GPIO. → **kein Fallback möglich, Fix MUSS lgpio baubar machen** (Spec AC1/AC1b aktualisiert).
+- **✅ E5.6 Server nativ L3 BESTANDEN:** nativer Server-RSS **18,3 MB < 25 MB** (voll funktionsfähig gemessen im kurzen Native-Lauf). Client-Native-Steady-State offen (Treiber lud nativ nicht). Panel/HW nachweislich intakt, kein Under-Voltage durch Build.
+- **✅ E5.2 Content-Skip L3 bestätigt** (verhaltensbasiert: 1 Write / 7 Zyklen; stiller Skip ohne INFO-Marker). **✅ E5.5 Offline-Cache L3 bestätigt** (data/cache/weather.json 4734 B on-device angelegt). **✅ E1.2/E1.6** eink_last_sent_b061b85.png exakt 6 Farben.
+- **E2.5 native Gate: NICHT bestanden** (Panel nativ nicht treibbar) → wartet auf E2.5a lgpio-Fix. Reine Software.
 
 ## E3.7-Backlog (Feinschliff, gesammelt aus Verifikationen)
 
