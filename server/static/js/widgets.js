@@ -6,6 +6,15 @@ var WidgetPreview = {
     _dataCache: {},
     _CACHE_TTL: 60000,
 
+    // German two-letter weekday abbreviations. Indexed by Date.getDay()
+    // (0 = Sunday) for the offline fallback, and keyed by the full German
+    // weekday name the server sends so compact_row matches the Go panel render.
+    _germanWeekdayShortByIndex: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'],
+    _germanWeekdayShortByName: {
+        'Sonntag': 'So', 'Montag': 'Mo', 'Dienstag': 'Di', 'Mittwoch': 'Mi',
+        'Donnerstag': 'Do', 'Freitag': 'Fr', 'Samstag': 'Sa'
+    },
+
     // Fetch live widget data from server API
     async fetchWidgetData(type, props) {
         props = props || {};
@@ -176,7 +185,7 @@ var WidgetPreview = {
         if (!daily || daily.length === 0) {
             var daysCount = props.days || 3;
             var fallbackLines = [];
-            var dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            var dayNames = this._germanWeekdayShortByIndex;
             var today = new Date().getDay();
             for (var i = 0; i < daysCount; i++) {
                 var dn = dayNames[(today + i) % 7];
@@ -194,7 +203,7 @@ var WidgetPreview = {
             var desc = day.desc || day.Desc || '';
             switch (layout) {
                 case 'compact_row':
-                    lines.push(weekday.substring(0, 3) + ' ' + min + '/' + max + '\u00B0');
+                    lines.push((this._germanWeekdayShortByName[weekday] || weekday.substring(0, 2)) + ' ' + min + '/' + max + '\u00B0');
                     break;
                 case 'detailed_list':
                     lines.push(weekday + ': ' + min + '\u00B0/' + max + '\u00B0 ' + desc);

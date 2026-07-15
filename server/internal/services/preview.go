@@ -484,18 +484,10 @@ func (s *PreviewService) fillClockContent(props map[string]any) string {
 }
 
 func formatGermanDate(t time.Time) string {
-	weekdays := []string{"Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"}
-	months := []string{"", "Januar", "Februar", "März", "April", "Mai", "Juni",
-		"Juli", "August", "September", "Oktober", "November", "Dezember"}
-	return fmt.Sprintf("%s, %d. %s %d", weekdays[t.Weekday()], t.Day(), months[t.Month()], t.Year())
+	return fmt.Sprintf("%s, %d. %s %d", germanWeekdaysFull[t.Weekday()], t.Day(), germanMonths[t.Month()], t.Year())
 }
 
 func applyClockPlaceholders(template string, t time.Time) string {
-	weekdays := []string{"Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"}
-	weekdaysShort := []string{"So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"}
-	months := []string{"", "Januar", "Februar", "März", "April", "Mai", "Juni",
-		"Juli", "August", "September", "Oktober", "November", "Dezember"}
-
 	h12 := t.Hour() % 12
 	if h12 == 0 {
 		h12 = 12
@@ -513,9 +505,9 @@ func applyClockPlaceholders(template string, t time.Time) string {
 		"%dd%", fmt.Sprintf("%02d", t.Day()),
 		"%mm%", fmt.Sprintf("%02d", int(t.Month())),
 		"%yyyy%", fmt.Sprintf("%d", t.Year()),
-		"%WEEKDAY%", weekdays[t.Weekday()],
-		"%WEEKDAY_SHORT%", weekdaysShort[t.Weekday()],
-		"%MONTH_NAME%", months[t.Month()],
+		"%WEEKDAY%", germanWeekdaysFull[t.Weekday()],
+		"%WEEKDAY_SHORT%", germanWeekdaysShort[t.Weekday()],
+		"%MONTH_NAME%", germanMonths[t.Month()],
 		"%AMPM%", ampm,
 	)
 	return r.Replace(template)
@@ -588,7 +580,7 @@ func (s *PreviewService) fillForecastContent(props map[string]any) string {
 		}
 		switch layout {
 		case "compact_row":
-			lines = append(lines, fmt.Sprintf("%s %d/%d°", day.Weekday[:3], int(day.Min), int(day.Max)))
+			lines = append(lines, fmt.Sprintf("%s %d/%d°", germanShortWeekdayFromName(day.Weekday), int(day.Min), int(day.Max)))
 		case "detailed_list":
 			lines = append(lines, fmt.Sprintf("%s: %d°/%d° %s", day.Weekday, int(day.Min), int(day.Max), day.Desc))
 		case "custom":

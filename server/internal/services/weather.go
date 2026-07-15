@@ -241,7 +241,7 @@ func (s *WeatherService) FetchForLocation(lat, lon string) (*WeatherData, error)
 		"https://api.open-meteo.com/v1/forecast?latitude=%s&longitude=%s"+
 			"&hourly=temperature_2m,weathercode,precipitation"+
 			"&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset"+
-			"&current_weather=true&forecast_days=4&timezone=Europe%%2FBerlin",
+			"&current_weather=true&forecast_days=7&timezone=Europe%%2FBerlin",
 		url.QueryEscape(lat), url.QueryEscape(lon),
 	)
 
@@ -277,9 +277,9 @@ func (s *WeatherService) FetchForLocation(lat, lon string) (*WeatherData, error)
 	currentCode := raw.CurrentWeather.WeatherCode
 	currentDesc, currentIcon := weatherCodeToDescIcon(currentCode, false)
 
-	// Daily forecast (4 days)
-	dailyList := make([]DailyForecast, 0, 4)
-	for i := 0; i < 4 && i < len(raw.Daily.Time); i++ {
+	// Daily forecast (7 days)
+	dailyList := make([]DailyForecast, 0, 7)
+	for i := 0; i < 7 && i < len(raw.Daily.Time); i++ {
 		code := raw.Daily.WeatherCode[i]
 		tmax := raw.Daily.TemperatureMax[i]
 		tmin := raw.Daily.TemperatureMin[i]
@@ -290,7 +290,7 @@ func (s *WeatherService) FetchForLocation(lat, lon string) (*WeatherData, error)
 		if err != nil {
 			continue
 		}
-		weekday := t.Weekday().String()
+		weekday := germanWeekday(t)
 
 		dailyList = append(dailyList, DailyForecast{
 			Min:     tmin,
@@ -496,50 +496,56 @@ func (s *WeatherService) SearchLocation(query string) ([]LocationResult, error) 
 	return results, nil
 }
 
-type descIcon struct {
-	desc string
-	icon string
+// weatherDayIcons maps a WMO weather code to its daytime icon asset. Condition
+// descriptions live in germanWMODesc (locale.go) so day and night share one
+// localized text source; these maps only differ in icon.
+var weatherDayIcons = map[int]string{
+	0:  "clear_day.png",
+	1:  "clear_day.png",
+	2:  "cloudy_day.png",
+	3:  "cloudy_day.png",
+	45: "fog_day.png",
+	48: "fog_day.png",
+	51: "drizzle_day.png",
+	61: "rain_day.png",
+	63: "rain_day.png",
+	65: "rain_day.png",
+	80: "shower_day.png",
 }
 
-var weatherDayMap = map[int]descIcon{
-	0:  {"Clear sky", "clear_day.png"},
-	1:  {"Mainly clear", "clear_day.png"},
-	2:  {"Partly cloudy", "cloudy_day.png"},
-	3:  {"Overcast", "cloudy_day.png"},
-	45: {"Fog", "fog_day.png"},
-	48: {"Rime fog", "fog_day.png"},
-	51: {"Light drizzle", "drizzle_day.png"},
-	61: {"Slight rain", "rain_day.png"},
-	63: {"Moderate rain", "rain_day.png"},
-	65: {"Heavy rain", "rain_day.png"},
-	80: {"Rain showers", "shower_day.png"},
+// weatherNightIcons maps a WMO weather code to its nighttime icon asset.
+var weatherNightIcons = map[int]string{
+	0:  "clear_night.png",
+	1:  "clear_night.png",
+	2:  "cloudy_night.png",
+	3:  "cloudy_night.png",
+	45: "fog_night.png",
+	48: "fog_night.png",
+	51: "drizzle_night.png",
+	61: "rain_night.png",
+	63: "rain_night.png",
+	65: "rain_night.png",
+	80: "shower_night.png",
 }
 
-var weatherNightMap = map[int]descIcon{
-	0:  {"Clear sky", "clear_night.png"},
-	1:  {"Mainly clear", "clear_night.png"},
-	2:  {"Partly cloudy", "cloudy_night.png"},
-	3:  {"Overcast", "cloudy_night.png"},
-	45: {"Fog", "fog_night.png"},
-	48: {"Rime fog", "fog_night.png"},
-	51: {"Light drizzle", "drizzle_night.png"},
-	61: {"Slight rain", "rain_night.png"},
-	63: {"Moderate rain", "rain_night.png"},
-	65: {"Heavy rain", "rain_night.png"},
-	80: {"Rain showers", "shower_night.png"},
-}
-
-// weatherCodeToDescIcon maps WMO weather codes to description and icon filename.
+// weatherCodeToDescIcon maps a WMO weather code to its German description and
+// icon filename. The description comes from the single germanWMODesc source;
+// the icon depends on day/night. Unknown codes fall back to a German label and
+// a neutral daytime icon.
 func weatherCodeToDescIcon(code int, isNight bool) (string, string) {
+	desc, ok := germanWMODesc[code]
+	if !ok {
+		desc = germanWMOUnknown
+	}
+	icons := weatherDayIcons
 	if isNight {
-		if di, ok := weatherNightMap[code]; ok {
-			return di.desc, di.icon
-		}
+		icons = weatherNightIcons
 	}
-	if di, ok := weatherDayMap[code]; ok {
-		return di.desc, di.icon
+	icon, ok := icons[code]
+	if !ok {
+		icon = "cloudy_day.png"
 	}
-	return "Unknown", "cloudy_day.png"
+	return desc, icon
 }
 
 // WeatherCodeToDescIcon is the exported version for use by other packages.

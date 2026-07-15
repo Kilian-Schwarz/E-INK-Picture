@@ -100,7 +100,7 @@ func TestWeatherCachePersistenceRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fetch via fake success transport: %v", err)
 	}
-	if dataA.CurrentTemp != 17.3 || dataA.CurrentDesc != "Partly cloudy" {
+	if dataA.CurrentTemp != 17.3 || dataA.CurrentDesc != "Teilweise bewölkt" {
 		t.Fatalf("unexpected fetch result: temp=%g desc=%q", dataA.CurrentTemp, dataA.CurrentDesc)
 	}
 
@@ -261,24 +261,93 @@ func TestWeatherService_CacheEviction(t *testing.T) {
 }
 
 func TestWeatherCodeToDescIcon(t *testing.T) {
+	// German condition text: one representative daytime code and one nighttime
+	// code, plus the shared wording that only differs by icon (AC2/AC7).
 	desc, icon := WeatherCodeToDescIcon(0, false)
-	if desc != "Clear sky" {
-		t.Errorf("expected 'Clear sky', got %q", desc)
+	if desc != "Klarer Himmel" {
+		t.Errorf("expected 'Klarer Himmel', got %q", desc)
 	}
 	if icon != "clear_day.png" {
 		t.Errorf("expected 'clear_day.png', got %q", icon)
 	}
 
 	desc, icon = WeatherCodeToDescIcon(0, true)
-	if desc != "Clear sky" {
-		t.Errorf("expected 'Clear sky' for night, got %q", desc)
+	if desc != "Klarer Himmel" {
+		t.Errorf("expected 'Klarer Himmel' for night, got %q", desc)
 	}
 	if icon != "clear_night.png" {
 		t.Errorf("expected 'clear_night.png', got %q", icon)
 	}
 
-	desc, _ = WeatherCodeToDescIcon(999, false)
-	if desc != "Unknown" {
-		t.Errorf("expected 'Unknown' for code 999, got %q", desc)
+	// A second daytime code proves the map is not a single-entry accident.
+	desc, icon = WeatherCodeToDescIcon(61, false)
+	if desc != "Leichter Regen" {
+		t.Errorf("expected 'Leichter Regen' for code 61, got %q", desc)
+	}
+	if icon != "rain_day.png" {
+		t.Errorf("expected 'rain_day.png' for code 61, got %q", icon)
+	}
+
+	// A nighttime code with its own icon variant.
+	desc, icon = WeatherCodeToDescIcon(2, true)
+	if desc != "Teilweise bewölkt" {
+		t.Errorf("expected 'Teilweise bewölkt' for code 2 night, got %q", desc)
+	}
+	if icon != "cloudy_night.png" {
+		t.Errorf("expected 'cloudy_night.png' for code 2 night, got %q", icon)
+	}
+
+	desc, icon = WeatherCodeToDescIcon(999, false)
+	if desc != "Unbekannt" {
+		t.Errorf("expected 'Unbekannt' for code 999, got %q", desc)
+	}
+	if icon != "cloudy_day.png" {
+		t.Errorf("expected fallback 'cloudy_day.png' for code 999, got %q", icon)
+	}
+}
+
+// sevenDayOpenMeteoJSON is a complete 7-day open-meteo response (dates start on
+// a Wednesday, 2026-07-15) used to prove the forecast now parses 7 days (AC5).
+const sevenDayOpenMeteoJSON = `{
+  "current_weather": {"temperature": 19.0, "weathercode": 1},
+  "daily": {
+    "time": ["2026-07-15", "2026-07-16", "2026-07-17", "2026-07-18", "2026-07-19", "2026-07-20", "2026-07-21"],
+    "weathercode": [2, 3, 61, 0, 45, 80, 65],
+    "temperature_2m_max": [22.1, 20.4, 18.9, 24.0, 19.5, 17.2, 21.8],
+    "temperature_2m_min": [12.3, 11.8, 10.5, 13.1, 9.9, 8.7, 12.0],
+    "sunrise": ["2026-07-15T05:12", "2026-07-16T05:13", "2026-07-17T05:14", "2026-07-18T05:16", "2026-07-19T05:17", "2026-07-20T05:18", "2026-07-21T05:19"],
+    "sunset": ["2026-07-15T21:24", "2026-07-16T21:23", "2026-07-17T21:22", "2026-07-18T21:20", "2026-07-19T21:19", "2026-07-20T21:18", "2026-07-21T21:16"]
+  },
+  "hourly": {
+    "time": ["2026-07-15T00:00", "2026-07-15T01:00"],
+    "temperature_2m": [13.0, 12.5],
+    "weathercode": [1, 2],
+    "precipitation": [0, 0]
+  }
+}`
+
+// TestFetchSevenDayForecast proves AC5: a 7-day open-meteo response yields 7
+// Daily entries, and the weekday/desc of the first entry are German (AC1/AC2).
+func TestFetchSevenDayForecast(t *testing.T) {
+	failCache.reset()
+	t.Cleanup(failCache.reset)
+
+	svc := NewWeatherService("", "", t.TempDir())
+	svc.client = &http.Client{Transport: stubTransport{status: http.StatusOK, body: sevenDayOpenMeteoJSON}}
+
+	data, err := svc.FetchForLocation("52.52", "13.41")
+	if err != nil {
+		t.Fatalf("fetch 7-day forecast: %v", err)
+	}
+	if len(data.Daily) != 7 {
+		t.Fatalf("expected 7 daily forecast entries, got %d", len(data.Daily))
+	}
+	// 2026-07-15 is a Wednesday -> full German name.
+	if data.Daily[0].Weekday != "Mittwoch" {
+		t.Errorf("first forecast weekday = %q, want German %q", data.Daily[0].Weekday, "Mittwoch")
+	}
+	// weathercode 2 -> German condition text.
+	if data.Daily[0].Desc != "Teilweise bewölkt" {
+		t.Errorf("first forecast desc = %q, want German %q", data.Daily[0].Desc, "Teilweise bewölkt")
 	}
 }

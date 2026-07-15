@@ -299,8 +299,8 @@ func TestOfflineRenderStaleWeatherAfterRestart(t *testing.T) {
 	if got == "No data" {
 		t.Fatal("stale persisted weather must survive the restart, got \"No data\"")
 	}
-	if got != "17°C Partly cloudy" {
-		t.Errorf("fillWeatherContent after offline restart = %q, want %q", got, "17°C Partly cloudy")
+	if got != "17°C Teilweise bewölkt" {
+		t.Errorf("fillWeatherContent after offline restart = %q, want %q", got, "17°C Teilweise bewölkt")
 	}
 }
 
