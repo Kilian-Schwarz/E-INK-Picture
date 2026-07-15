@@ -38,6 +38,8 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 		RenderQuality   models.RenderQuality   `json:"render_quality,omitempty"`
 		DitherAlgorithm models.DitherAlgorithm `json:"dither_algorithm,omitempty"`
 		Calibration     models.CalibrationMode `json:"calibration,omitempty"`
+		SleepStart      *string                `json:"sleep_start,omitempty"`
+		SleepEnd        *string                `json:"sleep_end,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -91,6 +93,24 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 			jsonError(w, "invalid calibration: "+string(req.Calibration), http.StatusBadRequest)
 			return
 		}
+	}
+
+	// Sleep window: pointer semantics (nil = untouched, "" = clear). The
+	// resulting pair must be valid as a whole (both set or both empty).
+	if req.SleepStart != nil || req.SleepEnd != nil {
+		start, end := current.SleepStart, current.SleepEnd
+		if req.SleepStart != nil {
+			start = *req.SleepStart
+		}
+		if req.SleepEnd != nil {
+			end = *req.SleepEnd
+		}
+		if err := services.ValidateSleepWindow(start, end); err != nil {
+			jsonError(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		current.SleepStart = start
+		current.SleepEnd = end
 	}
 
 	if err := h.settings.SaveSettings(current); err != nil {

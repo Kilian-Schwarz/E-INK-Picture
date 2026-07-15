@@ -2,6 +2,8 @@ package services
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -18,6 +20,8 @@ type SettingsService struct {
 	dataDir            string
 	defaultDisplayType models.DisplayType
 	mu                 sync.RWMutex
+	// now is the clock used by GetRefreshStatus; injectable for tests.
+	now func() time.Time
 }
 
 // NewSettingsService creates a new SettingsService. defaultDisplayType is used
@@ -33,7 +37,82 @@ func NewSettingsService(dataDir string, defaultDisplayType models.DisplayType) *
 			"fallback", string(models.DisplayWaveshare73E))
 		defaultDisplayType = models.DisplayWaveshare73E
 	}
-	return &SettingsService{dataDir: dataDir, defaultDisplayType: defaultDisplayType}
+	return &SettingsService{dataDir: dataDir, defaultDisplayType: defaultDisplayType, now: time.Now}
+}
+
+// parseHHMM parses a wall-clock time in strict "HH:MM" (24h) format and
+// returns it as minutes since midnight.
+func parseHHMM(v string) (int, error) {
+	if len(v) != 5 || v[2] != ':' || !isDigits(v[:2]) || !isDigits(v[3:]) {
+		return 0, fmt.Errorf("invalid time %q, expected HH:MM", v)
+	}
+	h := int(v[0]-'0')*10 + int(v[1]-'0')
+	m := int(v[3]-'0')*10 + int(v[4]-'0')
+	if h > 23 || m > 59 {
+		return 0, fmt.Errorf("invalid time %q, expected HH:MM", v)
+	}
+	return h*60 + m, nil
+}
+
+func isDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidateSleepWindow validates a sleep_start/sleep_end pair: both empty
+// disables the window; otherwise both must be valid "HH:MM" values and
+// must differ (start == end would be ambiguous).
+func ValidateSleepWindow(start, end string) error {
+	if start == "" && end == "" {
+		return nil
+	}
+	if start == "" || end == "" {
+		return errors.New("sleep_start and sleep_end must both be set or both be empty")
+	}
+	s, err := parseHHMM(start)
+	if err != nil {
+		return fmt.Errorf("sleep_start: %w", err)
+	}
+	e, err := parseHHMM(end)
+	if err != nil {
+		return fmt.Errorf("sleep_end: %w", err)
+	}
+	if s == e {
+		return errors.New("sleep_start and sleep_end must differ")
+	}
+	return nil
+}
+
+// inSleepWindow reports whether minute-of-day m lies in the half-open window
+// [start, end). A window with start > end wraps across midnight
+// (e.g. 23:00-06:00); start == end is treated as no window (fail open).
+func inSleepWindow(m, start, end int) bool {
+	switch {
+	case start == end:
+		return false
+	case start < end:
+		return m >= start && m < end
+	default:
+		return m >= start || m < end
+	}
+}
+
+// sleepWindowActive reports whether now falls into the configured sleep
+// window. Empty or invalid values fail open (window inactive).
+func sleepWindowActive(start, end string, now time.Time) bool {
+	if start == "" || end == "" {
+		return false
+	}
+	s, err1 := parseHHMM(start)
+	e, err2 := parseHHMM(end)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return inSleepWindow(now.Hour()*60+now.Minute(), s, e)
 }
 
 func (s *SettingsService) filePath() string {
@@ -83,6 +162,19 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 	if settings.Calibration == "" {
 		settings.Calibration = models.CalibrationDefault
 	}
+	// Defensive normalization: invalid sleep window values on disk (e.g.
+	// hand-edited) disable the window. Fail open towards refreshing, never
+	// towards a frozen panel.
+	if settings.SleepStart != "" || settings.SleepEnd != "" {
+		if err := ValidateSleepWindow(settings.SleepStart, settings.SleepEnd); err != nil {
+			slog.Warn("invalid sleep window in settings, treating as disabled",
+				"sleep_start", settings.SleepStart,
+				"sleep_end", settings.SleepEnd,
+				"error", err)
+			settings.SleepStart = ""
+			settings.SleepEnd = ""
+		}
+	}
 
 	return &settings, nil
 }
@@ -121,6 +213,8 @@ func (s *SettingsService) GetSettingsResponse() (*models.SettingsResponse, error
 		RenderQuality:   settings.RenderQuality,
 		DitherAlgorithm: settings.DitherAlgorithm,
 		Calibration:     settings.Calibration,
+		SleepStart:      settings.SleepStart,
+		SleepEnd:        settings.SleepEnd,
 	}, nil
 }
 
@@ -209,42 +303,57 @@ func (s *SettingsService) GetRefreshStatus() (*models.RefreshStatus, error) {
 		return nil, err
 	}
 
+	now := s.now()
 	shouldRefresh := false
+	reason := ""
 
-	// Check if manual trigger is newer than last client refresh
+	// Check if manual trigger is newer than last client refresh. A manual
+	// trigger deliberately breaks through the sleep window: an explicit
+	// user action wins.
 	if settings.LastRefreshTrigger != "" {
 		if settings.LastClientRefresh == "" {
 			shouldRefresh = true
+			reason = models.RefreshReasonManual
 		} else {
 			triggerTime, err1 := time.Parse(time.RFC3339, settings.LastRefreshTrigger)
 			clientTime, err2 := time.Parse(time.RFC3339, settings.LastClientRefresh)
 			if err1 == nil && err2 == nil && triggerTime.After(clientTime) {
 				shouldRefresh = true
+				reason = models.RefreshReasonManual
 			}
 		}
 	}
 
-	// Check if refresh interval has elapsed
+	// Check if refresh interval has elapsed. Interval refreshes are
+	// suppressed inside the sleep window (local wall-clock time), except on
+	// first start (last_client_refresh empty): a factory-new panel must
+	// show content instead of staying blank all night.
 	if !shouldRefresh && settings.RefreshInterval > 0 {
 		if settings.LastClientRefresh == "" {
 			shouldRefresh = true
-		} else {
+			reason = models.RefreshReasonInterval
+		} else if !sleepWindowActive(settings.SleepStart, settings.SleepEnd, now) {
 			clientTime, err := time.Parse(time.RFC3339, settings.LastClientRefresh)
-			if err == nil && time.Since(clientTime) > time.Duration(settings.RefreshInterval)*time.Second {
+			if err == nil && now.Sub(clientTime) > time.Duration(settings.RefreshInterval)*time.Second {
 				shouldRefresh = true
+				reason = models.RefreshReasonInterval
 			}
 		}
 	}
 
 	slog.Debug("refresh_status",
 		"should_refresh", shouldRefresh,
+		"reason", reason,
 		"refresh_interval", settings.RefreshInterval,
 		"last_client_refresh", settings.LastClientRefresh,
 		"last_trigger", settings.LastRefreshTrigger,
+		"sleep_start", settings.SleepStart,
+		"sleep_end", settings.SleepEnd,
 	)
 
 	return &models.RefreshStatus{
 		ShouldRefresh:     shouldRefresh,
+		Reason:            reason,
 		RefreshInterval:   settings.RefreshInterval,
 		LastTrigger:       settings.LastRefreshTrigger,
 		LastClientRefresh: settings.LastClientRefresh,

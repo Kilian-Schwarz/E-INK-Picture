@@ -27,13 +27,23 @@ const (
 	CalibrationOff     CalibrationMode = "off"     // ideal driver palette, no precompensation
 )
 
+// Refresh reasons reported in RefreshStatus when should_refresh is true.
+const (
+	RefreshReasonManual   = "manual"   // manual trigger, breaks the sleep window
+	RefreshReasonInterval = "interval" // refresh interval elapsed
+)
+
 // Settings holds application-wide configuration persisted to disk.
+// SleepStart/SleepEnd define the nightly sleep window in local wall-clock
+// time ("HH:MM", 24h); both empty means the window is disabled.
 type Settings struct {
 	DisplayType        DisplayType     `json:"display_type"`
 	RefreshInterval    int             `json:"refresh_interval"`
 	RenderQuality      RenderQuality   `json:"render_quality,omitempty"`
 	DitherAlgorithm    DitherAlgorithm `json:"dither_algorithm,omitempty"`
 	Calibration        CalibrationMode `json:"calibration,omitempty"`
+	SleepStart         string          `json:"sleep_start,omitempty"`
+	SleepEnd           string          `json:"sleep_end,omitempty"`
 	LastRefreshTrigger string          `json:"last_refresh_trigger,omitempty"`
 	LastClientRefresh  string          `json:"last_client_refresh,omitempty"`
 }
@@ -46,11 +56,14 @@ type SettingsResponse struct {
 	RenderQuality   RenderQuality   `json:"render_quality"`
 	DitherAlgorithm DitherAlgorithm `json:"dither_algorithm"`
 	Calibration     CalibrationMode `json:"calibration"`
+	SleepStart      string          `json:"sleep_start"`
+	SleepEnd        string          `json:"sleep_end"`
 }
 
 // RefreshStatus is the response for the refresh status endpoint.
 type RefreshStatus struct {
 	ShouldRefresh     bool   `json:"should_refresh"`
+	Reason            string `json:"reason,omitempty"`
 	RefreshInterval   int    `json:"refresh_interval"`
 	LastTrigger       string `json:"last_trigger,omitempty"`
 	LastClientRefresh string `json:"last_client_refresh,omitempty"`

@@ -224,6 +224,12 @@ E-INK-Picture/
 | `GET` | `/location_search` | Search locations (weather) |
 | `POST` | `/update_settings` | Update settings |
 
+### Sleep Window (Panel Care)
+
+`POST /update_settings` accepts `sleep_start` / `sleep_end` (`"HH:MM"`, 24h): inside this window the server suppresses interval refreshes. Both fields must be set together and must differ; send both as `""` to disable. Fields not included in the request stay unchanged. The window is evaluated against local server time (`TZ` env var), is half-open `[start, end)` and may wrap across midnight (e.g. `23:00`–`06:00`). A manual trigger (`POST /api/trigger_refresh`) always breaks through the window. `GET /settings` always returns both fields (`""` = off).
+
+`GET /api/refresh_status` reports why a refresh is requested via the `reason` field: `"manual"` (trigger) or `"interval"` (elapsed interval). The field is omitted when `should_refresh` is `false`.
+
 See [docs/migration-plan.md](docs/migration-plan.md) for detailed API documentation.
 
 ---
