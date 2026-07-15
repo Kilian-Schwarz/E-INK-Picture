@@ -57,6 +57,12 @@ E1 komplett | E2.1+E2.3 gemergt — **E2.5 (native Installation) durch HIL-3 als
 - Wizard Schritt 5: früher Karten-Tap kann mit laufendem Queue-Render überlappen (max 2 in flight gemessen; Server serialisiert eh — Fix: auf Queue-Leerlauf warten vor Erfolgs-Render).
 - Dashboard-Use-Flow kopiert den inerten templateSlot:"location"-Marker mit (harmlos, Renderer ignoriert ihn).
 
+## E4 — Live-Datenquellen: Scoping-Ergebnis (2026-07-15, Explore)
+
+- **DoD „Wetter/Kalender/News/Uhr live + selbst-aktualisierend" ist bereits ERFÜLLT.** Alle Daten-Widgets (widget_clock, widget_weather, widget_forecast, widget_calendar/iCal, widget_news/RSS, widget_custom, widget_system, widget_timer) werden vom Panel-Renderer `preview.go` (fill*Content, Dispatch preview.go:335-377) **end-to-end** gerendert, sind über die Designer-Palette addierbar + URL-/Prop-konfigurierbar, und aktualisieren sich, weil jeder Fetch **zur Render-Zeit** läuft (Pull-Modell: Client pollt → /preview → re-render). Recency: Wetter-Positiv-Cache 30 min + E5.5-Negativ-Cache 2 min. Kein separater Scheduler nötig.
+- **E4 reduziert sich auf Qualität/Konsolidierung (P1, KEIN v1.0-Blocker):** (a) totes `conditions.go` (239 Z., nie instanziiert), (b) totes `WidgetRenderer`-Interface + 8 leere Render()-Stubs (widgets/renderer.go), (c) 4 verwaiste widgets/-Structs (weather/forecast/clock/timer — Konstruktoren nie aufgerufen), (d) **Doppel-Implementierung**: Panel-Pfad (preview.go) vs. Editor-Preview-Pfad (widgets/ via /api/widgets/*) — zwei parallele Widget-Impls, die driften (widgets/-Kopien ohne E5.5-Negativ-Cache, andere Defaults), (e) `widgets.WeatherFetcher`-Interface hat 0 Implementierer, (f) System-Widget liest `/proc` des **Panel-Hosts** (im Cloud-Modus der Cloud-Server, nicht der Pi — fragwürdig). Spec: specs/E4a-widget-deadcode-cleanup.md.
+- **Folge fürs v1.0-Bild:** Nach E2.5a-Merge ist der **Software-Backlog für die v1.0-DoD im Kern komplett** (Datenquellen ✅, Designer ✅, Auth ✅, Render/Kalibrierung ✅, Betrieb/Zuverlässigkeit ✅, CI ✅). Verbleibend: E2.5a-L3 (nativer Install auf Pi), E4a-Cleanup (optional/Qualität), und die **Kilian-/Hardware-Gates** (Panel-A/B E1.6, epd7in5_V2-B/W-Test, Pi Zero 2 W, 72h-Lauf, README-Foto, Release-Tag).
+
 ## Test-Hardware (Baseline 2026-07-14, hardware-validator)
 
 - Host: **10.33.0.106** (seit 2026-07-15; vorher 10.33.0.121 — DHCP, Reservation empfohlen), SSH: ksch@ mit Key ~/.ssh/id_ed25519_10.33.0.121 (Config deckt beide IPs ab; Konnektivität + Identität am 15.07. verifiziert, Container laufen)
