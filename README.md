@@ -1,21 +1,31 @@
 # E-Ink Picture
 
-![E-Ink Picture Logo](https://github.com/Kilian-Schwarz/E-INK-Picture/blob/main/logo.png?raw=true)
+<!-- TODO(v1.0): hero panel photo — a real photo of the Waveshare panel showing a rendered design goes here. See PROGRESS.md (README-Foto / L4 panel-photo gate). -->
+<!-- ![E-Ink panel showing a design rendered by E-Ink Picture](docs/images/hero-panel.jpg) -->
 
-Web-based designer for E-Ink picture frames with Raspberry Pi.
+Mobile-first, web-based designer for Waveshare E-Ink picture frames on a Raspberry Pi.
 
-**Go Server (~10MB RAM) + Python Client for Waveshare E-Ink Displays**
+**Tiny Go server (native RSS ~18 MB, measured) + Python client for Waveshare E-Ink displays.**
 
-Design layouts in the browser, render them server-side, and display the result on a Waveshare 7.5" E-Ink display (800x480px, 1-bit monochrome). The Go server replaces the original Python/Flask backend with a single static binary in a <20MB Docker image.
+Design a layout in the browser on your phone or PC, render it server-side, and
+show it on a Waveshare panel — either the 7.3" 6-color (epd7in3e) or the 7.5"
+B/W (epd7in5_V2), both 800x480. The Go server is a single static binary; deploy
+it natively with one command or via Docker.
+
+> **Status (v1.0-ready):** The software feature set for v1.0 is complete.
+> Verified on a Raspberry Pi 3B (kernel 6.12, Debian 13) driving a 6-color
+> epd7in3e panel via Docker. The native one-command installer is new and not
+> yet validated end-to-end on hardware; Pi Zero 2 W and long-run panel gates
+> are still open. See [PROGRESS.md](PROGRESS.md) for the exact state.
 
 ---
 
 ## Table of Contents
 
-- [Quick Start: All-in-One (Raspberry Pi)](#quick-start-all-in-one-raspberry-pi)
-- [Quick Start: Cloud + Client](#quick-start-cloud--client)
+- [Quick Start](#quick-start)
 - [Architecture](#architecture)
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [Tech Stack](#tech-stack)
 - [Directory Structure](#directory-structure)
 - [API Endpoints](#api-endpoints)
@@ -36,11 +46,18 @@ Design layouts in the browser, render them server-side, and display the result o
 curl -fsSL https://raw.githubusercontent.com/Kilian-Schwarz/E-INK-Picture/main/install.sh | bash
 ```
 
-One command on a fresh Raspberry Pi OS: builds the server, sets up the client
-venv with the pinned Waveshare driver, enables SPI, and starts both systemd
-services. Re-running the same command updates an existing installation. See
-[INSTALL.md](INSTALL.md) for all flags (`--update`, `--allow-preview-only`,
-`--dry-run`), `EINK_INSTALL_DIR`, and the manual route.
+One command on a fresh Raspberry Pi OS: it gates the OS/arch, clones the repo,
+installs dependencies, builds the Go server, sets up the client venv with the
+pinned Waveshare driver (forcing the `lgpio` pin factory on kernel >= 6.6),
+enables SPI, generates a client token, and installs + starts both systemd
+services (`Restart=always`). Re-running the same command updates an existing
+install. See [INSTALL.md](INSTALL.md) for all flags (`--update`,
+`--allow-preview-only`, `--dry-run`), the `EINK_INSTALL_DIR` override, and the
+manual route.
+
+> This is the intended install flow. It is new and not yet validated
+> end-to-end on hardware — if the native GPIO stack fails on your kernel, use
+> the Docker path below (proven on a Pi 3B) and see [PROGRESS.md](PROGRESS.md).
 
 ### Docker (alternative)
 
@@ -52,8 +69,17 @@ docker compose up -d
 
 Designer: **http://localhost:5000/designer**
 
-No `.env` file needed. The server builds and starts with sensible defaults.
-Optional configuration via `.env` -- see [.env.example](.env.example).
+Runs the server and the Python client as two containers, with the SPI/GPIO
+devices passed through to the client. No `.env` file is required — the server
+builds and starts with sensible defaults. Optional configuration via `.env`
+-- see [.env.example](.env.example).
+
+### After first start
+
+Open `http://<pi-ip>:5000/designer`. A fresh install shows a **five-step setup
+wizard** (display type, weather location, refresh interval, admin password,
+starter design). **Set an admin password** — until you do, the server is open
+to everyone on the LAN (see [Security](#security)).
 
 ### Cloud Deployment
 
@@ -110,7 +136,7 @@ sequenceDiagram
     User->>Server: Design layout in /designer
     Server->>Server: Save design JSON to data/designs/
     User->>Server: GET /preview
-    Server->>Server: Render PNG (800x480, 1-bit)
+    Server->>Server: Render PNG (800x480, panel palette)
     Server-->>User: Preview image
 
     Client->>Server: GET /preview
@@ -122,17 +148,52 @@ sequenceDiagram
 
 ## Features
 
-- **Web-Based Designer** -- Drag-and-drop interface for creating E-Ink layouts
-- **Module System** -- Text, Image, Weather, Date/Time, Timer, News, Lines/Shapes
-- **Server-Side Rendering** -- PNG preview rendered by Go server (800x480, 1-bit)
-- **Weather Integration** -- Open-Meteo API (free, no API key required)
-- **Custom Fonts & Images** -- Upload TTF/OTF fonts and BMP/PNG images
-- **Weather Styles** -- Multiple configurable weather display formats
-- **Design Management** -- Create, clone, delete, switch between designs
-- **Offline Fallback** -- Client caches last design, syncs date/time locally
-- **Offline Hardening** -- Server keeps rendering without internet: persistent weather cache ("stale ok"), 2-min negative fetch cache per source
-- **Two Deployment Modes** -- All-in-one on Pi or cloud server + Pi client
-- **Minimal Resources** -- Server ~10MB RAM, <20MB Docker image
+**Display & rendering**
+
+- **Two panels** -- Waveshare 7.3" 6-color (`epd7in3e`, Spectra 6) and 7.5" B/W (`epd7in5_V2`), both 800x480; the 6-color panel is the default.
+- **Calibrated dithering** -- Floyd-Steinberg or Atkinson error diffusion against the *measured* panel colors, with output restricted to the exact driver palette (6 colors or 2). Escape hatch `calibration:"off"` restores the legacy output byte-for-byte.
+- **Server-side rendering** -- Go renders the PNG (800x480); the designer is WYSIWYG (element rotation is honored on the panel).
+
+**Designer**
+
+- **Mobile-first, touch-first canvas** (Fabric.js) -- select/drag/resize/rotate via one pointer path, pinch-zoom + two-finger pan, long-press context menu, Canva-style smart alignment guides.
+- **Responsive layout** -- bottom sheets on phones, 44px icon rails on tablets, full desktop layout unchanged.
+- **8 ready-made templates** -- Weather Dashboard, Family Calendar, Photo + Clock, Week Planner, News Briefing, Minimal Clock, Countdown, System Monitor — each with a panel-true live preview.
+- **Widgets** -- text, image, weather, forecast, iCal calendar, RSS news, clock, timer, custom API, system, shapes/lines.
+- **Custom fonts & images** -- upload TTF/OTF fonts and PNG/BMP images.
+
+> The browser designer loads Fabric.js and fonts from a CDN, so *editing* needs an internet connection. Panel *rendering* does not (see Offline hardening).
+
+**Live, self-updating widgets** -- pulled fresh at render time (no separate scheduler)
+
+- Weather + 7-day forecast (Open-Meteo, free, no API key), iCal calendar (URL-based), RSS news, clock, timer, custom JSON API, and a system widget.
+
+**First-run & security**
+
+- **Guided setup wizard** -- five steps (display, location, refresh interval, admin password, starter design) shown only on a factory-fresh install.
+- **Single-admin auth** -- bcrypt password + session cookies, deny-by-default guard in front of every route; the headless client authenticates with a shared `X-Client-Token`. Fully optional (open until a password is set — no lockout on upgrade).
+
+**Reliability & panel care**
+
+- **Offline hardening** -- the server keeps rendering without internet: persistent weather cache (`data/cache/weather.json`, "stale ok", restart-proof) plus a 2-minute negative fetch cache per source.
+- **Client watchdog** -- driver/SPI errors reset the panel instead of crashing; escalation to systemd after repeated failures; automatic power-outage recovery.
+- **Nightly sleep window + content-skip** -- suppress interval refreshes overnight, and skip the physical panel write when the rendered bytes are unchanged.
+
+**Deployment**
+
+- **One-command native install** (`curl … | bash`) **or Docker Compose**; runs all-in-one on the Pi or as a cloud server + remote Pi client.
+- **Tiny footprint** -- native server RSS ~18 MB (measured); the Go binary is a single static file.
+
+---
+
+## Screenshots
+
+<!-- TODO(v1.0): add 1-2 designer screenshots (phone + desktop) and the panel photo. See PROGRESS.md (README-Foto / L4 panel-photo gate). -->
+<!-- ![Designer on a phone](docs/images/designer-mobile.png) -->
+<!-- ![Designer on the desktop](docs/images/designer-desktop.png) -->
+<!-- ![Waveshare panel showing a rendered design](docs/images/panel-photo.jpg) -->
+
+_Screenshots and a photo of the panel are pending the v1.0 hardware-photo gate._
 
 ---
 
@@ -141,11 +202,12 @@ sequenceDiagram
 | Component | Technology |
 |-----------|-----------|
 | Server | Go 1.24, `net/http`, `go:embed`, `golang.org/x/image` |
-| Frontend | Vanilla HTML, CSS, JavaScript (embedded in Go binary) |
-| Client | Python 3, Pillow, requests, Waveshare epd7in5_V2 |
-| Deployment | Docker Compose, multi-stage Alpine build (ARM64/AMD64) |
+| Frontend | Vanilla HTML/CSS/JS (embedded via `go:embed`) + Fabric.js 5.3.1 (designer canvas, CDN) |
+| Client | Python 3.11, Pillow, requests, Waveshare `epd7in3e` / `epd7in5_V2` |
+| Deployment | Native (systemd) or Docker Compose, multi-stage Alpine build (arm64/armv7/armv6/amd64) |
 | Weather API | [Open-Meteo](https://open-meteo.com/) (free, no key) |
-| Target Hardware | Raspberry Pi Zero 2 W (512MB RAM), Waveshare 7.5" V2 |
+| Target Hardware | Raspberry Pi Zero 2 W (512MB RAM); Waveshare 7.3" 6-color or 7.5" B/W |
+| Tested on | Raspberry Pi 3B, kernel 6.12, Debian 13, epd7in3e panel (via Docker) |
 
 ---
 
@@ -183,14 +245,22 @@ E-INK-Picture/
 │   ├── fonts/                     # Uploaded TTF/OTF fonts
 │   ├── cache/                     # Runtime caches (weather.json -- safe to delete)
 │   └── weather_styles/            # Weather display format configs
+├── systemd/
+│   ├── eink-server.service        # Native server unit template
+│   └── eink-client.service        # Native client unit template
 ├── scripts/
 │   ├── setup-local.sh             # All-in-one setup script
-│   └── setup-cloud-client.sh      # Cloud client setup script
+│   ├── setup-cloud-client.sh      # Cloud client setup script
+│   └── test-setup.sh              # Installer tests (no hardware needed)
 ├── docs/
 │   ├── migration-plan.md          # Python-to-Go migration details
 │   └── architecture.md            # Architecture documentation
+├── install.sh                     # One-command bootstrap (curl | bash)
+├── setup.sh                       # Native Pi setup (server + venv + systemd)
+├── eink.sh                        # Native service control (start/stop/status/logs)
 ├── docker-compose.yml             # Base Docker Compose (all-in-one)
 ├── docker-compose.cloud.yml       # Cloud mode override
+├── INSTALL.md                     # Native install details & flags
 ├── .env.example                   # Environment variable template
 └── LICENSE                        # GPL-3.0
 ```
@@ -284,20 +354,43 @@ docker compose -f docker-compose.yml -f docker-compose.cloud.yml up --build -d
 
 ## Configuration
 
-All configuration is done via environment variables. Copy `.env.example` to `.env` and adjust as needed.
+All configuration is done via environment variables. Copy `.env.example` to
+`.env` and adjust as needed (the native installer creates `.env` for you, with
+`DATA_DIR=./data` and a generated `EINK_CLIENT_TOKEN`).
+
+### Server
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `5000` | Server port |
-| `DATA_DIR` | `/app/data` | Path to persistent data directory |
+| `DATA_DIR` | `/app/data` | Persistent data directory (native install uses `./data`) |
 | `DEPLOYMENT_MODE` | `local` | `local` (all-in-one) or `cloud` |
 | `CORS_ALLOWED_ORIGINS` | *(empty)* | Cloud mode only: comma-separated explicit origins. `*` is rejected (credentials) and treated as unconfigured; local mode sends no CORS headers |
+| `EINK_DISPLAY_TYPE` | `waveshare_7in3_e` | Server default display profile: `waveshare_7in3_e` (6-color) or `waveshare_7in5_v2` (B/W). Only applies when `settings.json` has no `display_type` |
 | `EINK_ADMIN_PASSWORD` | *(empty)* | Bootstrap for the admin password: hashed and persisted once at startup when no password exists yet, ignored afterwards (clear it after first start) |
 | `EINK_CLIENT_TOKEN` | *(empty)* | Shared token for the e-ink client (`X-Client-Token` header). Generated by the setup scripts; manually: `openssl rand -hex 32` |
 | `EINK_COOKIE_SECURE` | `false` | Set `true` only behind a TLS-terminating proxy: marks the session cookie `Secure` |
-| `WEATHER_API_KEY` | *(empty)* | Optional weather API key |
+| `EINK_MAX_CONCURRENT_RENDERS` | `1` | Render semaphore (int >= 1): max concurrent preview renders; extras queue, then 503 on disconnect |
+| `EINK_GOMEMLIMIT` | `64MiB` | Go runtime soft memory limit (`MiB` suffix or bytes; `off`/`0` disables). Precedence: this > native `GOMEMLIMIT` > default |
+| `WEATHER_API_KEY` | *(empty)* | Optional; Open-Meteo needs no key |
 | `WEATHER_LOCATION` | *(empty)* | Default weather location |
-| `TZ` | `Europe/Berlin` | Timezone |
+| `TZ` | `Europe/Berlin` | Timezone (also anchors the `sleep_start`/`sleep_end` sleep window) |
+
+### Client (Raspberry Pi)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EINK_SERVER_URL` | `http://localhost:5000` | Server base URL the client polls |
+| `EINK_CLIENT_TOKEN` | *(empty)* | Must match the server's token once a password is set |
+| `EINK_DISPLAY_DRIVER` | `epd7in3e` | Waveshare driver: `epd7in3e` (6-color) or `epd7in5_V2` (B/W) |
+| `GPIOZERO_PIN_FACTORY` | `lgpio` | gpiozero pin factory. `lgpio` is the only working factory on kernel >= 6.6; `setup.sh` pins this automatically (override to `rpigpio` only on older kernels) |
+| `EINK_POLL_INTERVAL` | `30` | Poll interval in seconds |
+| `EINK_REFRESH_INTERVAL` | `3600` | Fallback refresh interval (seconds) when the server is unreachable |
+| `EINK_CONTENT_SKIP` | `true` | Skip the physical panel write when the preview PNG is unchanged; only `false` disables |
+| `EINK_MAX_SKIP_HOURS` | `24` | Force a panel write at least this often even if content is unchanged (`0` = off) |
+| `EINK_HW_FAILURE_LIMIT` | `3` | Exit after this many consecutive hardware failures so systemd restarts the client (`0` = never) |
+| `EINK_LAST_SENT_PATH` | `/tmp/eink_last_sent.png` | Debug artifact: last image sent to the driver |
+| `EINK_LOG_LEVEL` | `INFO` | Client log level |
 
 ---
 
@@ -343,18 +436,23 @@ following before exposing the device to a shared network:
 
 The Python client runs on the Raspberry Pi and fetches the rendered PNG from the server's `/preview` endpoint, then displays it on the Waveshare E-Ink display via SPI.
 
+The one-command installer (and Docker) set all of this up for you; the steps
+below are for a manual install.
+
 ### Requirements
 
 - Raspberry Pi with SPI enabled (`raspi-config` > Interface Options > SPI)
 - Python 3.11+
-- Waveshare epd7in5_V2 driver library
+- Waveshare driver library — `epd7in3e` (6-color) or `epd7in5_V2` (B/W)
 - Pillow, requests
+- On kernel >= 6.6: the `lgpio` gpiozero pin factory (`setup.sh` builds/pins it automatically)
 
 ### Installation
 
 ```bash
 pip install Pillow requests
-# Install Waveshare driver per their documentation
+# Install the Waveshare e-Paper driver per their documentation,
+# then set GPIOZERO_PIN_FACTORY=lgpio on kernel >= 6.6.
 ```
 
 ### Usage
@@ -418,13 +516,11 @@ intervention:
   server never touches the panel (no flicker) and never triggers the
   escalation — the client just keeps retrying.
 
-For automatic updates, add a cron job:
-
-```bash
-crontab -e
-# Example: update every 15 minutes
-*/15 * * * * cd /home/pi/E-INK-Picture/client && python3 client.py >> /tmp/eink.log 2>&1
-```
+On a native install the client runs as a long-lived systemd service
+(`eink-client.service`, `Restart=always`): it polls the server every
+`EINK_POLL_INTERVAL` seconds and refreshes the panel when needed — no cron job.
+Update the whole install (server + client) by re-running the one-liner or
+`setup.sh --update`.
 
 ---
 
@@ -437,6 +533,7 @@ This project is licensed under the [GNU General Public License v3.0](LICENSE).
 ## Acknowledgments
 
 - [Go](https://go.dev/) -- Standard library HTTP server and image processing
+- [Fabric.js](https://fabricjs.com/) -- Canvas library powering the designer
 - [Waveshare](https://www.waveshare.com/) -- E-Ink display hardware and drivers
 - [Open-Meteo](https://open-meteo.com/) -- Free weather API, no key required
 - [Docker](https://www.docker.com/) -- Containerization and multi-arch builds
