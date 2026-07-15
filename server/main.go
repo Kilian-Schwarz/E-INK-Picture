@@ -22,6 +22,10 @@ import (
 	"e-ink-picture/server/internal/services"
 )
 
+// version is stamped at build time via -ldflags "-X main.version=vX.Y.Z"
+// (specs/E6.2-release-workflow.md AC1); "dev" identifies unstamped builds.
+var version = "dev"
+
 //go:embed static/*
 var staticFS embed.FS
 
@@ -239,7 +243,7 @@ func newApplication(cfg *config.Config) (*application, error) {
 	mux.HandleFunc("GET /api/widget_layouts/{type}", widgetH.Layouts)
 
 	// Health
-	mux.HandleFunc("GET /health", handlers.HealthCheck)
+	mux.HandleFunc("GET /health", handlers.HealthCheck(version))
 
 	// Static files
 	staticSub, _ := fs.Sub(staticFS, "static")
@@ -306,7 +310,7 @@ func main() {
 	signal.Notify(done, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		slog.Info("server starting", "port", cfg.Port, "mode", cfg.DeploymentMode, "data_dir", cfg.DataDir)
+		slog.Info("server starting", "version", version, "port", cfg.Port, "mode", cfg.DeploymentMode, "data_dir", cfg.DataDir)
 		slog.Info("server ready", "url", "http://0.0.0.0:"+cfg.Port+"/designer")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)

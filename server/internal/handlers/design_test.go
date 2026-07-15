@@ -412,17 +412,27 @@ func TestSettingsAndRefreshWorkflow(t *testing.T) {
 	}
 }
 
-// TestHealthEndpoint tests the health check handler.
+// TestHealthEndpoint tests the health check handler, including the version
+// field (specs/E6.2-release-workflow.md AC1).
 func TestHealthEndpoint(t *testing.T) {
-	req := httptest.NewRequest("GET", "/health", nil)
-	rec := httptest.NewRecorder()
-	HealthCheck(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected 200, got %d", rec.Code)
-	}
-	var resp map[string]string
-	json.NewDecoder(rec.Body).Decode(&resp)
-	if resp["status"] != "ok" {
-		t.Errorf("Expected status 'ok', got '%s'", resp["status"])
+	for _, version := range []string{"dev", "v0.0.0-test"} {
+		t.Run(version, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/health", nil)
+			rec := httptest.NewRecorder()
+			HealthCheck(version)(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Errorf("Expected 200, got %d", rec.Code)
+			}
+			var resp map[string]string
+			if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+				t.Fatalf("decode health response: %v", err)
+			}
+			if resp["status"] != "ok" {
+				t.Errorf("Expected status 'ok', got '%s'", resp["status"])
+			}
+			if resp["version"] != version {
+				t.Errorf("Expected version '%s', got '%s'", version, resp["version"])
+			}
+		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -558,5 +559,54 @@ func TestCORSFullStackCloudMode(t *testing.T) {
 	})
 	if w.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Error("wildcard config must behave as unconfigured")
+	}
+}
+
+// TestHealthVersionDefault proves /health served through the full production
+// stack reports the unstamped default version "dev"
+// (specs/E6.2-release-workflow.md AC1).
+func TestHealthVersionDefault(t *testing.T) {
+	app := newTestApp(t, nil)
+	w := do(app, "GET", "/health", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET /health = %d, want 200", w.Code)
+	}
+	var resp map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode health response: %v", err)
+	}
+	if resp["status"] != "ok" {
+		t.Errorf("status = %q, want %q", resp["status"], "ok")
+	}
+	if resp["version"] != "dev" {
+		t.Errorf("version = %q, want %q", resp["version"], "dev")
+	}
+}
+
+// TestVersionLdflagsStamp proves the version variable is stampable at build
+// time: it builds the server with -ldflags "-X main.version=vTEST" and
+// verifies the stamp via `go version -m` on the resulting binary — buildinfo
+// survives even -s -w stripping (specs/E6.2-release-workflow.md AC1, Fakt 4).
+func TestVersionLdflagsStamp(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping build test in short mode")
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("go toolchain not in PATH")
+	}
+
+	binPath := filepath.Join(t.TempDir(), "server-stamped")
+	build := exec.Command(goBin, "build", "-ldflags", "-s -w -X main.version=vTEST", "-o", binPath, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build with ldflags stamp failed: %v\n%s", err, out)
+	}
+
+	out, err := exec.Command(goBin, "version", "-m", binPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("go version -m failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "main.version=vTEST") {
+		t.Errorf("go version -m output missing ldflags stamp main.version=vTEST:\n%s", out)
 	}
 }
