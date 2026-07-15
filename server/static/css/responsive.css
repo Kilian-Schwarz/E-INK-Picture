@@ -7,8 +7,12 @@
  *   - Base (outside @media): display:none for the NEW elements only.
  *   - Mobile  (max-width: 767.98px): bottom sheets + tab bar, canvas full width.
  *   - Tablet  (768px - 1023.98px): 44px icon rails + flyout overlays.
- *   - Compact (max-width: 1023.98px): shared topbar/menu/modal rules.
- *   - Desktop (>= 1024px): NO rule in this file applies except the
+ *   - Compact (max-width: 1569.98px): shared topbar/menu/modal rules. The
+ *     burger overflow extends up to 1569.98px so logout stays reachable in the
+ *     1024-1569px band. The ~16-control single-row topbar was measured headless
+ *     to first fit without clipping at 1570px (E3.7b), so below that everything
+ *     that overflows lives in the burger.
+ *   - Desktop (>= 1570px): NO rule in this file applies except the
  *     display:none base rules for the new elements.
  */
 
@@ -22,9 +26,9 @@
     display: none;
 }
 
-/* ---- Compact (mobile + tablet): topbar overflow menu + modal fitting ---- */
+/* ---- Compact (mobile + tablet + 1024-1569 band): topbar overflow + modal fitting ---- */
 
-@media (max-width: 1023.98px) {
+@media (max-width: 1569.98px) {
     /* Burger button: stays inside .topbar-right, inherits its button styles */
     #topbar-menu-btn {
         display: inline-block;

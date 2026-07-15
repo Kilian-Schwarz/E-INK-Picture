@@ -1,6 +1,11 @@
 // Responsive designer layout (E3.3)
-// Modes: mobile (<768px) = bottom sheets + tab bar, tablet (768-1023.98px) =
-// collapsible icon rails with flyout overlays, desktop (>=1024px) = untouched.
+// Modes: mobile (<768px) = bottom sheets + tab bar, tablet (768-1569.98px) =
+// topbar burger overflow (+ collapsible icon rails & flyout overlays below
+// 1024px), desktop (>=1570px) = untouched. The tablet upper bound was raised
+// from 1023.98 to 1569.98 so logout overflows into the burger across the whole
+// 1024-1569px band: the ~16-control single-row topbar was measured headless to
+// first fit without clipping only at 1570px, so below that the rightmost
+// controls (incl. logout) would otherwise clip and be unreachable (E3.7b).
 // All new interactions are plain click handlers (tap-compatible, E3.1
 // pointer-events discipline: no mouse* handlers). Sheet swipe/drag is E3.2.
 const ResponsiveLayout = {
@@ -27,7 +32,7 @@ const ResponsiveLayout = {
 
     init() {
         this.mqMobile = window.matchMedia('(max-width: 767.98px)');
-        this.mqTablet = window.matchMedia('(min-width: 768px) and (max-width: 1023.98px)');
+        this.mqTablet = window.matchMedia('(min-width: 768px) and (max-width: 1569.98px)');
 
         this.captureHomes();
         this.bindTabbar();
@@ -48,6 +53,9 @@ const ResponsiveLayout = {
     },
 
     currentMode() {
+        // Desktop cutoff is derived from mqTablet's upper bound (1569.98px), so
+        // 'desktop' begins at 1570px and stays in lockstep with the compact
+        // media query in responsive.css — keep all three in sync (E3.7b).
         if (this.mqMobile.matches) return 'mobile';
         if (this.mqTablet.matches) return 'tablet';
         return 'desktop';
