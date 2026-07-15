@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -81,24 +82,104 @@ type openMeteoResponse struct {
 
 const maxWeatherCacheEntries = 50
 
+// persistedWeatherEntry is the on-disk form of one weather cache entry in
+// data/cache/weather.json (spec E5.5, decision 1).
+type persistedWeatherEntry struct {
+	Data     *WeatherData `json:"data"`
+	CachedAt time.Time    `json:"cached_at"`
+}
+
 type WeatherService struct {
 	apiKey    string
 	location  string
 	stylesDir string
+	cacheFile string
 	mu        sync.RWMutex
 	cache     map[string]*weatherCacheEntry
 	client    *http.Client
 }
 
 func NewWeatherService(apiKey, location, dataDir string) *WeatherService {
-	return &WeatherService{
+	s := &WeatherService{
 		apiKey:    apiKey,
 		location:  location,
 		stylesDir: filepath.Join(dataDir, "weather_styles"),
+		cacheFile: filepath.Join(dataDir, "cache", "weather.json"),
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
 		cache: make(map[string]*weatherCacheEntry),
+	}
+	s.loadPersistedCache()
+	return s
+}
+
+// loadPersistedCache restores the weather cache from disk so stale values
+// survive a restart. Strictly fail-open: a missing file is normal (silent),
+// an unreadable or corrupt file only logs a warning and starts empty — a
+// cache problem must never turn into a startup or render error.
+func (s *WeatherService) loadPersistedCache() {
+	raw, err := os.ReadFile(s.cacheFile)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("weather cache unreadable, starting with empty cache", "file", s.cacheFile, "error", err)
+		}
+		return
+	}
+	var persisted map[string]persistedWeatherEntry
+	if err := json.Unmarshal(raw, &persisted); err != nil {
+		slog.Warn("weather cache corrupt, starting with empty cache", "file", s.cacheFile, "error", err)
+		return
+	}
+	for key, entry := range persisted {
+		if entry.Data == nil {
+			continue
+		}
+		s.cache[key] = &weatherCacheEntry{data: entry.Data, cachedAt: entry.CachedAt}
+	}
+}
+
+// persistCacheLocked writes the in-memory cache to data/cache/weather.json
+// atomically (CreateTemp in the target directory + Rename) so a crash mid-
+// write can never leave a corrupt file. Must be called with s.mu held for
+// writing. Failures only log a warning — persistence is best-effort and the
+// fetch result is returned regardless (fail-open in both directions).
+func (s *WeatherService) persistCacheLocked() {
+	persisted := make(map[string]persistedWeatherEntry, len(s.cache))
+	for key, entry := range s.cache {
+		persisted[key] = persistedWeatherEntry{Data: entry.data, CachedAt: entry.cachedAt}
+	}
+	raw, err := json.Marshal(persisted)
+	if err != nil {
+		slog.Warn("weather cache not persisted", "file", s.cacheFile, "error", err)
+		return
+	}
+	dir := filepath.Dir(s.cacheFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		slog.Warn("weather cache not persisted", "file", s.cacheFile, "error", err)
+		return
+	}
+	tmp, err := os.CreateTemp(dir, "weather-*.tmp")
+	if err != nil {
+		slog.Warn("weather cache not persisted", "file", s.cacheFile, "error", err)
+		return
+	}
+	if _, err := tmp.Write(raw); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		slog.Warn("weather cache not persisted", "file", s.cacheFile, "error", err)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmp.Name())
+		slog.Warn("weather cache not persisted", "file", s.cacheFile, "error", err)
+		return
+	}
+	// CreateTemp uses 0600; align with the other data files (settings.json).
+	_ = os.Chmod(tmp.Name(), 0644)
+	if err := os.Rename(tmp.Name(), s.cacheFile); err != nil {
+		os.Remove(tmp.Name())
+		slog.Warn("weather cache not persisted", "file", s.cacheFile, "error", err)
 	}
 }
 
@@ -140,12 +221,19 @@ func (s *WeatherService) Fetch() (any, error) {
 func (s *WeatherService) FetchForLocation(lat, lon string) (*WeatherData, error) {
 	cacheKey := lat + "," + lon
 
-	// Check cache
+	// Check cache (a fresh entry always wins, no fetch needed)
 	s.mu.RLock()
 	entry, ok := s.cache[cacheKey]
 	s.mu.RUnlock()
 	if ok && time.Since(entry.cachedAt) < 30*time.Minute {
 		return entry.data, nil
+	}
+
+	// Negative cache: a recent failed attempt short-circuits straight to the
+	// stale-or-error path — exactly the same return values as a live failure.
+	negKey := "weather:" + cacheKey
+	if failCache.blocked(negKey) {
+		return s.returnCachedOrError(cacheKey, fmt.Errorf("open-meteo fetch for %s failed recently (negative cache)", cacheKey))
 	}
 
 	// Build request URL (matches Python exactly)
@@ -159,29 +247,29 @@ func (s *WeatherService) FetchForLocation(lat, lon string) (*WeatherData, error)
 
 	resp, err := s.client.Get(apiURL)
 	if err != nil {
-		return s.returnCachedOrError(cacheKey, err)
+		return s.failFetch(negKey, cacheKey, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return s.returnCachedOrError(cacheKey, fmt.Errorf("open-meteo returned status %d", resp.StatusCode))
+		return s.failFetch(negKey, cacheKey, fmt.Errorf("open-meteo returned status %d", resp.StatusCode))
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return s.returnCachedOrError(cacheKey, err)
+		return s.failFetch(negKey, cacheKey, err)
 	}
 
 	var raw openMeteoResponse
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return s.returnCachedOrError(cacheKey, err)
+		return s.failFetch(negKey, cacheKey, err)
 	}
 
 	// Check for current_weather presence: if both fields are zero, the key was likely absent.
 	if raw.CurrentWeather.Temperature == 0 && raw.CurrentWeather.WeatherCode == 0 {
 		// Verify via raw JSON check (0°C with code 0 "Clear sky" is a valid combo)
 		if !bytes.Contains(body, []byte(`"current_weather"`)) {
-			return s.returnCachedOrError(cacheKey, fmt.Errorf("no current_weather in response"))
+			return s.failFetch(negKey, cacheKey, fmt.Errorf("no current_weather in response"))
 		}
 	}
 
@@ -255,13 +343,29 @@ func (s *WeatherService) FetchForLocation(lat, lon string) (*WeatherData, error)
 		Sunset:      sunset,
 	}
 
-	// Cache the result
+	// Cache the result and persist it (at most once per 30 min per location),
+	// then clear any negative entry for this location.
 	s.mu.Lock()
 	s.cache[cacheKey] = &weatherCacheEntry{data: data, cachedAt: time.Now()}
 	s.evictOldestCache()
+	s.persistCacheLocked()
 	s.mu.Unlock()
+	failCache.markSuccess(negKey)
 
 	return data, nil
+}
+
+// failFetch records the failed attempt in the negative cache and falls back
+// to stale data exactly like before (returnCachedOrError semantics).
+//
+// Deliberately a superset of spec decision 2 (transport error + non-200):
+// body-read and parse failures are negative-cached too, asymmetric to the RSS
+// path. They end in the exact same returnCachedOrError fallback, so a cache
+// hit stays output-identical, and re-fetching a response known to be broken
+// on every render would only re-pay the network cost for the same result.
+func (s *WeatherService) failFetch(negKey, cacheKey string, origErr error) (*WeatherData, error) {
+	failCache.markFailure(negKey)
+	return s.returnCachedOrError(cacheKey, origErr)
 }
 
 // returnCachedOrError returns stale cached data if available, otherwise the error.

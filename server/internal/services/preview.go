@@ -630,16 +630,25 @@ func (s *PreviewService) fillCalendarContent(props map[string]any) string {
 		maxEvents = 3
 	}
 
+	// Negative cache hit: same return value as a live fetch failure.
+	negKey := "url:" + calURL
+	if failCache.blocked(negKey) {
+		return "No events"
+	}
+
 	client := &defaultHTTPClient
 	resp, err := client.Get(calURL)
 	if err != nil {
 		slog.Error("failed to fetch calendar", "error", err)
+		failCache.markFailure(negKey)
 		return "No events"
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
+		failCache.markFailure(negKey)
 		return "No events"
 	}
+	failCache.markSuccess(negKey)
 	body, err := readLimitedBody(resp.Body, 1<<20)
 	if err != nil {
 		return "No events"
@@ -1009,17 +1018,26 @@ func fetchCalendarContent(calURL string, maxEvents int) string {
 		calURL = "https://" + calURL[len("webcal://"):]
 	}
 
+	// Negative cache hit: same return value as a live fetch failure.
+	negKey := "url:" + calURL
+	if failCache.blocked(negKey) {
+		return "No events"
+	}
+
 	client := &defaultHTTPClient
 	resp, err := client.Get(calURL)
 	if err != nil {
 		slog.Error("failed to fetch calendar", "error", err)
+		failCache.markFailure(negKey)
 		return "No events"
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		failCache.markFailure(negKey)
 		return "No events"
 	}
+	failCache.markSuccess(negKey)
 
 	body, err := readLimitedBody(resp.Body, 1<<20) // 1MB limit
 	if err != nil {

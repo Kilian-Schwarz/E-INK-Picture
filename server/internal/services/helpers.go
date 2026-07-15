@@ -47,16 +47,25 @@ func fetchRSSFeed(feedURL string, maxItems int) []rssItem {
 		return nil
 	}
 
+	// Negative cache hit: same return value as a live fetch failure.
+	negKey := "url:" + feedURL
+	if failCache.blocked(negKey) {
+		return nil
+	}
+
 	resp, err := defaultHTTPClient.Get(feedURL)
 	if err != nil {
 		slog.Error("failed to fetch RSS feed", "url", feedURL, "error", err)
+		failCache.markFailure(negKey)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		failCache.markFailure(negKey)
 		return nil
 	}
+	failCache.markSuccess(negKey)
 
 	body, err := readLimitedBody(resp.Body, 1<<20) // 1MB limit
 	if err != nil {
@@ -92,16 +101,33 @@ func fetchCustomAPI(url string, props map[string]any) string {
 		return ""
 	}
 
+	// Negative cache hit: reproduce EXACTLY the live failure value. The custom
+	// API is the one fetch site whose failure value varies ("Error" for
+	// transport errors, "HTTP <code>" for non-200), so the entry stores it.
+	// An empty stored value can only come from another site's markFailure on
+	// a shared URL — degrade to the transport-error string then.
+	negKey := "url:" + url
+	if fallback, hit := failCache.blockedFallback(negKey); hit {
+		if fallback == "" {
+			fallback = "Error"
+		}
+		return fallback
+	}
+
 	resp, err := defaultHTTPClient.Get(url)
 	if err != nil {
 		slog.Error("failed to fetch custom API", "url", url, "error", err)
+		failCache.markFailureValue(negKey, "Error")
 		return "Error"
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Sprintf("HTTP %d", resp.StatusCode)
+		status := fmt.Sprintf("HTTP %d", resp.StatusCode)
+		failCache.markFailureValue(negKey, status)
+		return status
 	}
+	failCache.markSuccess(negKey)
 
 	body, err := readLimitedBody(resp.Body, 1<<20)
 	if err != nil {

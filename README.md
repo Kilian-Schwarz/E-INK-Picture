@@ -130,6 +130,7 @@ sequenceDiagram
 - **Weather Styles** -- Multiple configurable weather display formats
 - **Design Management** -- Create, clone, delete, switch between designs
 - **Offline Fallback** -- Client caches last design, syncs date/time locally
+- **Offline Hardening** -- Server keeps rendering without internet: persistent weather cache ("stale ok"), 2-min negative fetch cache per source
 - **Two Deployment Modes** -- All-in-one on Pi or cloud server + Pi client
 - **Minimal Resources** -- Server ~10MB RAM, <20MB Docker image
 
@@ -180,6 +181,7 @@ E-INK-Picture/
 │   ├── designs/                   # Design JSON files
 │   ├── uploaded_images/           # Uploaded BMP/PNG images
 │   ├── fonts/                     # Uploaded TTF/OTF fonts
+│   ├── cache/                     # Runtime caches (weather.json -- safe to delete)
 │   └── weather_styles/            # Weather display format configs
 ├── scripts/
 │   ├── setup-local.sh             # All-in-one setup script
@@ -229,6 +231,15 @@ E-INK-Picture/
 `POST /update_settings` accepts `sleep_start` / `sleep_end` (`"HH:MM"`, 24h): inside this window the server suppresses interval refreshes. Both fields must be set together and must differ; send both as `""` to disable. Fields not included in the request stay unchanged. The window is evaluated against local server time (`TZ` env var), is half-open `[start, end)` and may wrap across midnight (e.g. `23:00`–`06:00`). A manual trigger (`POST /api/trigger_refresh`) always breaks through the window. `GET /settings` always returns both fields (`""` = off).
 
 `GET /api/refresh_status` reports why a refresh is requested via the `reason` field: `"manual"` (trigger) or `"interval"` (elapsed interval). The field is omitted when `should_refresh` is `false`.
+
+### Offline Hardening
+
+The server keeps rendering when the internet is gone:
+
+- **Persistent weather cache** -- every successful Open-Meteo fetch is written atomically to `data/cache/weather.json` (at most one write per 30 minutes per location). Entries younger than 30 minutes are served without a fetch; older entries trigger a fetch attempt whose failure falls back to the last known values -- **"stale ok"**, deliberately without an age limit, and since the cache survives restarts, a reboot during an outage shows the last known weather instead of "No data". The file is read fail-open: a missing file is normal, a corrupt one logs a warning and starts empty. Deleting the file is the supported reset.
+- **Negative fetch cache** -- a failed widget fetch (weather, news RSS, iCal calendar, custom API; transport error or non-200 response) is remembered in memory for **2 minutes per source**. Renders inside that window skip the retry and immediately show the same fallback/stale content instead of re-paying the 10 s timeout on every render; weather and forecast widgets on the same coordinates share one attempt. A successful fetch clears the entry at once. The negative cache is not persisted -- after a restart the first render pays at most one timeout per source.
+
+No configuration needed -- there are deliberately no new environment variables; `data/cache/` is created automatically.
 
 See [docs/migration-plan.md](docs/migration-plan.md) for detailed API documentation.
 

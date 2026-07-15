@@ -39,6 +39,7 @@ data/uploaded_images/thumbs/
 data/fonts/*
 data/weather_styles/*
 data/media_meta.json
+data/cache/*
 !data/**/.gitkeep
 
 # Server local data (created by go run)
