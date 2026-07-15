@@ -628,6 +628,60 @@ create_env_file() {
     info ".env created — edit to customize settings"
 }
 
+# ----- EINK_CLIENT_TOKEN (E5.1 authentication) -----
+# 0 = env file ($1) needs a token: file/line missing or empty value.
+client_token_needed() {
+    ! grep -Eq '^EINK_CLIENT_TOKEN=.+' "$1" 2>/dev/null
+}
+
+generate_client_token() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 32
+    else
+        head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'
+    fi
+}
+
+# Writes token $2 into env file $1: fills an empty EINK_CLIENT_TOKEN= line
+# (fresh .env from .env.example) or appends the variable (pre-auth .env).
+# A non-empty existing value is NEVER overwritten.
+set_client_token() {
+    local envfile="$1" token="$2" tmp
+    if ! client_token_needed "$envfile"; then
+        return 0
+    fi
+    if grep -q '^EINK_CLIENT_TOKEN=' "$envfile" 2>/dev/null; then
+        tmp="$(mktemp)"
+        sed "s/^EINK_CLIENT_TOKEN=[[:space:]]*$/EINK_CLIENT_TOKEN=$token/" "$envfile" > "$tmp"
+        mv "$tmp" "$envfile"
+    else
+        printf 'EINK_CLIENT_TOKEN=%s\n' "$token" >> "$envfile"
+    fi
+    # The file carries a secret now; both systemd units read it as EnvironmentFile.
+    chmod 600 "$envfile"
+}
+
+# Idempotent: ensures .env carries a generated EINK_CLIENT_TOKEN (both
+# systemd units load the same .env, so server and client share it). The
+# token value is never printed or logged — not even in dry-run plans.
+ensure_client_token() {
+    local envfile="${1:-$SCRIPT_DIR/.env}"
+    if [ "$DRY_RUN" = true ]; then
+        if client_token_needed "$envfile"; then
+            echo "[DRY-RUN] generate EINK_CLIENT_TOKEN into .env (openssl rand -hex 32; value not printed)"
+        else
+            info "EINK_CLIENT_TOKEN already set in .env (kept)"
+        fi
+        return 0
+    fi
+    if ! client_token_needed "$envfile"; then
+        info "EINK_CLIENT_TOKEN already set in .env (kept)"
+        return 0
+    fi
+    set_client_token "$envfile" "$(generate_client_token)"
+    info "EINK_CLIENT_TOKEN generated into .env (shared by server and client)"
+}
+
 install_logrotate() {
     if [ "$DRY_RUN" = true ]; then
         echo "[DRY-RUN] write /etc/logrotate.d/eink-picture (rotate $SCRIPT_DIR/logs/*.log)"
@@ -741,6 +795,7 @@ main() {
     install_display_stack
     create_data_dirs
     create_env_file
+    ensure_client_token
     install_logrotate
     run chmod +x "$SCRIPT_DIR/eink.sh"
     install_systemd_services

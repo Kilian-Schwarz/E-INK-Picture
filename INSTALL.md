@@ -107,6 +107,30 @@ The SPI flag may harmlessly stay enabled.
 Edit `.env` to change port, display driver, timezone, etc. The `.env` file is
 never overwritten by setup or update runs.
 
+## Security
+
+- **Set an admin password right after installation** (login page /
+  `POST /api/auth/setup`, or once via `EINK_ADMIN_PASSWORD` in `.env`).
+  Until a password is set, the server is completely open on the LAN
+  (compatible with older versions; the server warns loudly), and anyone on
+  the network could claim the device by setting the first password.
+- The installer generates `EINK_CLIENT_TOKEN` into `.env` (and appends it on
+  updates of older installs, never overwriting an existing value). Both
+  systemd units read the same `.env`, so the display client keeps working
+  once a password is set. Manual generation: `openssl rand -hex 32`.
+- The server speaks plain HTTP — without TLS the session cookie is readable
+  on the wire (LAN threat model: curious participants and CSRF, not an active
+  MITM). Behind a TLS reverse proxy, set `EINK_COOKIE_SECURE=true`.
+- **Forgot the password?** Delete `data/auth.json` in the install directory
+  and restart (`sudo systemctl restart eink-server`) — the server returns to
+  the open no-password state.
+- Login/setup are rate-limited (5 attempts / 60 s per source IP). In Docker
+  deployments all LAN clients share the bridge NAT source IP, so the limit
+  acts globally (a third party can temporarily block logins; self-healing
+  after 60 s) — native systemd mode is unaffected. IPv6 address rotation can
+  sidestep the per-IP limit (named residual risk); bcrypt (~1 s per attempt
+  on a Pi) remains the effective brute-force brake.
+
 ## Memory
 
 The server limits itself at runtime: at most `EINK_MAX_CONCURRENT_RENDERS`

@@ -37,6 +37,24 @@ else
     echo "  .env already exists"
 fi
 
+# EINK_CLIENT_TOKEN (E5.1 authentication): generate once — fill the empty
+# line from .env.example or append to a pre-auth .env. A non-empty existing
+# value is NEVER overwritten; the token value is never printed.
+if ! grep -Eq '^EINK_CLIENT_TOKEN=.+' .env; then
+    TOKEN="$(openssl rand -hex 32)"
+    if grep -q '^EINK_CLIENT_TOKEN=' .env; then
+        sed "s/^EINK_CLIENT_TOKEN=[[:space:]]*$/EINK_CLIENT_TOKEN=$TOKEN/" .env > .env.tmp
+        mv .env.tmp .env
+    else
+        printf 'EINK_CLIENT_TOKEN=%s\n' "$TOKEN" >> .env
+    fi
+    unset TOKEN
+    chmod 600 .env
+    echo "  EINK_CLIENT_TOKEN generated into .env (shared by both containers)"
+else
+    echo "  EINK_CLIENT_TOKEN already set (kept)"
+fi
+
 # Create data directories
 mkdir -p data/designs data/uploaded_images data/fonts data/weather_styles
 

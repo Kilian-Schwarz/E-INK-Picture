@@ -222,6 +222,79 @@ test_idempotency_markers() {
     rm -rf "$tmp"
 }
 
+test_client_token() {
+    local tmp env out first
+    tmp="$(mktemp -d)"
+    env="$tmp/.env"
+
+    # Missing file / missing line → token needed.
+    if ! client_token_needed "$env"; then
+        fail "missing env file must need a token"
+    fi
+    printf 'PORT=5000\n' > "$env"
+    if ! client_token_needed "$env"; then
+        fail "env without EINK_CLIENT_TOKEN line must need a token"
+    fi
+
+    # Generated tokens are 64 lowercase hex chars.
+    local tok
+    tok="$(generate_client_token)"
+    assert_eq 64 "${#tok}" "generated token has 64 chars"
+    case "$tok" in
+        *[!0-9a-f]*) fail "generated token must be lowercase hex" ;;
+    esac
+
+    # Upgrade path: line missing → appended, other lines untouched.
+    DRY_RUN=false
+    ensure_client_token "$env" >/dev/null
+    assert_eq 1 "$(grep -c '^EINK_CLIENT_TOKEN=' "$env")" "token line appended exactly once"
+    if ! grep -Eq '^EINK_CLIENT_TOKEN=[0-9a-f]{64}$' "$env"; then
+        fail "appended token must be 64 hex chars"
+    fi
+    if ! grep -q '^PORT=5000$' "$env"; then
+        fail "existing lines must survive the append"
+    fi
+
+    # Idempotency: second run never overwrites the existing value.
+    first="$(grep '^EINK_CLIENT_TOKEN=' "$env")"
+    ensure_client_token "$env" >/dev/null
+    assert_eq "$first" "$(grep '^EINK_CLIENT_TOKEN=' "$env")" "existing token never overwritten"
+
+    # Fresh-install path: empty line from .env.example is filled in place.
+    printf 'PORT=5000\nEINK_CLIENT_TOKEN=\nTZ=UTC\n' > "$env"
+    ensure_client_token "$env" >/dev/null
+    assert_eq 1 "$(grep -c '^EINK_CLIENT_TOKEN=' "$env")" "empty line filled, not duplicated"
+    if ! grep -Eq '^EINK_CLIENT_TOKEN=[0-9a-f]{64}$' "$env"; then
+        fail "empty line must be filled with a generated token"
+    fi
+    if ! grep -q '^TZ=UTC$' "$env"; then
+        fail "lines after the token line must survive the fill"
+    fi
+
+    # Explicit never-overwrite check for the writer function itself.
+    printf 'EINK_CLIENT_TOKEN=keep-this-value\n' > "$env"
+    set_client_token "$env" "new-value"
+    assert_eq "EINK_CLIENT_TOKEN=keep-this-value" "$(grep '^EINK_CLIENT_TOKEN=' "$env")" "set_client_token must not overwrite"
+
+    # Dry run: plan only, no token value printed, file untouched.
+    printf 'PORT=5000\n' > "$env"
+    DRY_RUN=true
+    out="$(ensure_client_token "$env")"
+    case "$out" in
+        *"[DRY-RUN]"*) : ;;
+        *) fail "dry run must print a [DRY-RUN] plan line" ;;
+    esac
+    if printf '%s\n' "$out" | grep -Eq '[0-9a-f]{64}'; then
+        fail "dry run must not print a token value (secrets hygiene)"
+    fi
+    if grep -q '^EINK_CLIENT_TOKEN=' "$env"; then
+        fail "dry run must not modify the env file"
+    fi
+    DRY_RUN=false
+
+    rm -rf "$tmp"
+}
+
 # ----- Runner -----
 run_test test_arch_mapping
 run_test test_pi_detection
@@ -231,6 +304,7 @@ run_test test_spi_config_fallback
 run_test test_driver_fail_policy
 run_test test_render_unit_template
 run_test test_idempotency_markers
+run_test test_client_token
 
 echo ""
 echo "${TESTS_PASSED}/${TESTS_RUN} tests passed"

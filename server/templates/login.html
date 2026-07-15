@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Login - E-Ink Designer</title>
+    <link rel="stylesheet" href="/static/css/designer.css">
+    <style>
+        body {
+            align-items: center;
+            justify-content: center;
+        }
+        .login-card {
+            width: min(360px, calc(100vw - 32px));
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            padding: 28px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .login-card h1 {
+            font-size: 16px;
+            font-weight: 600;
+            text-align: center;
+        }
+        .login-card label {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .login-card input[type="password"] {
+            width: 100%;
+            padding: 8px 10px;
+            font-family: inherit;
+            font-size: 13px;
+            color: var(--text-primary);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            outline: none;
+        }
+        .login-card input[type="password"]:focus {
+            border-color: var(--accent);
+        }
+        .login-card .btn-primary {
+            width: 100%;
+            padding: 8px 14px;
+        }
+        .login-error {
+            display: none;
+            font-size: 12px;
+            color: var(--danger);
+        }
+        .login-hint {
+            display: none;
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+        .login-hint a {
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <form class="login-card" id="login-form">
+        <h1>E-Ink Designer</h1>
+        <label for="password">Admin password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" autofocus required>
+        <button type="submit" class="btn-primary" id="login-btn">Sign in</button>
+        <p class="login-error" id="login-error"></p>
+        <p class="login-hint" id="login-hint">
+            No admin password is set — authentication is disabled and the
+            designer is open to everyone on this network.
+            <a href="/designer">Open the designer</a> to set one.
+        </p>
+    </form>
+
+    <script>
+        (function () {
+            document.documentElement.setAttribute('data-theme',
+                localStorage.getItem('eink-theme') || 'dark');
+
+            var form = document.getElementById('login-form');
+            var passwordInput = document.getElementById('password');
+            var errorEl = document.getElementById('login-error');
+            var hintEl = document.getElementById('login-hint');
+
+            function showError(message) {
+                errorEl.textContent = message;
+                errorEl.style.display = message ? 'block' : 'none';
+            }
+
+            fetch('/api/auth/status')
+                .then(function (res) { return res.json(); })
+                .then(function (status) {
+                    if (status.authenticated) {
+                        window.location = '/designer';
+                        return;
+                    }
+                    if (!status.password_set) {
+                        hintEl.style.display = 'block';
+                    }
+                })
+                .catch(function () { /* status is a convenience, login still works */ });
+
+            form.addEventListener('submit', function (event) {
+                event.preventDefault();
+                showError('');
+                fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: passwordInput.value })
+                }).then(function (res) {
+                    if (res.status === 200) {
+                        window.location = '/designer';
+                        return;
+                    }
+                    if (res.status === 429) {
+                        var retryAfter = res.headers.get('Retry-After');
+                        showError('Too many attempts. Try again in ' +
+                            (retryAfter ? retryAfter + ' s.' : 'a minute.'));
+                        return;
+                    }
+                    showError('Wrong password.');
+                }).catch(function () {
+                    showError('Server not reachable.');
+                });
+            });
+        })();
+    </script>
+</body>
+</html>

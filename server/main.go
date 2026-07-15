@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"e-ink-picture/server/internal/auth"
 	"e-ink-picture/server/internal/config"
 	"e-ink-picture/server/internal/handlers"
 	"e-ink-picture/server/internal/middleware"
@@ -25,6 +27,14 @@ var staticFS embed.FS
 
 //go:embed templates/*
 var templateFS embed.FS
+
+// janitorInterval is how often expired sessions and rate-limit windows are
+// swept (spec E5.1, Architektur-Richtung 2/9).
+const janitorInterval = 10 * time.Minute
+
+// noPasswordWarning is logged on startup and hourly while auth is disabled
+// (spec E5.1, Architektur-Richtung 4).
+const noPasswordWarning = "authentication disabled — no admin password set, anyone on this network has full access; set one via the web UI or EINK_ADMIN_PASSWORD"
 
 // applyMemoryLimit sets the Go runtime soft memory limit before anything else
 // allocates. Precedence (specs/E5.6-render-memory.md AC2): EINK_GOMEMLIMIT >
@@ -45,12 +55,20 @@ func applyMemoryLimit() {
 	slog.Info("memory limit not set by server", "source", decision.Source)
 }
 
-func main() {
-	applyMemoryLimit()
+// application bundles the fully wired HTTP stack (router + middleware chain
+// exactly as served in production) with the auth components, so tests can
+// exercise the complete request path (specs/E5.1-authentication.md AC1).
+type application struct {
+	handler  http.Handler
+	authMgr  *auth.Manager
+	sessions *auth.Store
+	limiter  *auth.RateLimiter
+}
 
-	cfg := config.Load()
-
-	// Ensure data directories exist
+// newApplication builds services, handlers, routes and the middleware chain
+// Logging(CORS(Guard(mux))) and applies the auth bootstrap (EINK_ADMIN_PASSWORD)
+// including the startup warnings.
+func newApplication(cfg *config.Config) (*application, error) {
 	dataDirs := []string{
 		cfg.DataDir + "/designs",
 		cfg.DataDir + "/uploaded_images",
@@ -61,16 +79,13 @@ func main() {
 	}
 	for _, dir := range dataDirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			slog.Error("failed to create directory", "dir", dir, "error", err)
-			os.Exit(1)
+			return nil, fmt.Errorf("create directory %s: %w", dir, err)
 		}
 	}
 
-	// Parse templates
 	tmpl, err := template.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
-		slog.Error("failed to parse templates", "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("parse templates: %w", err)
 	}
 
 	// Create services
@@ -84,9 +99,25 @@ func main() {
 
 	// Ensure at least one design exists (like Python's ensure_active_design on startup)
 	if err := designSvc.EnsureDesignExists(); err != nil {
-		slog.Error("failed to ensure design exists", "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("ensure design exists: %w", err)
 	}
+
+	// Authentication (specs/E5.1-authentication.md): bcrypt hash in
+	// data/auth.json; no hash = auth disabled (upgrade path, no lockout).
+	authMgr, err := auth.NewManager(cfg.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("init auth manager: %w", err)
+	}
+	if err := authMgr.Bootstrap(cfg.AdminPassword); err != nil {
+		return nil, err
+	}
+	if !authMgr.PasswordSet() {
+		slog.Warn(noPasswordWarning)
+	} else if cfg.ClientToken == "" {
+		slog.Error("client endpoints require session; e-ink client will fail — set EINK_CLIENT_TOKEN")
+	}
+	sessions := auth.NewStore()
+	limiter := auth.NewRateLimiter()
 
 	// Create handlers
 	designH := handlers.NewDesignHandler(designSvc, previewSvc)
@@ -96,6 +127,7 @@ func main() {
 	displayH := handlers.NewDisplayHandler(cfg.EInkClientURL)
 	settingsH := handlers.NewSettingsHandler(settingsSvc)
 	widgetH := handlers.NewWidgetHandler(weatherSvc)
+	authH := handlers.NewAuthHandler(authMgr, sessions, limiter, cfg.CookieSecure)
 
 	// Setup router
 	mux := http.NewServeMux()
@@ -117,6 +149,20 @@ func main() {
 	mux.HandleFunc("GET /media", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/designer#media-images", http.StatusFound)
 	})
+
+	// Login page (public)
+	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := tmpl.ExecuteTemplate(w, "login.html", nil); err != nil {
+			http.Error(w, "template error", http.StatusInternalServerError)
+		}
+	})
+
+	// Auth API
+	mux.HandleFunc("POST /api/auth/login", authH.Login)
+	mux.HandleFunc("POST /api/auth/logout", authH.Logout)
+	mux.HandleFunc("POST /api/auth/setup", authH.Setup)
+	mux.HandleFunc("GET /api/auth/status", authH.Status)
 
 	// Design endpoints
 	mux.HandleFunc("GET /design", designH.GetActive)
@@ -195,14 +241,57 @@ func main() {
 	staticSub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
-	// Middleware chain
-	corsMiddleware := middleware.CORS(cfg.CORSAllowedOrigins, cfg.DeploymentMode)
-	handler := middleware.Logging(corsMiddleware(mux))
+	// Middleware chain: Logging(CORS(Guard(mux))). The guard sits before any
+	// router match — unregistered routes are denied by default; OPTIONS
+	// preflights are answered by CORS and never reach the guard.
+	corsOrigins := middleware.ResolveCORSOrigins(cfg.CORSAllowedOrigins, cfg.DeploymentMode)
+	guard := middleware.Guard(middleware.GuardConfig{
+		Manager:        authMgr,
+		Sessions:       sessions,
+		ClientToken:    cfg.ClientToken,
+		AllowedOrigins: corsOrigins,
+	})
+	handler := middleware.Logging(middleware.CORS(corsOrigins)(guard(mux)))
+
+	return &application{
+		handler:  handler,
+		authMgr:  authMgr,
+		sessions: sessions,
+		limiter:  limiter,
+	}, nil
+}
+
+func main() {
+	applyMemoryLimit()
+
+	cfg := config.Load()
+
+	app, err := newApplication(cfg)
+	if err != nil {
+		slog.Error("failed to initialize application", "error", err)
+		os.Exit(1)
+	}
+
+	stopSessionJanitor := app.sessions.StartJanitor(janitorInterval)
+	defer stopSessionJanitor()
+	stopLimiterJanitor := app.limiter.StartJanitor(janitorInterval)
+	defer stopLimiterJanitor()
+
+	// Hourly reminder while authentication is disabled (spec decision 4).
+	go func() {
+		ticker := time.NewTicker(time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if !app.authMgr.PasswordSet() {
+				slog.Warn(noPasswordWarning)
+			}
+		}
+	}()
 
 	// Server
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
-		Handler:      handler,
+		Handler:      app.handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,

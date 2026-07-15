@@ -1,8 +1,21 @@
 #!/bin/bash
 # End-to-End tests for E-Ink Picture
+#
+# Two phases (specs/E5.1-authentication.md AC9):
+#   Phase A — fresh DATA_DIR, no password set: legacy checks, everything open.
+#   Phase B — password set via /api/auth/setup: 401 without cookie, login via
+#             cookie jar, client endpoints via X-Client-Token, logout.
+#
+# Default mode (no EINK_SERVER_URL): builds and starts its own server on
+# EINK_E2E_PORT (default 5077) with a fresh DATA_DIR (or $DATA_DIR if set)
+# and a generated EINK_CLIENT_TOKEN, and shuts it down afterwards.
+#
+# External mode (EINK_SERVER_URL set): runs Phase A against the given server,
+# which must NOT have a password set. Phase B is skipped unless
+# EINK_E2E_PHASE_B=1 (it permanently sets a password on that server!);
+# the token checks then need EINK_CLIENT_TOKEN to match the server's.
 set -e
 
-SERVER="${EINK_SERVER_URL:-http://localhost:5000}"
 PASS=0
 FAIL=0
 
@@ -18,19 +31,87 @@ check() {
     fi
 }
 
+# check_code NAME EXPECTED_HTTP_CODE curl-args...
+check_code() {
+    local name="$1"
+    local want="$2"
+    shift 2
+    local got
+    got=$(curl -s -o /dev/null -w "%{http_code}" "$@")
+    if [ "$got" = "$want" ]; then
+        echo "  PASS: $name ($got)"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL: $name (got $got, want $want)"
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+MANAGED=0
+if [ -z "$EINK_SERVER_URL" ]; then
+    MANAGED=1
+    ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+    PORT="${EINK_E2E_PORT:-5077}"
+    SERVER="http://localhost:$PORT"
+    DATA_DIR="${DATA_DIR:-$(mktemp -d)}"
+    EINK_CLIENT_TOKEN="${EINK_CLIENT_TOKEN:-$(openssl rand -hex 32)}"
+    E2E_TMP="$(mktemp -d)"
+
+    echo "Building server..."
+    (cd "$ROOT/server" && go build -o "$E2E_TMP/eink-server" .)
+
+    PORT="$PORT" DATA_DIR="$DATA_DIR" DEPLOYMENT_MODE=local \
+        EINK_CLIENT_TOKEN="$EINK_CLIENT_TOKEN" \
+        "$E2E_TMP/eink-server" >"$E2E_TMP/server.log" 2>&1 &
+    SERVER_PID=$!
+
+    cleanup() {
+        kill "$SERVER_PID" 2>/dev/null || true
+        wait "$SERVER_PID" 2>/dev/null || true
+        rm -rf "$E2E_TMP"
+    }
+    trap cleanup EXIT
+
+    for _ in $(seq 1 50); do
+        if curl -sf "$SERVER/health" >/dev/null 2>&1; then
+            break
+        fi
+        sleep 0.2
+    done
+else
+    SERVER="$EINK_SERVER_URL"
+fi
+
 echo "=== E-Ink Picture E2E Tests ==="
 echo "Server: $SERVER"
 echo ""
+
+# Guard: Phase A requires an instance without a password.
+if curl -sf "$SERVER/api/auth/status" 2>/dev/null | grep -q '"password_set":true'; then
+    echo "ERROR: server already has a password set — Phase A needs a fresh DATA_DIR"
+    exit 1
+fi
+
+echo "=== Phase A: no password set (legacy behavior) ==="
 
 # Health
 echo "[Health]"
 curl -sf "$SERVER/health" | grep -q "ok" 2>/dev/null
 check "GET /health" $?
 
+# Auth status
+echo "[Auth Status]"
+curl -sf "$SERVER/api/auth/status" | grep -q '"password_set":false' 2>/dev/null
+check "GET /api/auth/status — password_set false" $?
+
 # Designer HTML
 echo "[Designer]"
 curl -sf "$SERVER/designer" | grep -qi "canvas\|fabric\|designer" 2>/dev/null
 check "GET /designer" $?
+
+# Login page (public)
+curl -sf "$SERVER/login" | grep -qi "password" 2>/dev/null
+check "GET /login" $?
 
 # Settings
 echo "[Settings]"
@@ -110,6 +191,55 @@ check "GET /api/widgets/system" $?
 echo "[Static]"
 curl -sf "$SERVER/static/js/designer.js" | grep -q "Designer" 2>/dev/null
 check "GET /static/js/designer.js" $?
+
+# --- Phase B ---
+if [ "$MANAGED" = "1" ] || [ "$EINK_E2E_PHASE_B" = "1" ]; then
+    echo ""
+    echo "=== Phase B: authentication enabled ==="
+    E2E_PW="e2e-test-password"
+    JAR="${E2E_TMP:-/tmp}/e2e_cookies.txt"
+    rm -f "$JAR"
+
+    echo "[Setup]"
+    check_code "POST /api/auth/setup" 200 \
+        -X POST "$SERVER/api/auth/setup" \
+        -H "Content-Type: application/json" -d "{\"password\":\"$E2E_PW\"}"
+
+    echo "[Guard]"
+    check_code "GET /designs without cookie — 401" 401 "$SERVER/designs"
+    check_code "GET /designer without cookie — 302 to /login" 302 "$SERVER/designer"
+    check_code "GET /health stays public" 200 "$SERVER/health"
+    check_code "GET /api/does_not_exist — 401 (deny-by-default)" 401 "$SERVER/api/does_not_exist"
+
+    echo "[Login]"
+    check_code "POST /api/auth/login — 200 + cookie" 200 \
+        -c "$JAR" -X POST "$SERVER/api/auth/login" \
+        -H "Content-Type: application/json" -d "{\"password\":\"$E2E_PW\"}"
+    check_code "GET /designs with cookie — 200" 200 -b "$JAR" "$SERVER/designs"
+
+    echo "[Client Token]"
+    if [ -n "$EINK_CLIENT_TOKEN" ]; then
+        check_code "GET /api/refresh_status with X-Client-Token — 200" 200 \
+            -H "X-Client-Token: $EINK_CLIENT_TOKEN" "$SERVER/api/refresh_status"
+        check_code "GET /settings with X-Client-Token — 200" 200 \
+            -H "X-Client-Token: $EINK_CLIENT_TOKEN" "$SERVER/settings"
+        check_code "POST /update_settings with token only — 401 (no general key)" 401 \
+            -X POST -H "X-Client-Token: $EINK_CLIENT_TOKEN" \
+            -H "Content-Type: application/json" -d '{"refresh_interval":1800}' \
+            "$SERVER/update_settings"
+    else
+        echo "  SKIP: client token checks (EINK_CLIENT_TOKEN not set)"
+    fi
+    check_code "GET /api/refresh_status without token — 401" 401 "$SERVER/api/refresh_status"
+
+    echo "[Logout]"
+    check_code "POST /api/auth/logout — 200" 200 \
+        -b "$JAR" -X POST "$SERVER/api/auth/logout"
+    check_code "GET /designs after logout — 401" 401 -b "$JAR" "$SERVER/designs"
+else
+    echo ""
+    echo "SKIP: Phase B (external server; set EINK_E2E_PHASE_B=1 to run — sets a permanent password!)"
+fi
 
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
