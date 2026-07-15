@@ -5,7 +5,7 @@ Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel
 
 ## Aktueller Stand
 
-Epic: E1 code-komplett (E1.1–E1.6 gemergt) | Offen: HIL-Lauf (L3 E1.2) + Kilians Panel-A/B für E1.6 | Branch: main
+E1 komplett (L3 E1.2 auf Hardware bestanden) | E3: E3.1+E3.3 gemergt, E3.2 startet | E5.6 + E6.1 gemergt | Branch: main
 
 ## Test-Hardware (Baseline 2026-07-14, hardware-validator)
 
@@ -48,12 +48,14 @@ Epic: E1 code-komplett (E1.1–E1.6 gemergt) | Offen: HIL-Lauf (L3 E1.2) + Kilia
 | E1.6 | Kalibriertes Dithering (gemessene Spectra-6-Farben, Index-Swap auf Treiber-Codes), Atkinson wählbar, Precomp-LUT, Kalibrier-Testbild; Fluchtweg calibration="off" byte-identisch legacy | L1✅ L2✅ (Reviewer: Matrix-Nachrechnung, Palette-Zensus, Vorher/Nachher) L5✅ APPROVE; L3 (Kilians A/B am Panel) offen | 3616b9d |
 | E6.1 | GitHub-Actions-CI: gofmt/vet/test (inkl. Golden-Suite), Python 3.11 unittest, Cross-Builds arm64/armv7/armv6/amd64 mit Artefakten | L1✅ L5✅ APPROVE; L2✅ erster Runner-Lauf GRÜN auf 865dcb2 (Golden-Suite auf Linux byte-identisch — Font-Pinning bewiesen) | 865dcb2 |
 | E3.1 | Pointer Events durchgängig: Fabric enablePointerEvents, Crop-Dialog pointer*+Capture, Rename-Button; 0 mouse*-Handler übrig | L1✅ L5✅ (Statik APPROVE); L2✅ PASS headless (Puppeteer: Touch-Drag/Resize/Crop/Rename mit API-JSON-Beweis, mobil+Tablet+Desktop, 0 JS-Fehler) — Chrome-Extension war offline, echtes iPhone bleibt L3-Empfehlung | af69822 |
+| E3.3 | Responsive Layout: <768px Bottom-Sheets + Tabbar + Zoom-Fit, 768–1024px Icon-Rails mit Flyouts, Desktop pixelidentisch (0/1.296.000 Pixel Diff) | L1✅ L2✅ PASS (4 Puppeteer-Protokolle, Drag bei offenem Sheet per API-JSON bewiesen) L5✅ APPROVE | 1676857 |
+| E5.6 | Render-Semaphore (Default N=1) + GOMEMLIMIT (64MiB) + Puffer-Diät (TotalAlloc 36,4→11,4 MiB, Goldens byte-identisch) + Font-Race-Fix (Parse-Cache statt Face-Cache) | L1✅ (inkl. -race-Suiten) L5: REQUEST_CHANGES (Reviewer fand echten Font-Race bei N≥2 inkl. Panic) → Fix test-first → APPROVE (Gegenprobe rot, N=4-Stress sauber); L3 (RSS-Messung auf dem Pi) offen | f583c70 |
 
 ## Offen / Blockiert
 
 - E1.6-Feintuning: Kilian muss das Kalibrier-Testbild am physischen Panel beurteilen (Design "calibration" importieren, Anleitung in specs/E1.6-panel-calibration.md); Fluchtweg {"calibration":"off"}. Der Pi läuft noch auf Stand cd053b4 (ohne E1.4–E1.6) — nächster HIL-Lauf bringt die Kalibrierung aufs Panel.
-- E3.3 (Responsive Layout): Spec in Arbeit — VOR E3.2 gezogen: bei 390 px ist #canvas-area 0 px breit (panels.css min-width 260px ×2), der Canvas auf dem Handy also unsichtbar; ohne E3.3 nützen Pointer Events auf dem Handy nichts
-- CI-Lauf für af69822 (E3.1): Poll läuft
+- E3.2 (Touch-Gesten): Spec fertig (specs/E3.2-touch-gestures.md), Implementierung startet (frontend-designer, Worktree)
+- Nächster HIL-Lauf (wenn sinnvoll gebündelt): bringt E1.4–E1.6 + E5.6 aufs Panel — misst Server-RSS nativ gegen das 25-MB-Ziel (L3 E5.6), zeigt kalibriertes Dithering (Kilians A/B, L3 E1.6)
 - NEU (aus HIL-Lauf): Server-RSS ~98 MB im Docker-Betrieb — weit über dem 25-MB-Ziel aus dem v1.0-Auftrag; Preview-Render dauert 4,1 s. Braucht eigenen E5-Task (Speicherprofil: Render-Buffer, GOMEMLIMIT, Render-Semaphore). CLAUDE.md-Angabe "~10 MB" ist überholt.
 - L3-Nachweis E1.2: beim nächsten Hardware-Durchlauf /tmp/eink_last_sent.png vom Pi holen und gegen Server-Preview vergleichen
 - Entscheidung Kilian: refresh_interval 900 s auf dem Test-Pi beibehalten oder erhöhen? (Panel-Verschleiß)
