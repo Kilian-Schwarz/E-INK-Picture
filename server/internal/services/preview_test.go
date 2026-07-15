@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/png"
@@ -64,7 +65,7 @@ func TestRenderTextWidget(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -124,7 +125,7 @@ func TestRenderWidgetClock(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -182,7 +183,7 @@ func TestRenderAlignmentCenter(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -240,7 +241,7 @@ func TestRenderAlignmentRight(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -296,7 +297,7 @@ func TestTextOverflow(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -368,7 +369,7 @@ func TestRenderImageWithCrop(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -414,7 +415,7 @@ func TestRenderDesignPosition(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -483,7 +484,7 @@ func TestVerticalAlignMiddle(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -543,7 +544,7 @@ func TestVerticalAlignBottom(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -609,7 +610,7 @@ func TestMultipleWidgetZOrder(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -663,7 +664,7 @@ func TestRenderAllWidgetTypes(t *testing.T) {
 				},
 			}
 
-			pngData, err := previewSvc.Render(design, true)
+			pngData, err := previewSvc.Render(context.Background(), design, true)
 			if err != nil {
 				t.Fatalf("Render %s failed: %v", wt.typ, err)
 			}
@@ -733,7 +734,7 @@ func TestImageResizeQuality(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -787,7 +788,7 @@ func TestTextNotOutsideBoundingBox(t *testing.T) {
 		},
 	}
 
-	pngData, err := previewSvc.Render(design, true)
+	pngData, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
@@ -877,7 +878,7 @@ func TestFullDesignAllElementTypes(t *testing.T) {
 	}
 
 	// Render raw (no quantization)
-	pngRaw, err := previewSvc.Render(design, true)
+	pngRaw, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Raw render failed: %v", err)
 	}
@@ -946,7 +947,7 @@ func TestFullDesignAllElementTypes(t *testing.T) {
 	}
 
 	// Render with quantization
-	pngQuant, err := previewSvc.Render(design, false)
+	pngQuant, err := previewSvc.Render(context.Background(), design, false)
 	if err != nil {
 		t.Fatalf("Quantized render failed: %v", err)
 	}

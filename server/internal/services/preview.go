@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -16,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"e-ink-picture/server/internal/models"
@@ -38,32 +40,100 @@ const (
 
 const maxFontCacheEntries = 10
 
-type fontCacheKey struct {
-	path string
-	size int
+// goFontCacheKey is the font cache key for the embedded Go regular font.
+const goFontCacheKey = "__goregular__"
+
+// maxScalerCacheEntries bounds the downscale scaler cache. The standard
+// 800x480 canvas produces at most two distinct downscale geometries (high
+// 2.0x, medium 1.5x; fast has no downscale) — three entries leave one slot of
+// slack. Further geometries (design-driven canvas sizes) fall back to the
+// unpooled xdraw.CatmullRom.Scale so the cache can never grow unboundedly.
+const maxScalerCacheEntries = 3
+
+// scalerKey identifies a fixed downscale geometry (destination and source
+// width/height), matching the contract of draw.Kernel.NewScaler.
+type scalerKey struct {
+	dw, dh, sw, sh int
 }
 
 // PreviewService renders design previews as PNGs with display-appropriate palette.
 type PreviewService struct {
-	design    *DesignService
-	weather   *WeatherService
-	image     *ImageService
-	settings  *SettingsService
-	dataDir   string
+	design   *DesignService
+	weather  *WeatherService
+	image    *ImageService
+	settings *SettingsService
+	dataDir  string
+
+	// fontCache holds PARSED fonts keyed by font path. It must never cache
+	// font.Face instances: opentype.Face is not safe for concurrent use
+	// (lazy metrics, sfnt.Buffer, rasterizer state mutate per glyph), while
+	// the parsed *opentype.Font is read-only and safe to share. Faces are
+	// created fresh per loadGoFont/loadTTFFace call (cheap; opentype.Parse
+	// is the expensive part).
 	fontMu    sync.RWMutex
-	fontCache map[fontCacheKey]font.Face
+	fontCache map[string]*opentype.Font
+
+	// renderSem is the global render semaphore: at most cap(renderSem)
+	// renders run concurrently, waiters select on ctx.Done(). renderActive
+	// counts renders inside the gate (test observability, AC1).
+	renderSem    chan struct{}
+	renderActive atomic.Int32
+
+	scalerMu    sync.Mutex
+	scalerCache map[scalerKey]xdraw.Scaler
 }
 
 // NewPreviewService creates a PreviewService with access to other services.
+// The render concurrency limit defaults to 1; main overrides it via
+// SetMaxConcurrentRenders from EINK_MAX_CONCURRENT_RENDERS.
 func NewPreviewService(d *DesignService, w *WeatherService, i *ImageService, s *SettingsService, dataDir string) *PreviewService {
 	return &PreviewService{
-		design:    d,
-		weather:   w,
-		image:     i,
-		settings:  s,
-		dataDir:   dataDir,
-		fontCache: make(map[fontCacheKey]font.Face),
+		design:      d,
+		weather:     w,
+		image:       i,
+		settings:    s,
+		dataDir:     dataDir,
+		fontCache:   make(map[string]*opentype.Font),
+		renderSem:   make(chan struct{}, 1),
+		scalerCache: make(map[scalerKey]xdraw.Scaler),
 	}
+}
+
+// SetMaxConcurrentRenders resizes the render semaphore. Must be called before
+// the service starts serving renders (main does, right after construction);
+// values < 1 are clamped to 1.
+func (s *PreviewService) SetMaxConcurrentRenders(n int) {
+	if n < 1 {
+		n = 1
+	}
+	s.renderSem = make(chan struct{}, n)
+}
+
+// ActiveRenders reports how many renders currently hold the semaphore
+// (observability for the AC1 serialization test).
+func (s *PreviewService) ActiveRenders() int32 {
+	return s.renderActive.Load()
+}
+
+// downscaleScaler returns a cached, reusable CatmullRom scaler for the given
+// geometry. Kernel.NewScaler pre-computes the distribution weights and pools
+// the ~24.6 MB temp buffer via sync.Pool (emptied under GC pressure, so idle
+// RSS is unaffected) while producing byte-identical results to Kernel.Scale.
+// Returns nil when the bounded cache is full and the key is unknown — the
+// caller then falls back to the unpooled xdraw.CatmullRom.Scale.
+func (s *PreviewService) downscaleScaler(dw, dh, sw, sh int) xdraw.Scaler {
+	key := scalerKey{dw: dw, dh: dh, sw: sw, sh: sh}
+	s.scalerMu.Lock()
+	defer s.scalerMu.Unlock()
+	if sc, ok := s.scalerCache[key]; ok {
+		return sc
+	}
+	if len(s.scalerCache) >= maxScalerCacheEntries {
+		return nil
+	}
+	sc := xdraw.CatmullRom.NewScaler(dw, dh, sw, sh)
+	s.scalerCache[key] = sc
+	return sc
 }
 
 // supersampleScale returns the render scale factor based on render quality setting.
@@ -81,7 +151,33 @@ func (s *PreviewService) supersampleScale() float64 {
 
 // Render fills dynamic content and renders a v2 design to a palette-quantized PNG.
 // If raw is true, no palette quantization is applied (debug mode).
-func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, error) {
+//
+// The whole render body (including synchronous widget fetches, see E4.4) runs
+// inside the global render semaphore; queued callers abort with ctx.Err()
+// when ctx is canceled (e.g. client disconnect or http.Server WriteTimeout).
+func (s *PreviewService) Render(ctx context.Context, design *models.DesignV2, raw bool) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	// Capture the channel locally so the deferred release is guaranteed to
+	// hit the same semaphore even if SetMaxConcurrentRenders were (contrary
+	// to its contract) called mid-flight.
+	sem := s.renderSem
+	waitStart := time.Now()
+	select {
+	case sem <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	if wait := time.Since(waitStart); wait > 5*time.Second {
+		slog.Warn("render queue wait exceeded 5s", "wait", wait.Round(time.Millisecond))
+	}
+	s.renderActive.Add(1)
+	defer func() {
+		s.renderActive.Add(-1)
+		<-sem
+	}()
+
 	displayCfg := s.settings.GetDisplayConfig()
 
 	canvasW := design.Canvas.Width
@@ -201,11 +297,17 @@ func (s *PreviewService) Render(design *models.DesignV2, raw bool) ([]byte, erro
 		}
 	}
 
-	// Downscale supersampled image to target resolution with CatmullRom anti-aliasing
+	// Downscale supersampled image to target resolution with CatmullRom
+	// anti-aliasing. The cached scaler (Kernel.NewScaler) is byte-identical
+	// to Kernel.Scale but pools the large temp buffer across renders.
 	var finalImg image.Image = img
 	if scale > 1.0 {
 		dst := image.NewRGBA(image.Rect(0, 0, canvasW, canvasH))
-		xdraw.CatmullRom.Scale(dst, dst.Bounds(), img, img.Bounds(), xdraw.Over, nil)
+		if sc := s.downscaleScaler(canvasW, canvasH, renderW, renderH); sc != nil {
+			sc.Scale(dst, dst.Bounds(), img, img.Bounds(), xdraw.Over, nil)
+		} else {
+			xdraw.CatmullRom.Scale(dst, dst.Bounds(), img, img.Bounds(), xdraw.Over, nil)
+		}
 		finalImg = dst
 	}
 
@@ -878,12 +980,12 @@ func parseHexColor(hex string) color.RGBA {
 }
 
 // RenderActive renders the currently active design with palette quantization.
-func (s *PreviewService) RenderActive() ([]byte, error) {
-	return s.RenderActiveRaw(false)
+func (s *PreviewService) RenderActive(ctx context.Context) ([]byte, error) {
+	return s.RenderActiveRaw(ctx, false)
 }
 
 // RenderActiveRaw renders the currently active design. If raw is true, no palette quantization is applied.
-func (s *PreviewService) RenderActiveRaw(raw bool) ([]byte, error) {
+func (s *PreviewService) RenderActiveRaw(ctx context.Context, raw bool) ([]byte, error) {
 	design, err := s.design.GetActive()
 	if err != nil {
 		return nil, err
@@ -891,7 +993,7 @@ func (s *PreviewService) RenderActiveRaw(raw bool) ([]byte, error) {
 	if design == nil {
 		return nil, fmt.Errorf("no active design")
 	}
-	return s.Render(design, raw)
+	return s.Render(ctx, design, raw)
 }
 
 // --- Content filling helpers (legacy, used by v2 fill methods) ---
@@ -1054,75 +1156,25 @@ func (s *PreviewService) loadFontFace(fontName *string, size int) font.Face {
 	return newBasicFace(size)
 }
 
-// loadGoFont returns Go's built-in regular font at the given size.
-func (s *PreviewService) loadGoFont(size int) font.Face {
-	key := fontCacheKey{path: "__goregular__", size: size}
-
+// cachedFont returns the parsed font for key, loading and parsing the raw
+// font bytes via load on a cache miss (hit reports which case occurred).
+// The parsed *opentype.Font is read-only and safe to share across
+// concurrent renders (unlike font.Face).
+func (s *PreviewService) cachedFont(key string, load func() ([]byte, error)) (f *opentype.Font, hit bool, err error) {
 	s.fontMu.RLock()
-	if f, ok := s.fontCache[key]; ok {
-		s.fontMu.RUnlock()
-		return f
-	}
+	f, ok := s.fontCache[key]
 	s.fontMu.RUnlock()
+	if ok {
+		return f, true, nil
+	}
 
-	f, err := opentype.Parse(goregular.TTF)
+	data, err := load()
 	if err != nil {
-		slog.Error("failed to parse Go built-in font", "error", err)
-		return nil
+		return nil, false, err
 	}
-
-	face, err := opentype.NewFace(f, &opentype.FaceOptions{
-		Size:    float64(size),
-		DPI:     72,
-		Hinting: font.HintingFull,
-	})
+	f, err = opentype.Parse(data)
 	if err != nil {
-		slog.Error("failed to create Go font face", "error", err)
-		return nil
-	}
-
-	s.fontMu.Lock()
-	if len(s.fontCache) >= maxFontCacheEntries {
-		for k := range s.fontCache {
-			delete(s.fontCache, k)
-			break
-		}
-	}
-	s.fontCache[key] = face
-	s.fontMu.Unlock()
-
-	slog.Info("using Go built-in font", "size", size)
-	return face
-}
-
-// loadTTFFace loads a TrueType font file and returns a font.Face, using cache.
-func (s *PreviewService) loadTTFFace(path string, size int) font.Face {
-	key := fontCacheKey{path: path, size: size}
-
-	s.fontMu.RLock()
-	if f, ok := s.fontCache[key]; ok {
-		s.fontMu.RUnlock()
-		return f
-	}
-	s.fontMu.RUnlock()
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-
-	f, err := opentype.Parse(data)
-	if err != nil {
-		return nil
-	}
-
-	face, err := opentype.NewFace(f, &opentype.FaceOptions{
-		Size:    float64(size),
-		DPI:     72,
-		Hinting: font.HintingFull,
-	})
-	if err != nil {
-		return nil
+		return nil, false, err
 	}
 
 	s.fontMu.Lock()
@@ -1133,9 +1185,56 @@ func (s *PreviewService) loadTTFFace(path string, size int) font.Face {
 			break
 		}
 	}
-	s.fontCache[key] = face
+	s.fontCache[key] = f
 	s.fontMu.Unlock()
 
+	return f, false, nil
+}
+
+// newFaceAt creates a fresh face for the given parsed font and size. Faces
+// carry per-glyph rasterizer state and are NOT safe for concurrent use, so
+// every call site gets its own instance; identical FaceOptions produce
+// byte-identical glyph rendering.
+func newFaceAt(f *opentype.Font, size int) (font.Face, error) {
+	return opentype.NewFace(f, &opentype.FaceOptions{
+		Size:    float64(size),
+		DPI:     72,
+		Hinting: font.HintingFull,
+	})
+}
+
+// loadGoFont returns Go's built-in regular font at the given size.
+func (s *PreviewService) loadGoFont(size int) font.Face {
+	f, hit, err := s.cachedFont(goFontCacheKey, func() ([]byte, error) { return goregular.TTF, nil })
+	if err != nil {
+		slog.Error("failed to parse Go built-in font", "error", err)
+		return nil
+	}
+
+	face, err := newFaceAt(f, size)
+	if err != nil {
+		slog.Error("failed to create Go font face", "error", err)
+		return nil
+	}
+
+	if !hit {
+		slog.Info("using Go built-in font", "size", size)
+	}
+	return face
+}
+
+// loadTTFFace loads a TrueType font file and returns a font.Face. The parsed
+// font is cached by path; the returned face is a fresh per-call instance.
+func (s *PreviewService) loadTTFFace(path string, size int) font.Face {
+	f, _, err := s.cachedFont(path, func() ([]byte, error) { return os.ReadFile(path) })
+	if err != nil {
+		return nil
+	}
+
+	face, err := newFaceAt(f, size)
+	if err != nil {
+		return nil
+	}
 	return face
 }
 

@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -48,14 +49,14 @@ var goldenDisplays = []models.DisplayType{
 //     fontFamily=testfont.ttf so rendering is identical on any machine,
 //   - a programmatically generated gradient photo is written to
 //     <tmpDir>/uploaded_images/ for the gradient design.
-func setupGoldenServices(t *testing.T, displayType models.DisplayType, quality models.RenderQuality) (*PreviewService, string) {
+func setupGoldenServices(t testing.TB, displayType models.DisplayType, quality models.RenderQuality) (*PreviewService, string) {
 	t.Helper()
 	return setupGoldenServicesVariant(t, displayType, quality, models.DitherFloydSteinberg, models.CalibrationDefault)
 }
 
 // setupGoldenServicesVariant is setupGoldenServices with explicit
 // dither_algorithm and calibration values pinned in settings.json.
-func setupGoldenServicesVariant(t *testing.T, displayType models.DisplayType, quality models.RenderQuality, algo models.DitherAlgorithm, mode models.CalibrationMode) (*PreviewService, string) {
+func setupGoldenServicesVariant(t testing.TB, displayType models.DisplayType, quality models.RenderQuality, algo models.DitherAlgorithm, mode models.CalibrationMode) (*PreviewService, string) {
 	t.Helper()
 	tmpDir := t.TempDir()
 
@@ -108,7 +109,7 @@ func newGradientImage(w, h int) *image.RGBA {
 }
 
 // writeGradientPhoto writes the deterministic gradient as a PNG photo asset.
-func writeGradientPhoto(t *testing.T, path string) {
+func writeGradientPhoto(t testing.TB, path string) {
 	t.Helper()
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, newGradientImage(800, 480)); err != nil {
@@ -120,7 +121,7 @@ func writeGradientPhoto(t *testing.T, path string) {
 }
 
 // loadTestDesign reads a design JSON from testdata/designs/.
-func loadTestDesign(t *testing.T, name string) *models.DesignV2 {
+func loadTestDesign(t testing.TB, name string) *models.DesignV2 {
 	t.Helper()
 	path := filepath.Join("testdata", "designs", name+".json")
 	data, err := os.ReadFile(path)
@@ -181,7 +182,7 @@ func TestGoldenRender(t *testing.T) {
 				previewSvc, _ := setupGoldenServices(t, displayType, models.RenderQualityHigh)
 				design := loadTestDesign(t, designName)
 
-				got, err := previewSvc.Render(design, false)
+				got, err := previewSvc.Render(context.Background(), design, false)
 				if err != nil {
 					t.Fatalf("Render failed: %v", err)
 				}
@@ -306,7 +307,7 @@ func TestPaletteExactness(t *testing.T) {
 					previewSvc, _ := setupGoldenServices(t, displayType, quality)
 					design := loadTestDesign(t, designName)
 
-					pngData, err := previewSvc.Render(design, false)
+					pngData, err := previewSvc.Render(context.Background(), design, false)
 					if err != nil {
 						t.Fatalf("Render failed: %v", err)
 					}
@@ -330,7 +331,7 @@ func TestPaletteExactness(t *testing.T) {
 				previewSvc, _ := setupGoldenServicesVariant(t, displayType, models.RenderQualityHigh, v.algo, v.mode)
 				design := loadTestDesign(t, "gradient")
 
-				pngData, err := previewSvc.Render(design, false)
+				pngData, err := previewSvc.Render(context.Background(), design, false)
 				if err != nil {
 					t.Fatalf("Render failed: %v", err)
 				}
@@ -346,11 +347,11 @@ func TestPaletteExactness(t *testing.T) {
 func assertRenderDeterminism(t *testing.T, previewSvc *PreviewService, tmpDir string, design *models.DesignV2) {
 	t.Helper()
 
-	first, err := previewSvc.Render(design, false)
+	first, err := previewSvc.Render(context.Background(), design, false)
 	if err != nil {
 		t.Fatalf("first render failed: %v", err)
 	}
-	second, err := previewSvc.Render(design, false)
+	second, err := previewSvc.Render(context.Background(), design, false)
 	if err != nil {
 		t.Fatalf("second render failed: %v", err)
 	}
@@ -359,7 +360,7 @@ func assertRenderDeterminism(t *testing.T, previewSvc *PreviewService, tmpDir st
 	}
 
 	freshSvc := newGoldenPreviewService(tmpDir)
-	third, err := freshSvc.Render(design, false)
+	third, err := freshSvc.Render(context.Background(), design, false)
 	if err != nil {
 		t.Fatalf("fresh-instance render failed: %v", err)
 	}

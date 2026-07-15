@@ -35,6 +35,12 @@ func paletteFromHex(hexColors []string) color.Palette {
 //
 // The invariant PanelPalette[i] <-> DisplayConfig.Colors[i] makes the swap
 // correct; GetCalibrationProfile guarantees equal palette lengths.
+//
+// Ownership contract: quantizeForDisplay MAY MUTATE img in place when it is
+// an *image.RGBA (the precompensation pass writes into img's pixel buffer to
+// avoid a full-canvas copy). Callers must pass a render-private buffer —
+// both current call paths do (Render's downscale destination, or the private
+// supersample canvas itself at render_quality=fast).
 func quantizeForDisplay(img image.Image, cfg models.DisplayConfig, algo models.DitherAlgorithm, mode models.CalibrationMode) *image.Paletted {
 	driverPal := paletteFromHex(cfg.Colors)
 
@@ -76,13 +82,19 @@ func clampChannel(v int32) int32 {
 }
 
 // precompensate applies gamma+contrast (via a per-render 256-entry LUT, no
-// math.Pow per pixel) followed by integer-arithmetic saturation to a copy of
-// src. Callers must skip identity presets entirely (quantizeForDisplay does)
-// so the byte-identity guarantees for uncalibrated profiles hold.
+// math.Pow per pixel) followed by integer-arithmetic saturation. For
+// *image.RGBA input it mutates src IN PLACE (no full-canvas copy — see the
+// ownership contract on quantizeForDisplay); other image types are copied
+// into a fresh RGBA first. Callers must skip identity presets entirely
+// (quantizeForDisplay does) so the byte-identity guarantees for uncalibrated
+// profiles hold.
 func precompensate(src image.Image, p models.PrecompensationPreset) *image.RGBA {
 	bounds := src.Bounds()
-	dst := image.NewRGBA(bounds)
-	draw.Draw(dst, bounds, src, bounds.Min, draw.Src)
+	dst, ok := src.(*image.RGBA)
+	if !ok {
+		dst = image.NewRGBA(bounds)
+		draw.Draw(dst, bounds, src, bounds.Min, draw.Src)
+	}
 
 	// lut[v] = clamp(round((255*(v/255)^Gamma - 128)*Contrast + 128), 0, 255)
 	var lut [256]uint8
@@ -92,18 +104,24 @@ func precompensate(src image.Image, p models.PrecompensationPreset) *image.RGBA 
 	}
 	sat1000 := int32(math.Round(p.Saturation * 1000))
 
-	pix := dst.Pix
-	for i := 0; i < len(pix); i += 4 {
-		r := int32(lut[pix[i]])
-		g := int32(lut[pix[i+1]])
-		b := int32(lut[pix[i+2]])
-		if sat1000 != 1000 {
-			luma := (299*r + 587*g + 114*b) / 1000
-			r = clampChannel(luma + (r-luma)*sat1000/1000)
-			g = clampChannel(luma + (g-luma)*sat1000/1000)
-			b = clampChannel(luma + (b-luma)*sat1000/1000)
+	// Iterate row-wise within bounds so in-place RGBA sub-images (stride >
+	// 4*width or non-zero origin) never touch pixels outside their bounds.
+	w := bounds.Dx()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		rowStart := dst.PixOffset(bounds.Min.X, y)
+		pix := dst.Pix[rowStart : rowStart+w*4 : rowStart+w*4]
+		for i := 0; i < len(pix); i += 4 {
+			r := int32(lut[pix[i]])
+			g := int32(lut[pix[i+1]])
+			b := int32(lut[pix[i+2]])
+			if sat1000 != 1000 {
+				luma := (299*r + 587*g + 114*b) / 1000
+				r = clampChannel(luma + (r-luma)*sat1000/1000)
+				g = clampChannel(luma + (g-luma)*sat1000/1000)
+				b = clampChannel(luma + (b-luma)*sat1000/1000)
+			}
+			pix[i], pix[i+1], pix[i+2] = uint8(r), uint8(g), uint8(b)
 		}
-		pix[i], pix[i+1], pix[i+2] = uint8(r), uint8(g), uint8(b)
 	}
 	return dst
 }

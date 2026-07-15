@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -153,7 +154,7 @@ func TestCalibrationAffectsOnlyCalibratedProfiles(t *testing.T) {
 	renderGradient := func(t *testing.T, displayType models.DisplayType, mode models.CalibrationMode) []byte {
 		t.Helper()
 		previewSvc, _ := setupGoldenServicesVariant(t, displayType, models.RenderQualityHigh, models.DitherFloydSteinberg, mode)
-		out, err := previewSvc.Render(loadTestDesign(t, "gradient"), false)
+		out, err := previewSvc.Render(context.Background(), loadTestDesign(t, "gradient"), false)
 		if err != nil {
 			t.Fatalf("Render failed: %v", err)
 		}
@@ -186,7 +187,7 @@ func TestDitherAlgorithmsProduceDifferentOutput(t *testing.T) {
 		t.Run(string(displayType), func(t *testing.T) {
 			render := func(algo models.DitherAlgorithm) []byte {
 				previewSvc, _ := setupGoldenServicesVariant(t, displayType, models.RenderQualityHigh, algo, models.CalibrationDefault)
-				out, err := previewSvc.Render(loadTestDesign(t, "gradient"), false)
+				out, err := previewSvc.Render(context.Background(), loadTestDesign(t, "gradient"), false)
 				if err != nil {
 					t.Fatalf("Render failed: %v", err)
 				}
@@ -197,6 +198,50 @@ func TestDitherAlgorithmsProduceDifferentOutput(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPrecompensateInPlace proves AC3a of specs/E5.6-render-memory.md:
+// for *image.RGBA input precompensate mutates the pixel buffer in place (no
+// new image allocation), the non-RGBA fallback still copies, and both paths
+// produce pixel-identical results.
+func TestPrecompensateInPlace(t *testing.T) {
+	// Non-identity preset so the pass actually changes pixel values.
+	preset := models.PrecompensationPreset{Gamma: 1.05, Saturation: 1.15, Contrast: 1.02}
+
+	t.Run("rgba_input_shares_backing_array", func(t *testing.T) {
+		src := newGradientImage(64, 48)
+		got := precompensate(src, preset)
+		if &got.Pix[0] != &src.Pix[0] {
+			t.Error("RGBA input must be precompensated in place (same backing array)")
+		}
+	})
+
+	t.Run("non_rgba_input_is_copied", func(t *testing.T) {
+		rgba := newGradientImage(64, 48)
+		src := image.NewNRGBA(rgba.Bounds())
+		draw.Draw(src, src.Bounds(), rgba, image.Point{}, draw.Src)
+		before := append([]uint8(nil), src.Pix...)
+
+		got := precompensate(src, preset)
+		if !bytes.Equal(src.Pix, before) {
+			t.Error("non-RGBA input must not be mutated (copy fallback)")
+		}
+		if bytes.Equal(got.Pix, before) {
+			t.Error("output equals input — precompensation with a non-identity preset had no effect")
+		}
+	})
+
+	t.Run("in_place_matches_copy_fallback", func(t *testing.T) {
+		rgba := newGradientImage(64, 48)
+		nrgba := image.NewNRGBA(rgba.Bounds())
+		draw.Draw(nrgba, nrgba.Bounds(), rgba, image.Point{}, draw.Src)
+
+		inPlace := precompensate(rgba, preset)  // mutates rgba
+		viaCopy := precompensate(nrgba, preset) // copy fallback
+		if !bytes.Equal(inPlace.Pix, viaCopy.Pix) {
+			t.Error("in-place path and copy fallback produced different pixels")
+		}
+	})
 }
 
 // TestGetCalibrationProfile covers the profile invariants and the defensive
@@ -284,7 +329,15 @@ func BenchmarkQuantize(b *testing.B) {
 	for _, bc := range benches {
 		b.Run(bc.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				out := quantizeForDisplay(src, cfg, bc.algo, bc.mode)
+				// quantizeForDisplay may mutate RGBA input in place (E5.6
+				// ownership contract), so each iteration gets a private copy
+				// outside the timed section.
+				b.StopTimer()
+				iterSrc := image.NewRGBA(src.Bounds())
+				copy(iterSrc.Pix, src.Pix)
+				b.StartTimer()
+
+				out := quantizeForDisplay(iterSrc, cfg, bc.algo, bc.mode)
 				if len(out.Pix) == 0 {
 					b.Fatal(fmt.Errorf("empty output"))
 				}

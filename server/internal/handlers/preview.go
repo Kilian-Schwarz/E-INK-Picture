@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -18,6 +20,13 @@ func NewPreviewHandler(svc *services.PreviewService, designSvc *services.DesignS
 	return &PreviewHandler{svc: svc, designSvc: designSvc}
 }
 
+// isContextErr reports whether err stems from a canceled/expired request
+// context (client gone or WriteTimeout hit while queued for the render
+// semaphore) — answered with 503; the write may fail, which is fine.
+func isContextErr(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
 func (h *PreviewHandler) Preview(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 
@@ -32,12 +41,16 @@ func (h *PreviewHandler) Preview(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "Design not found", http.StatusNotFound)
 			return
 		}
-		pngData, err = h.svc.Render(design, raw)
+		pngData, err = h.svc.Render(r.Context(), design, raw)
 	} else {
-		pngData, err = h.svc.RenderActiveRaw(raw)
+		pngData, err = h.svc.RenderActiveRaw(r.Context(), raw)
 	}
 
 	if err != nil {
+		if isContextErr(err) {
+			jsonError(w, "Render canceled", http.StatusServiceUnavailable)
+			return
+		}
 		jsonError(w, "No design", http.StatusNotFound)
 		return
 	}
@@ -56,8 +69,12 @@ func (h *PreviewHandler) PreviewLive(w http.ResponseWriter, r *http.Request) {
 	}
 
 	raw := r.URL.Query().Get("raw") == "true"
-	pngData, err := h.svc.Render(&design, raw)
+	pngData, err := h.svc.Render(r.Context(), &design, raw)
 	if err != nil {
+		if isContextErr(err) {
+			jsonError(w, "Render canceled", http.StatusServiceUnavailable)
+			return
+		}
 		jsonError(w, "Render failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -23,6 +23,20 @@ chmod +x setup.sh eink.sh
 
 Edit `.env` to change port, display driver, timezone, etc.
 
+## Memory
+
+The server limits itself at runtime: at most `EINK_MAX_CONCURRENT_RENDERS`
+(default 1) preview renders run concurrently, and the Go runtime keeps its
+heap under the soft limit `EINK_GOMEMLIMIT` (default `64MiB`; `off` disables
+it). Both are set in `.env` — see `.env.example`.
+
+Note for Docker deployments: the `deploy.resources.limits.memory` values in
+`docker-compose.yml` (128M server / 64M client) have NO effect on standard
+Raspberry Pi OS, because the cgroup memory controller is inactive by default
+(verified on hardware). Enabling it would require kernel cmdline changes
+(`cgroup_enable=memory`), which this project deliberately does not do — the
+in-process limits above are the effective mechanism.
+
 ## Requirements
 
 - Raspberry Pi (Zero 2 W, 3, 4, 5) with Raspberry Pi OS

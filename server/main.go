@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -25,7 +26,28 @@ var staticFS embed.FS
 //go:embed templates/*
 var templateFS embed.FS
 
+// applyMemoryLimit sets the Go runtime soft memory limit before anything else
+// allocates. Precedence (specs/E5.6-render-memory.md AC2): EINK_GOMEMLIMIT >
+// native GOMEMLIMIT env (honored by the runtime itself, never overridden) >
+// 64 MiB default. "off"/"0" disables the limit entirely.
+func applyMemoryLimit() {
+	einkVal := os.Getenv("EINK_GOMEMLIMIT")
+	decision, err := config.ResolveMemLimit(einkVal, os.Getenv("GOMEMLIMIT"))
+	if err != nil {
+		slog.Warn("invalid EINK_GOMEMLIMIT, using default",
+			"value", einkVal, "default_bytes", int64(config.DefaultMemLimitBytes), "error", err)
+	}
+	if decision.Apply {
+		debug.SetMemoryLimit(decision.Bytes)
+		slog.Info("memory limit applied", "limit_bytes", decision.Bytes, "source", decision.Source)
+		return
+	}
+	slog.Info("memory limit not set by server", "source", decision.Source)
+}
+
 func main() {
+	applyMemoryLimit()
+
 	cfg := config.Load()
 
 	// Ensure data directories exist
@@ -57,6 +79,8 @@ func main() {
 	weatherSvc := services.NewWeatherService(cfg.WeatherAPIKey, cfg.WeatherLocation, cfg.DataDir)
 	settingsSvc := services.NewSettingsService(cfg.DataDir, models.DisplayType(cfg.EInkDisplayType))
 	previewSvc := services.NewPreviewService(designSvc, weatherSvc, imageSvc, settingsSvc, cfg.DataDir)
+	previewSvc.SetMaxConcurrentRenders(cfg.MaxConcurrentRenders)
+	slog.Info("render concurrency limit", "max_concurrent_renders", cfg.MaxConcurrentRenders)
 
 	// Ensure at least one design exists (like Python's ensure_active_design on startup)
 	if err := designSvc.EnsureDesignExists(); err != nil {

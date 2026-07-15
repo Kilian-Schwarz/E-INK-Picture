@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"image"
 	"image/png"
@@ -34,7 +35,7 @@ func buildBlackShapeDesign(x, y, w, h, rotation float64) *models.DesignV2 {
 func renderFastRaw(t *testing.T, design *models.DesignV2) []byte {
 	t.Helper()
 	previewSvc, _ := setupGoldenServices(t, models.DisplayWaveshare75V2, models.RenderQualityFast)
-	data, err := previewSvc.Render(design, true)
+	data, err := previewSvc.Render(context.Background(), design, true)
 	if err != nil {
 		t.Fatalf("Render failed: %v", err)
 	}
