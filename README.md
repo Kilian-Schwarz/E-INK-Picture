@@ -385,6 +385,28 @@ the client", not "panel was physically written" — the heartbeat `status`
 value tells the two apart. Waveshare also recommends a refresh interval of at
 least 180 s; the server does not enforce this.
 
+### Watchdog & recovery
+
+The client survives driver/SPI errors and power outages without manual
+intervention:
+
+- **Driver recovery per cycle:** any exception from the Waveshare driver
+  stack (driver load, `init`, `getbuffer`, `display`, or `init()` returning
+  `-1`) is logged with a full traceback (stable log line
+  `display recovery: driver reset after error`), the panel power is switched
+  off via `module_exit()` (no sleep command over a broken bus), and the
+  driver object is re-instantiated on the next poll cycle.
+- **Escalation to systemd:** after `EINK_HW_FAILURE_LIMIT` (default `3`,
+  `0` = never) consecutive hardware failure cycles the client exits with a
+  non-zero code and logs `too many consecutive display failures`; systemd
+  (`Restart=always`, `RestartSec=10`) starts a fresh process with a freshly
+  imported driver stack. A successful panel write resets the counter.
+- **Power-outage recovery:** a failed startup refresh (server still booting)
+  is retried on every poll cycle until the first success, so the panel shows
+  the active design within ~2 minutes of service start. An unreachable
+  server never touches the panel (no flicker) and never triggers the
+  escalation — the client just keeps retrying.
+
 For automatic updates, add a cron job:
 
 ```bash

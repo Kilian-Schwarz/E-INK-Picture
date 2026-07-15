@@ -35,6 +35,13 @@ _last_fetch_hash: Optional[str] = None  # SHA-256 of the last fetched /preview w
 _last_displayed_hash: Optional[str] = None  # hash of the last image successfully written to the panel
 _last_panel_write_monotonic: Optional[float] = None  # time.monotonic() of that write
 
+# Watchdog & recovery state (E5.4). In-memory only by design: a fresh process
+# (systemd restart) starts with a clean slate and a fresh driver import.
+_preview_only: bool = False  # ImportError at driver load: permanent preview mode
+_hw_recovery_pending: bool = False  # driver down after a HW error; re-load next cycle
+_consecutive_hw_failures: int = 0  # reset only on a successful physical panel write
+_initial_display_done: bool = False  # first successful display run since process start
+
 
 def _auth_headers() -> dict:
     """Headers for server requests: X-Client-Token when a token is configured.
@@ -86,9 +93,71 @@ def _server_post(path: str, payload: dict, timeout: int) -> requests.Response:
     return resp
 
 
-def load_display_driver(name: str):
-    """Dynamically load the correct Waveshare EPD driver."""
-    global epd, driver_name
+def _module_exit_best_effort() -> None:
+    """Call epdconfig.module_exit() for the loaded driver, ignoring all errors.
+
+    module_exit() closes SPI and pulls RST/DC/PWR low - the panel power is
+    hard off afterwards. That is the safe end state after a hardware error;
+    a deep-sleep command over a broken SPI bus would be a silent no-op.
+    """
+    try:
+        if driver_name == "epd7in3e":
+            from waveshare_epd import epd7in3e
+            epd7in3e.epdconfig.module_exit()
+        elif driver_name == "epd7in5_V2":
+            from waveshare_epd import epd7in5_V2
+            epd7in5_V2.epdconfig.module_exit()
+    except Exception:
+        pass
+
+
+def _reset_display_driver() -> None:
+    """Full driver reset after a hardware error (E5.4).
+
+    Best-effort module_exit() (panel power off), then discard the epd object.
+    The next refresh cycle re-instantiates EPD() from the CACHED module -
+    importlib.reload is forbidden here: a reloaded epdconfig would construct
+    a second RaspberryPi() while the old gpiozero objects still hold the
+    pins (GPIOPinInUse).
+    """
+    global epd, _hw_recovery_pending
+    _module_exit_best_effort()
+    epd = None
+    _hw_recovery_pending = True
+
+
+def _register_hw_failure() -> None:
+    """Count a consecutive hardware failure cycle; escalate to systemd at the limit.
+
+    HW_FAILURE_LIMIT <= 0 disables the escalation (per-cycle recovery still
+    runs). At the limit the process exits non-zero: Restart=always +
+    RestartSec=10 bring up a fresh process with a freshly imported driver
+    stack, which heals stuck in-process driver state.
+    """
+    global _consecutive_hw_failures
+    _consecutive_hw_failures += 1
+    logger.warning(
+        "hardware failure cycle %d (limit %d, 0 = never escalate)",
+        _consecutive_hw_failures, config.HW_FAILURE_LIMIT,
+    )
+    if config.HW_FAILURE_LIMIT > 0 and _consecutive_hw_failures >= config.HW_FAILURE_LIMIT:
+        logger.critical(
+            "too many consecutive display failures (%d) - exiting for systemd restart",
+            _consecutive_hw_failures,
+        )
+        raise SystemExit(1)
+
+
+def load_display_driver(name: str) -> None:
+    """Dynamically load the correct Waveshare EPD driver.
+
+    ImportError => permanent preview-only mode (no hardware libs installed;
+    no recovery, no escalation). Any OTHER exception - epdconfig import side
+    effects can raise BadPinFactory/GPIOPinInUse/RuntimeError, spidev raises
+    OSError - is treated as a transient hardware failure: full traceback via
+    logger.exception, driver reset, re-load attempt on the next cycle.
+    """
+    global epd, driver_name, _preview_only, _hw_recovery_pending
     driver_name = name
     logger.info("Loading display driver: %s", name)
     try:
@@ -101,10 +170,17 @@ def load_display_driver(name: str):
         else:
             logger.error("Unknown display driver: %s", name)
             return
+        _preview_only = False
+        _hw_recovery_pending = False
         logger.info("Display driver loaded: %s", name)
     except ImportError:
         logger.warning("Waveshare EPD library not found - running in preview-only mode")
         epd = None
+        _preview_only = True
+        _hw_recovery_pending = False
+    except Exception:
+        logger.exception("display recovery: driver reset after error")
+        _reset_display_driver()
 
 
 def fetch_display_config() -> dict:
@@ -177,7 +253,10 @@ def display_image(img: Image.Image, display_config: dict) -> bool:
 
     try:
         logger.info("Initializing display...")
-        epd.init()
+        # epd7in3e/epd7in5_V2 return -1 when module_init() fails. Deliberately
+        # only == -1 (not != 0): MockEPD returns None, the real drivers 0.
+        if epd.init() == -1:
+            raise RuntimeError("display init() returned -1 (module_init failed)")
 
         display_width = epd.width
         display_height = epd.height
@@ -216,12 +295,13 @@ def display_image(img: Image.Image, display_config: dict) -> bool:
         epd.sleep()
         logger.info("Display updated successfully")
         return True
-    except Exception as e:
-        logger.error("Display error: %s", e)
-        try:
-            epd.sleep()
-        except Exception:
-            pass
+    except Exception:
+        # E5.4 recovery: full traceback, NO epd.sleep() over a possibly broken
+        # SPI bus - module_exit() (panel power hard off) is the safe end state.
+        # Return contract for callers/E5.2 unchanged: False => no hash update,
+        # no heartbeat. Stable log line below is the HIL grep base.
+        logger.exception("display recovery: driver reset after error")
+        _reset_display_driver()
         return False
 
 
@@ -283,13 +363,16 @@ def _record_panel_write(content_hash: Optional[str]) -> None:
     """Remember hash and time of a successful physical panel write.
 
     In-memory only (a restart always writes). No-op without hardware: the
-    preview-only path must never feed the skip decision.
+    preview-only path must never feed the skip decision. A successful
+    physical write is also the ONLY event that resets the E5.4 hardware
+    failure counter (skips, network errors and preview-only leave it alone).
     """
-    global _last_displayed_hash, _last_panel_write_monotonic
+    global _last_displayed_hash, _last_panel_write_monotonic, _consecutive_hw_failures
     if epd is None:
         return
     _last_displayed_hash = content_hash
     _last_panel_write_monotonic = time.monotonic()
+    _consecutive_hw_failures = 0
 
 
 def send_heartbeat(status: str = "refreshed") -> None:
@@ -314,7 +397,17 @@ def handle_refresh(display_config: dict, reason: Optional[str]) -> None:
     last-sent artifact is left untouched, heartbeat is sent with "skipped".
     The hash is recorded only AFTER a successful panel write; a display
     failure leaves it unchanged so the next cycle writes again.
+
+    E5.4 recovery: after a hardware error the driver is re-instantiated from
+    the cached module before the write attempt; a failed re-load counts as a
+    hardware failure cycle. Network errors touch neither panel nor counter.
     """
+    global _initial_display_done
+    if epd is None and _hw_recovery_pending:
+        load_display_driver(driver_name)
+        if epd is None and _hw_recovery_pending:
+            _register_hw_failure()
+            return
     img = fetch_preview()
     if img is None:
         logger.warning("Failed to fetch preview for refresh")
@@ -325,13 +418,28 @@ def handle_refresh(display_config: dict, reason: Optional[str]) -> None:
         send_heartbeat("skipped")
         return
     if display_image(img, display_config):
+        _initial_display_done = True
         _record_panel_write(content_hash)
         send_heartbeat("refreshed")
+    else:
+        _register_hw_failure()
 
 
 def process_refresh_cycle() -> None:
-    """One poll cycle: ask the server and refresh the panel if needed."""
+    """One poll cycle: ask the server and refresh the panel if needed.
+
+    Initial retry (E5.4): until the first successful display run since
+    process start, every cycle behaves like the startup path - unconditional
+    fetch + write, should_refresh/reason are ignored. This closes the
+    power-outage gap when the very first fetch hits the server before it
+    listens. From the first success on, exactly today's semantics apply.
+    """
     status = get_refresh_status()
+    if not _initial_display_done:
+        logger.info("initial display update pending - retrying unconditionally")
+        display_config = fetch_display_config()
+        handle_refresh(display_config, None)
+        return
     if not status.get("should_refresh", False):
         return
     logger.info("Server says: refresh needed")
@@ -346,19 +454,12 @@ def cleanup() -> None:
             epd.sleep()
         except Exception:
             pass
-        try:
-            if driver_name == "epd7in3e":
-                from waveshare_epd import epd7in3e
-                epd7in3e.epdconfig.module_exit()
-            elif driver_name == "epd7in5_V2":
-                from waveshare_epd import epd7in5_V2
-                epd7in5_V2.epdconfig.module_exit()
-        except Exception:
-            pass
+        _module_exit_best_effort()
 
 
 def main() -> None:
     """Main loop: poll server for refresh status, fetch preview, display, repeat."""
+    global _initial_display_done
     logger.info("E-Ink Client starting - Server: %s, Driver: %s", config.SERVER_URL, config.DISPLAY_DRIVER)
 
     running = True
@@ -372,38 +473,51 @@ def main() -> None:
     signal.signal(signal.SIGTERM, shutdown)
 
     # Initial setup: load driver and fetch config
+    _initial_display_done = False
     load_display_driver(config.DISPLAY_DRIVER)
-    display_config = fetch_display_config()
-    if not display_config:
-        display_config = {}
 
-    # Initial display update (always unconditional, spec E5.2 fact 8)
-    logger.info("Performing initial display update...")
-    img = fetch_preview()
-    if img:
-        if display_image(img, display_config):
-            _record_panel_write(_last_fetch_hash)
-            send_heartbeat()
-    else:
-        logger.warning("No image on startup - will retry on next poll")
+    # try/finally so cleanup() also runs when the E5.4 escalation raises
+    # SystemExit(1) out of the poll loop.
+    try:
+        display_config = fetch_display_config()
+        if not display_config:
+            display_config = {}
 
-    # Main poll loop
-    poll_interval = config.POLL_INTERVAL
-    logger.info("Entering poll loop (every %ds)", poll_interval)
+        # Initial display update (always unconditional, spec E5.2 fact 8)
+        logger.info("Performing initial display update...")
+        if epd is None and _hw_recovery_pending:
+            # Driver load failed hard at startup (non-ImportError): counts as
+            # one hardware failure cycle; the poll loop retries the load.
+            _register_hw_failure()
+        else:
+            img = fetch_preview()
+            if img:
+                if display_image(img, display_config):
+                    _initial_display_done = True
+                    _record_panel_write(_last_fetch_hash)
+                    send_heartbeat()
+                else:
+                    _register_hw_failure()
+            else:
+                logger.warning("No image on startup - will retry on next poll")
 
-    while running:
-        for _ in range(poll_interval):
+        # Main poll loop
+        poll_interval = config.POLL_INTERVAL
+        logger.info("Entering poll loop (every %ds)", poll_interval)
+
+        while running:
+            for _ in range(poll_interval):
+                if not running:
+                    break
+                time.sleep(1)
+
             if not running:
                 break
-            time.sleep(1)
 
-        if not running:
-            break
-
-        process_refresh_cycle()
-
-    cleanup()
-    logger.info("Client stopped")
+            process_refresh_cycle()
+    finally:
+        cleanup()
+        logger.info("Client stopped")
 
 
 if __name__ == "__main__":

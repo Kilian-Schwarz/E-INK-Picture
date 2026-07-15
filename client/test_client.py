@@ -6,6 +6,7 @@ import importlib
 import json
 import logging
 import os
+import sys
 import tempfile
 import time
 import unittest
@@ -128,6 +129,41 @@ class CountingEPD(RecordingEPD):
         super().sleep()
 
 
+class FailingEPD(CountingEPD):
+    """CountingEPD that fails in one configurable driver call (E5.4).
+
+    fail_on: "init" (raises), "init_minus_one" (returns -1 like the real
+    drivers when module_init fails), "getbuffer" or "display" (raise).
+    init/display count the ATTEMPT before failing; getbuffer failures are
+    not counted (no counter exists for it).
+    """
+
+    def __init__(self, fail_on="init", exc=None, artifact_path=None):
+        super().__init__(artifact_path)
+        self.fail_on = fail_on
+        self.exc = exc if exc is not None else OSError("SPI transfer failed")
+
+    def init(self):
+        if self.fail_on == "init":
+            self.init_calls += 1
+            raise self.exc
+        if self.fail_on == "init_minus_one":
+            self.init_calls += 1
+            return -1
+        return super().init()
+
+    def getbuffer(self, image):
+        if self.fail_on == "getbuffer":
+            raise self.exc
+        return super().getbuffer(image)
+
+    def display(self, buffer):
+        if self.fail_on == "display":
+            self.display_calls += 1
+            raise self.exc
+        super().display(buffer)
+
+
 def make_test_png(width=800, height=480, color=(255, 255, 255)):
     """Create a test PNG image in memory."""
     img = Image.new("RGB", (width, height), color)
@@ -188,7 +224,8 @@ class ArtifactSandboxMixin:
     """Redirect config.LAST_SENT_PATH into a per-test temp directory (AC7).
 
     Every test that can reach display_image() must use this mixin so no test
-    ever writes to the real default /tmp path. Also restores client.epd.
+    ever writes to the real default /tmp path. Also restores client.epd and
+    the E5.4 recovery state (display_image failures mutate module globals).
     """
 
     def setUp(self):
@@ -204,6 +241,9 @@ class ArtifactSandboxMixin:
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(setattr, client, "epd", client.epd)
+        for attr in ("_preview_only", "_hw_recovery_pending",
+                     "_consecutive_hw_failures", "_initial_display_done"):
+            self.addCleanup(setattr, client, attr, getattr(client, attr))
 
 
 class TestFetchPreview(unittest.TestCase):
@@ -659,7 +699,13 @@ class FakeSkipServer:
 
 
 class ContentSkipSandbox(ArtifactSandboxMixin):
-    """E5.2 shared setup: CountingEPD, fake server, fresh in-memory skip state."""
+    """E5.2/E5.4 shared setup: CountingEPD, fake server, fresh in-memory state.
+
+    load_display_driver is replaced by a fake that (re-)installs whatever
+    self.epd currently references - the E5.4 recovery re-load path thus gets
+    a controllable "fresh EPD() from the cached module" without touching the
+    real waveshare imports. Tests swap self.epd to steer the next re-load.
+    """
 
     def setUp(self):
         super().setUp()
@@ -673,6 +719,12 @@ class ContentSkipSandbox(ArtifactSandboxMixin):
         client._last_displayed_hash = None
         client._last_panel_write_monotonic = None
         client.driver_name = "epd7in3e"
+        # E5.4 state: post-startup semantics by default (initial write done),
+        # no pending recovery, counter at zero.
+        client._preview_only = False
+        client._hw_recovery_pending = False
+        client._consecutive_hw_failures = 0
+        client._initial_display_done = True
         self.epd = CountingEPD(artifact_path=self.artifact_path)
         client.epd = self.epd
         self.server = FakeSkipServer(make_test_png(color=(10, 20, 30)))
@@ -681,9 +733,27 @@ class ContentSkipSandbox(ArtifactSandboxMixin):
             patcher = patch.object(client, name, side_effect=handler)
             patcher.start()
             self.addCleanup(patcher.stop)
+        self.real_load_display_driver = client.load_display_driver
+
+        def _fake_load(name):
+            client.driver_name = name
+            client.epd = self.epd
+            client._preview_only = False
+            client._hw_recovery_pending = False
+
+        self.load_patcher = patch.object(
+            client, "load_display_driver", side_effect=_fake_load
+        )
+        self.load_mock = self.load_patcher.start()
+        self.addCleanup(self.load_patcher.stop)
 
     def heartbeat_statuses(self):
         return [hb["status"] for hb in self.server.heartbeats]
+
+    def install_epd(self, epd):
+        """Make epd the current driver object for client and future re-loads."""
+        self.epd = epd
+        self.client.epd = epd
 
 
 class TestContentSkip(ContentSkipSandbox, unittest.TestCase):
@@ -865,6 +935,331 @@ class TestContentSkipGuardsAndSwitches(ContentSkipSandbox, unittest.TestCase):
         # The preview-only path never feeds the skip state.
         self.assertIsNone(self.client._last_displayed_hash)
         self.assertFalse(os.path.exists(self.artifact_path))
+
+
+class TestDriverRecovery(ContentSkipSandbox, unittest.TestCase):
+    """E5.4 AC1/AC2: driver exceptions => logger.exception + full driver reset."""
+
+    def _run_failing_cycle(self, failing_epd):
+        """One refresh cycle against a failing driver; returns captured logs."""
+        self.install_epd(failing_epd)
+        with patch.object(self.client, "_module_exit_best_effort") as module_exit, \
+                self.assertLogs("eink-client", level="ERROR") as logs:
+            self.client.process_refresh_cycle()
+        self.module_exit_mock = module_exit
+        return logs
+
+    def _assert_recovery_state(self, logs, failing_epd):
+        """Shared AC1/AC2 assertions after one failed cycle."""
+        recovery_logs = [
+            r for r in logs.records
+            if "display recovery: driver reset after error" in r.getMessage()
+        ]
+        self.assertEqual(len(recovery_logs), 1, f"got: {logs.output}")
+        self.assertIsNotNone(
+            recovery_logs[0].exc_info, "logger.exception must attach a traceback"
+        )
+        self.module_exit_mock.assert_called_once()
+        self.assertEqual(
+            failing_epd.sleep_calls, 0, "no epd.sleep over a broken bus"
+        )
+        self.assertIsNone(self.client.epd)
+        self.assertEqual(self.heartbeat_statuses(), [], "no heartbeat on failure")
+        self.assertIsNone(
+            self.client._last_displayed_hash, "no hash update on failure (E5.2)"
+        )
+
+    def test_init_failure_recovers_next_cycle(self):
+        """AC1: OSError in init() => recovery; next cycle re-loads and writes."""
+        failing = FailingEPD(fail_on="init")
+        logs = self._run_failing_cycle(failing)
+        self._assert_recovery_state(logs, failing)
+        self.assertEqual(self.client._consecutive_hw_failures, 1)
+
+        # Next cycle: the re-load delivers a fresh CountingEPD and writes.
+        self.epd = CountingEPD(artifact_path=self.artifact_path)
+        self.client.process_refresh_cycle()
+
+        self.load_mock.assert_called_once_with("epd7in3e")
+        self.assertEqual(self.epd.init_calls, 1)
+        self.assertEqual(self.epd.display_calls, 1)
+        self.assertEqual(self.epd.sleep_calls, 1)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed"])
+        self.assertEqual(self.client._consecutive_hw_failures, 0)
+
+    def test_display_failure_recovers(self):
+        """AC2: exception in display() - no sleep after the failed display,
+        hash unchanged, artifact may exist (write point is before display)."""
+        failing = FailingEPD(fail_on="display", artifact_path=self.artifact_path)
+        logs = self._run_failing_cycle(failing)
+        self._assert_recovery_state(logs, failing)
+        self.assertTrue(os.path.exists(self.artifact_path))
+        self.assertEqual(self.client._consecutive_hw_failures, 1)
+
+        # Recovery works identically: next cycle re-loads and writes.
+        self.epd = CountingEPD(artifact_path=self.artifact_path)
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed"])
+        self.assertEqual(self.client._consecutive_hw_failures, 0)
+
+    def test_getbuffer_failure_recovers(self):
+        """AC2: exception in getbuffer() takes the identical recovery path."""
+        failing = FailingEPD(fail_on="getbuffer")
+        logs = self._run_failing_cycle(failing)
+        self._assert_recovery_state(logs, failing)
+        self.assertEqual(failing.display_calls, 0)
+        self.assertEqual(self.client._consecutive_hw_failures, 1)
+
+    def test_init_minus_one_treated_as_failure(self):
+        """Decision 3: init() returning -1 goes through the same recovery path
+        (MockEPD's None return and the real drivers' 0 must both pass)."""
+        failing = FailingEPD(fail_on="init_minus_one")
+        logs = self._run_failing_cycle(failing)
+        self._assert_recovery_state(logs, failing)
+        self.assertEqual(failing.display_calls, 0)
+        self.assertEqual(self.client._consecutive_hw_failures, 1)
+
+
+class TestHwEscalation(ContentSkipSandbox, unittest.TestCase):
+    """E5.4 AC3/AC4: escalation counter, SystemExit(1), limit 0, preview-only."""
+
+    def setUp(self):
+        super().setUp()
+        limit_patcher = patch.object(self.config, "HW_FAILURE_LIMIT", 3)
+        limit_patcher.start()
+        self.addCleanup(limit_patcher.stop)
+
+    def test_escalates_after_three_consecutive_failures(self):
+        """AC3: cycles 1+2 recover, cycle 3 raises SystemExit(1) + CRITICAL log."""
+        self.install_epd(FailingEPD(fail_on="init"))
+
+        self.client.process_refresh_cycle()
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.client._consecutive_hw_failures, 2)
+
+        with self.assertLogs("eink-client", level="CRITICAL") as logs, \
+                self.assertRaises(SystemExit) as cm:
+            self.client.process_refresh_cycle()
+
+        self.assertEqual(cm.exception.code, 1)
+        self.assertTrue(
+            any(
+                r.levelno == logging.CRITICAL
+                and "too many consecutive display failures" in r.getMessage()
+                for r in logs.records
+            ),
+            f"expected CRITICAL escalation log, got: {logs.output}",
+        )
+        self.assertEqual(self.heartbeat_statuses(), [])
+
+    def test_success_resets_counter(self):
+        """AC3: fail-fail-success-fail-fail stays below the limit (reset on success)."""
+        self.install_epd(FailingEPD(fail_on="init"))
+        self.client.process_refresh_cycle()
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.client._consecutive_hw_failures, 2)
+
+        # Cycle 3: driver swap => the re-load delivers a working EPD, write succeeds.
+        self.epd = CountingEPD(artifact_path=self.artifact_path)
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.client._consecutive_hw_failures, 0)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed"])
+
+        # Cycles 4+5: new bytes (no content skip) + failures again - the
+        # counter restarts at 1, no SystemExit.
+        self.server.png_bytes = make_test_png(color=(0, 0, 200))
+        self.install_epd(FailingEPD(fail_on="init"))
+        self.client.process_refresh_cycle()
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.client._consecutive_hw_failures, 2)
+
+    def test_skip_cycles_do_not_change_counter(self):
+        """AC3: content-skip cycles between failures leave the counter untouched."""
+        # Cycle 1: successful write of bytes A (hash recorded).
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.client._consecutive_hw_failures, 0)
+
+        # Cycle 2: new bytes B, failing driver => counter 1, hash stays A.
+        png_a = self.server.png_bytes
+        self.server.png_bytes = make_test_png(color=(200, 0, 0))
+        self.install_epd(FailingEPD(fail_on="display"))
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.client._consecutive_hw_failures, 1)
+
+        # Cycle 3: bytes A again, working driver => skip (A is already on the
+        # panel, E5.2); the skip changes the counter in NO direction.
+        self.server.png_bytes = png_a
+        self.epd = CountingEPD(artifact_path=self.artifact_path)
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "skipped"])
+        self.assertEqual(self.client._consecutive_hw_failures, 1)
+
+    def test_limit_zero_never_escalates(self):
+        """AC4a: HW_FAILURE_LIMIT=0 => 10 failure cycles, recovery runs, no exit."""
+        with patch.object(self.config, "HW_FAILURE_LIMIT", 0):
+            self.install_epd(FailingEPD(fail_on="init"))
+            for _ in range(10):
+                self.client.process_refresh_cycle()
+
+        self.assertEqual(self.client._consecutive_hw_failures, 10)
+        self.assertEqual(self.heartbeat_statuses(), [])
+        # Recovery per cycle keeps running: cycles 2..10 re-load the driver.
+        self.assertEqual(self.load_mock.call_count, 9)
+
+    def test_preview_only_never_escalates(self):
+        """AC4b: ImportError => preview-only, counter 0, no re-load spam, no exit."""
+        client = self.client
+        # Real load path with a simulated missing waveshare_epd package:
+        # None in sys.modules makes 'from waveshare_epd import ...' raise
+        # ImportError deterministically on any machine.
+        with patch.dict(sys.modules, {"waveshare_epd": None}):
+            with self.assertLogs("eink-client", level="WARNING"):
+                self.real_load_display_driver("epd7in3e")
+
+        self.assertIsNone(client.epd)
+        self.assertTrue(client._preview_only)
+        self.assertFalse(client._hw_recovery_pending)
+
+        with patch.object(Image.Image, "save"):
+            for _ in range(5):
+                client.process_refresh_cycle()
+
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed"] * 5)
+        self.assertEqual(client._consecutive_hw_failures, 0)
+        # The load is NOT repeated per cycle (preview-only is permanent).
+        self.load_mock.assert_not_called()
+
+
+class TestInitialRetryAndServerDown(ContentSkipSandbox, unittest.TestCase):
+    """E5.4 AC5/AC6: quiet retry without panel calls; initial-write retry."""
+
+    def test_server_down_no_panel_calls_no_escalation(self):
+        """AC5: 5 cycles with ConnectionError everywhere - panel untouched."""
+        import requests as real_requests
+
+        def raise_connection_error(*args, **kwargs):
+            raise real_requests.ConnectionError("server down")
+
+        self.client._server_get.side_effect = raise_connection_error
+        self.client._server_post.side_effect = raise_connection_error
+
+        for _ in range(5):
+            self.client.process_refresh_cycle()
+
+        self.assertEqual(self.epd.init_calls, 0)
+        self.assertEqual(self.epd.display_calls, 0)
+        self.assertEqual(self.epd.sleep_calls, 0)
+        self.assertEqual(self.client._consecutive_hw_failures, 0)
+        self.assertEqual(self.heartbeat_statuses(), [])
+
+        # Server back: the next cycle writes normally (process state intact).
+        self.client._server_get.side_effect = self.server.get
+        self.client._server_post.side_effect = self.server.post
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.epd.display_calls, 1)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed"])
+
+    def test_initial_retry_until_first_success(self):
+        """AC6: a failed startup write is retried every poll cycle despite
+        should_refresh=false until the first success; then retry mode ends."""
+        import requests as real_requests
+        client = self.client
+        client._initial_display_done = False
+        self.server.should_refresh = False
+
+        # Cycle 1: /preview unreachable - no write, no counter, still pending.
+        real_get = self.server.get
+
+        def flaky_get(path, timeout=None):
+            if path == "/preview":
+                raise real_requests.ConnectionError("server still booting")
+            return real_get(path, timeout=timeout)
+
+        client._server_get.side_effect = flaky_get
+        client.process_refresh_cycle()
+
+        self.assertEqual(self.epd.display_calls, 0)
+        self.assertFalse(client._initial_display_done)
+        self.assertEqual(client._consecutive_hw_failures, 0)
+
+        # Cycle 2: server back - the panel is written ALTHOUGH should_refresh
+        # stays false (initial retry, decision 7).
+        client._server_get.side_effect = real_get
+        client.process_refresh_cycle()
+
+        self.assertEqual(self.epd.display_calls, 1)
+        self.assertTrue(client._initial_display_done)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed"])
+
+        # Counter-check: retry mode is over - further should_refresh=false
+        # cycles never touch the panel or fetch the preview again.
+        client.process_refresh_cycle()
+        self.assertEqual(self.epd.display_calls, 1)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed"])
+        get_paths = [c.args[0] for c in client._server_get.call_args_list]
+        self.assertEqual(get_paths.count("/preview"), 2)
+
+
+class TestMainLoopRecovery(unittest.TestCase):
+    """E5.4: main() runs cleanup() even when the escalation raises SystemExit."""
+
+    def setUp(self):
+        import client
+        self.addCleanup(
+            setattr, client, "_initial_display_done", client._initial_display_done
+        )
+
+    @patch("client.cleanup")
+    @patch("client.process_refresh_cycle", side_effect=SystemExit(1))
+    @patch("client.send_heartbeat")
+    @patch("client.fetch_preview", return_value=None)
+    @patch("client.fetch_display_config", return_value={})
+    @patch("client.load_display_driver")
+    @patch("client.config")
+    @patch("client.signal")
+    @patch("client.time")
+    def test_cleanup_runs_on_system_exit(self, mock_time, mock_signal, mock_config,
+                                         mock_load, mock_fetch_config,
+                                         mock_fetch_preview, mock_heartbeat,
+                                         mock_cycle, mock_cleanup):
+        mock_config.DISPLAY_DRIVER = "epd7in3e"
+        mock_config.SERVER_URL = "http://localhost:5000"
+        mock_config.POLL_INTERVAL = 1
+
+        import client
+        with self.assertRaises(SystemExit) as cm:
+            client.main()
+
+        self.assertEqual(cm.exception.code, 1)
+        mock_cycle.assert_called_once()
+        mock_cleanup.assert_called_once()
+
+
+class TestHwFailureLimitConfig(unittest.TestCase):
+    """E5.4 AC8: config.HW_FAILURE_LIMIT default value and env override."""
+
+    def tearDown(self):
+        # Restore module state from the real environment after reload tests.
+        import config
+        importlib.reload(config)
+
+    def test_hw_failure_limit_default(self):
+        """Without EINK_HW_FAILURE_LIMIT the limit defaults to 3."""
+        import config
+        with patch.dict(os.environ):
+            os.environ.pop("EINK_HW_FAILURE_LIMIT", None)
+            importlib.reload(config)
+            self.assertEqual(config.HW_FAILURE_LIMIT, 3)
+
+    def test_hw_failure_limit_env_override(self):
+        """EINK_HW_FAILURE_LIMIT overrides the default (0 = escalation off)."""
+        import config
+        with patch.dict(os.environ, {"EINK_HW_FAILURE_LIMIT": "0"}):
+            importlib.reload(config)
+            self.assertEqual(config.HW_FAILURE_LIMIT, 0)
+        with patch.dict(os.environ, {"EINK_HW_FAILURE_LIMIT": "5"}):
+            importlib.reload(config)
+            self.assertEqual(config.HW_FAILURE_LIMIT, 5)
 
 
 class TestContentSkipConfig(unittest.TestCase):

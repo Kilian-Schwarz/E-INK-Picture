@@ -94,6 +94,7 @@ All configuration is done via environment variables (or a `.env` file):
 | `EINK_REFRESH_INTERVAL` | `300` | Seconds between display refreshes |
 | `EINK_DEPLOYMENT_MODE` | `local` | `local` (5s timeout) or `cloud` (15s timeout) |
 | `EINK_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `EINK_HW_FAILURE_LIMIT` | `3` | Watchdog escalation: exit non-zero (for a systemd restart) after this many consecutive hardware failure cycles. `0` = never escalate; per-cycle driver recovery always runs |
 
 ## Autostart with systemd
 

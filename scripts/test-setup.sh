@@ -186,6 +186,27 @@ test_render_unit_template() {
         if ! printf '%s\n' "$out" | grep -q '^StartLimitIntervalSec=0$'; then
             fail "$unit: StartLimitIntervalSec=0 missing"
         fi
+        # E5.4 watchdog contract: restart delays and client/server ordering
+        # are frozen here - the client escalation (EINK_HW_FAILURE_LIMIT)
+        # relies on Restart=always + RestartSec=10.
+        case "$unit" in
+            eink-client.service)
+                if ! printf '%s\n' "$out" | grep -q '^RestartSec=10$'; then
+                    fail "$unit: RestartSec=10 missing"
+                fi
+                if ! printf '%s\n' "$out" | grep -q '^After=eink-server.service$'; then
+                    fail "$unit: After=eink-server.service missing"
+                fi
+                if ! printf '%s\n' "$out" | grep -q '^Requires=eink-server.service$'; then
+                    fail "$unit: Requires=eink-server.service missing"
+                fi
+                ;;
+            eink-server.service)
+                if ! printf '%s\n' "$out" | grep -q '^RestartSec=5$'; then
+                    fail "$unit: RestartSec=5 missing"
+                fi
+                ;;
+        esac
     done
 }
 

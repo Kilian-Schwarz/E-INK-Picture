@@ -15,3 +15,7 @@ CONTENT_SKIP = os.getenv("EINK_CONTENT_SKIP", "").lower() != "false"
 # Panel care guard: force a panel write after this many hours even if the
 # content is unchanged (Waveshare: at least 1 refresh per 24h). 0 = off.
 MAX_SKIP_HOURS = int(os.getenv("EINK_MAX_SKIP_HOURS", "24"))
+# Watchdog escalation (E5.4): exit with a non-zero code after this many
+# consecutive hardware failure cycles so systemd restarts the process with a
+# freshly imported driver stack. 0 = never escalate (per-cycle recovery only).
+HW_FAILURE_LIMIT = int(os.getenv("EINK_HW_FAILURE_LIMIT", "3"))
