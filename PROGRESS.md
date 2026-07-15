@@ -75,6 +75,8 @@ E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | **E3 komplett** (E3.1–
 | E3.6 | Preview-Modal zeigt Panel-Palette als Default (quantisiert inkl. Kalibrierung), Panel/Original-Toggle mit Cache, 503-Handling, Objekt-URL-Leak-Fix | L1✅ L2✅ (Farbzensus 6 bzw. 2 exakt, Request-/Revoke-Zähler, Late-Response-Race, Mobil-Tap) L5✅ APPROVE | 7e97126 |
 | E5.1-Frontend | auth.js: 401-Interceptor (loop-sicher), Setup-Banner + Dialog mit Auto-Login, Icon-Logout (Desktop sichtbar ab 1280, Burger-Menü mobil) | L1✅ L2✅ (38+17 Asserts) L5: REQUEST_CHANGES (Logout unsichtbar 1024–1594) → Icon-Fix → APPROVE | aae87b2 |
 | E3.5 | Template-Galerie: 8 durchkomponierte Designs (embedded JSONs), panel-echte Previews (sequenziell, Cache, 503-fest), Use-Flow mit Token-/Foto-Slot-Substitution, Go-Lint+Render-Testsuite (offline erzwungen) | L1✅ (24 Subtests) L2✅ (34/34, 16 Renders gesichtet) L5✅ APPROVE (Design-Veto nicht gezogen) | 3f1e23c |
+| E5.3 (Server) | Nachtfenster sleep_start/sleep_end (halboffen, Mitternachts-Wrap, fail-open), manueller Trigger durchbricht strukturell, reason-Feld in refresh_status | L1✅ (-race) L5✅ APPROVE (Pfad-Beweis + Grenz-Negativproben); L3 (Fenster-Probe auf Pi) offen | 890d540 |
+| E5.2 (Client) | Content-Skip via SHA-256 der Wire-Bytes (5 konservative Konjunkte, 24h-Guard, Kill-Switch, in-memory); statische Designs ≈ 0 Panel-Zyklen | L1✅ (54 Tests, 2 Schärfe-Negativproben) L5✅ APPROVE (Refactor-Drift-Audit sauber); L3 (Skip-Zählung 1h auf Pi) offen | 76bdbe8 |
 
 ## Offen / Blockiert
 
