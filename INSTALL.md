@@ -1,15 +1,86 @@
-# Installation — Raspberry Pi Zero 2 W (Native)
+# Installation — Raspberry Pi (Native)
 
-## Quick Start
+## One-Command Install
+
+On a fresh Raspberry Pi OS installation, one command sets up everything —
+server build, Python venv with the pinned Waveshare driver, SPI, and systemd
+autostart:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kilian-Schwarz/E-INK-Picture/main/install.sh | bash
+```
+
+The installer clones the repo into `$HOME/E-INK-Picture` (override with
+`EINK_INSTALL_DIR`), builds the Go server, creates the client venv, enables
+SPI, and installs + starts both systemd services (`enable --now`). It runs
+fully non-interactively and fails loudly instead of degrading silently — a
+driver failure on Pi hardware aborts the setup unless you explicitly allow
+preview-only mode.
+
+Running the same command again on an existing installation performs an
+update (`git pull --ff-only`, rebuild, dependency sync, service restart).
+
+### Flags
+
+All flags work for both `install.sh` and `setup.sh`. With the one-liner,
+pass them after `bash -s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kilian-Schwarz/E-INK-Picture/main/install.sh | bash -s -- --update
+```
+
+| Flag | Effect |
+|---|---|
+| `--headless`, `--yes` | No prompts; defaults: enable SPI = yes, install systemd services = yes. Auto-enabled when stdin is not a TTY (`curl \| bash`). |
+| `--update` | Update mode: `git pull --ff-only`, rebuild server, sync pinned dependencies, re-render units, restart services. Auto-detected by `install.sh` when the target directory is already a checkout. |
+| `--allow-preview-only` | On Pi hardware, continue even if the display driver setup fails (client then runs in preview-only mode). Without this flag a driver failure on a Pi aborts with a clear error. |
+| `--dry-run` | Print every mutating action as `[DRY-RUN] <cmd>` instead of executing it. Nothing is changed; useful to inspect the plan. |
+
+### Environment Variables
+
+| Variable | Default | Effect |
+|---|---|---|
+| `EINK_INSTALL_DIR` | `$HOME/E-INK-Picture` | Target directory for the checkout. |
+
+### Notes
+
+- **SPI + reboot:** If SPI was just enabled, a reboot is required before the
+  display works. The services start again automatically after the reboot
+  (`Restart=always`).
+- **Docker conflict:** If a Docker-based installation of this project is
+  running on the same machine, the installer aborts before changing anything.
+  Run `docker compose down` in the old checkout (and back up / migrate its
+  `data/` directory) first.
+- **sudo:** The one-liner needs passwordless sudo (default on Raspberry Pi
+  OS). If sudo asks for a password, run `sudo -v` first, or use the manual
+  route below.
+- **Waveshare driver pin:** The e-Paper driver is installed from a pinned
+  upstream commit (see `WAVESHARE_EPD_PIN` in `setup.sh`) for reproducible
+  installs. Pin bumps are deliberate single commits.
+
+## Manual Install (alternative)
+
+If you prefer to review before running:
 
 ```bash
 git clone https://github.com/Kilian-Schwarz/E-INK-Picture.git
 cd E-INK-Picture
-chmod +x setup.sh eink.sh
 ./setup.sh
 ```
 
+Run in a terminal, `setup.sh` asks interactively (SPI, systemd); the flags
+above work here too, e.g. `./setup.sh --headless` or `./setup.sh --update`.
+
 ## Usage
+
+With systemd (default after install):
+
+```bash
+sudo systemctl status eink-server eink-client
+sudo systemctl restart eink-server eink-client
+```
+
+Without systemd (manual alternative):
 
 ```bash
 ./eink.sh start     # Start server + client
@@ -19,9 +90,22 @@ chmod +x setup.sh eink.sh
 ./eink.sh logs      # Follow logs (tail -f)
 ```
 
+## Uninstall
+
+```bash
+sudo systemctl disable --now eink-server eink-client
+sudo rm /etc/systemd/system/eink-server.service /etc/systemd/system/eink-client.service
+sudo systemctl daemon-reload
+sudo rm /etc/logrotate.d/eink-picture
+rm -rf ~/E-INK-Picture
+```
+
+The SPI flag may harmlessly stay enabled.
+
 ## Configuration
 
-Edit `.env` to change port, display driver, timezone, etc.
+Edit `.env` to change port, display driver, timezone, etc. The `.env` file is
+never overwritten by setup or update runs.
 
 ## Memory
 
@@ -40,6 +124,7 @@ in-process limits above are the effective mechanism.
 ## Requirements
 
 - Raspberry Pi (Zero 2 W, 3, 4, 5) with Raspberry Pi OS
-- SPI enabled (`sudo raspi-config` → Interface Options → SPI)
 - Internet connection (for initial setup only)
 - Waveshare E-Paper Display (epd7in3e or epd7in5_V2)
+
+SPI is enabled automatically by the installer (a reboot may be required).

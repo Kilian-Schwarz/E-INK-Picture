@@ -29,6 +29,20 @@ Design layouts in the browser, render them server-side, and display the result o
 
 ## Quick Start
 
+### Raspberry Pi (native, recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kilian-Schwarz/E-INK-Picture/main/install.sh | bash
+```
+
+One command on a fresh Raspberry Pi OS: builds the server, sets up the client
+venv with the pinned Waveshare driver, enables SPI, and starts both systemd
+services. Re-running the same command updates an existing installation. See
+[INSTALL.md](INSTALL.md) for all flags (`--update`, `--allow-preview-only`,
+`--dry-run`), `EINK_INSTALL_DIR`, and the manual route.
+
+### Docker (alternative)
+
 ```bash
 git clone https://github.com/Kilian-Schwarz/E-INK-Picture.git
 cd E-INK-Picture

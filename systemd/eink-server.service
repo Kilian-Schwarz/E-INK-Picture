@@ -10,8 +10,9 @@ WorkingDirectory=%INSTALL_DIR%/server
 EnvironmentFile=%INSTALL_DIR%/.env
 Environment=DATA_DIR=%INSTALL_DIR%/data
 ExecStart=%INSTALL_DIR%/server/eink-server
-Restart=on-failure
+Restart=always
 RestartSec=5
+StartLimitIntervalSec=0
 StandardOutput=append:%INSTALL_DIR%/logs/server.log
 StandardError=append:%INSTALL_DIR%/logs/server.log
 
