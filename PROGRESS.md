@@ -10,7 +10,7 @@ E1 komplett | E2.1+E2.3 gemergt — **E2.5 (native Installation) durch HIL-3 als
 **E5.5 (Offline-Hardening) gemergt @ 33059a4:** persistenter Wetter-Cache (data/cache/weather.json, atomar, "stale ok", restart-fest) + In-Memory-Negativ-Cache (2 min pro Quelle, spart 10-s-Timeout pro Render). Reviewer-Blocker (Custom-API-Fallback-Drift "Error" vs. "HTTP <code>") gefixt und durch scharfen Test abgesichert. Hygiene-Nachzug: data/cache/ gitignored + .gitkeep, damit der Runtime-Cache nie versehentlich committet wird. L1✅ L5✅ APPROVE; L3 (Offline-Verhalten auf dem Pi) offen → HIL-Lauf 3.
 
 **Nächste Schritte:**
-1. ✅ E3.7a/b/c gemergt (main 67b03b9), kombinierte Tests grün → push + CI, Branches löschen
+1. ✅ E3.7a/b/c gemergt + docs (main 1148a76), kombinierte Tests grün, **CI grün (success)**, Branches gelöscht
 2. **Aktuelle Version für Kilian aufs Panel** (hardware-validator läuft: Path 1 nativ mit GPIO-Fix, sonst Docker-Rebuild von b061b85) — dann Kilians Panel-A/B (E1.6) in separater Session
 3. **E2.5a native-GPIO-Fix (P0)** — setup.sh: lgpio bauen bzw. Pin-Factory erzwingen; L3 = nativer Bring-up auf dem Pi (schaltet zugleich E2.5 + native RAM-Messung E5.6 frei)
 4. E4-Datenquellen (P1): Widget-Registry, CalDAV (URL-basiert, kein Key), neue Widgets — Google-OAuth braucht Kilians Keyed-API-Entscheid; E3.7 Rest-Feinschliff
