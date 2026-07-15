@@ -776,5 +776,247 @@ class TestMainLoop(unittest.TestCase):
         mock_heartbeat.assert_not_called()
 
 
+class TestClientTokenConfig(unittest.TestCase):
+    """E5.1 AC10: config.CLIENT_TOKEN default value and env override."""
+
+    def tearDown(self):
+        # Restore module state from the real environment after reload tests.
+        import config
+        importlib.reload(config)
+
+    def test_client_token_default_empty(self):
+        """Without EINK_CLIENT_TOKEN the token defaults to empty string."""
+        import config
+        with patch.dict(os.environ):
+            os.environ.pop("EINK_CLIENT_TOKEN", None)
+            importlib.reload(config)
+            self.assertEqual(config.CLIENT_TOKEN, "")
+
+    def test_client_token_env_override(self):
+        """EINK_CLIENT_TOKEN overrides the default after module reload."""
+        import config
+        with patch.dict(os.environ, {"EINK_CLIENT_TOKEN": "deadbeef01"}):
+            importlib.reload(config)
+            self.assertEqual(config.CLIENT_TOKEN, "deadbeef01")
+
+
+class TestClientTokenAuth(unittest.TestCase):
+    """E5.1 AC10: X-Client-Token header on all four server calls + 401 handling."""
+
+    TOKEN = "test-token-0123456789abcdef"
+
+    def setUp(self):
+        import client
+        import config
+        self.client = client
+        self.config = config
+        client._auth_error_logged = False
+        self.addCleanup(setattr, client, "_auth_error_logged", False)
+
+    def _patch_config(self, token):
+        for name, value in (("CLIENT_TOKEN", token),
+                            ("SERVER_URL", "http://localhost:5000")):
+            patcher = patch.object(self.config, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _wire_exceptions(mock_requests):
+        """Give the requests mock real exception classes for except clauses."""
+        import requests as real_requests
+        mock_requests.ConnectionError = real_requests.ConnectionError
+        mock_requests.HTTPError = real_requests.HTTPError
+
+    def _mock_response(self, status_code=200, json_data=None):
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.ok = status_code < 400
+        resp.json.return_value = json_data if json_data is not None else {}
+        resp.content = make_test_png()
+        if status_code >= 400:
+            import requests as real_requests
+            resp.raise_for_status.side_effect = real_requests.HTTPError(
+                f"{status_code} Client Error"
+            )
+        else:
+            resp.raise_for_status = MagicMock()
+        return resp
+
+    def _call_all_four(self):
+        """Hit all four server endpoints once."""
+        self.client.fetch_display_config()
+        self.client.fetch_preview()
+        self.client.check_should_refresh()
+        self.client.send_heartbeat()
+
+    @patch("client.load_display_driver")
+    @patch("client.requests")
+    def test_header_sent_on_all_four_calls(self, mock_requests, mock_load):
+        """With a configured token every call carries X-Client-Token."""
+        self._patch_config(self.TOKEN)
+        self._wire_exceptions(mock_requests)
+        mock_requests.get.return_value = self._mock_response(
+            json_data={"display": {}, "should_refresh": False}
+        )
+        mock_requests.post.return_value = self._mock_response()
+
+        self._call_all_four()
+
+        get_calls = mock_requests.get.call_args_list
+        self.assertEqual(len(get_calls), 3)
+        get_urls = [call.args[0] for call in get_calls]
+        self.assertIn("http://localhost:5000/settings", get_urls)
+        self.assertIn("http://localhost:5000/preview", get_urls)
+        self.assertIn("http://localhost:5000/api/refresh_status", get_urls)
+        for call in get_calls:
+            self.assertEqual(
+                call.kwargs["headers"], {"X-Client-Token": self.TOKEN}
+            )
+
+        post_call = mock_requests.post.call_args
+        self.assertIn("/api/client_heartbeat", post_call.args[0])
+        self.assertEqual(
+            post_call.kwargs["headers"], {"X-Client-Token": self.TOKEN}
+        )
+
+    @patch("client.load_display_driver")
+    @patch("client.requests")
+    def test_no_header_with_empty_token(self, mock_requests, mock_load):
+        """Empty token = no X-Client-Token header (today's behavior)."""
+        self._patch_config("")
+        self._wire_exceptions(mock_requests)
+        mock_requests.get.return_value = self._mock_response(
+            json_data={"display": {}, "should_refresh": False}
+        )
+        mock_requests.post.return_value = self._mock_response()
+
+        self._call_all_four()
+
+        all_calls = mock_requests.get.call_args_list + mock_requests.post.call_args_list
+        self.assertEqual(len(all_calls), 4)
+        for call in all_calls:
+            headers = call.kwargs.get("headers") or {}
+            self.assertNotIn("X-Client-Token", headers)
+
+    @patch("client.requests")
+    def test_401_logs_error_once_no_crash(self, mock_requests):
+        """401 logs one clear EINK_CLIENT_TOKEN hint, calls keep returning safely."""
+        self._patch_config(self.TOKEN)
+        self._wire_exceptions(mock_requests)
+        mock_requests.get.return_value = self._mock_response(status_code=401)
+        mock_requests.post.return_value = self._mock_response(status_code=401)
+
+        with self.assertLogs("eink-client", level="DEBUG") as logs:
+            # Simulated poll loop: repeated polls plus the other endpoints.
+            self.assertFalse(self.client.check_should_refresh())
+            self.assertFalse(self.client.check_should_refresh())
+            self.assertFalse(self.client.check_should_refresh())
+            self.assertEqual(self.client.fetch_display_config(), {})
+            self.assertIsNone(self.client.fetch_preview())
+            self.client.send_heartbeat()  # must not raise
+
+        auth_errors = [
+            r for r in logs.records
+            if r.levelno == logging.ERROR and "EINK_CLIENT_TOKEN" in r.getMessage()
+        ]
+        self.assertEqual(
+            len(auth_errors), 1,
+            f"expected exactly one auth error log, got: {logs.output}",
+        )
+        message = auth_errors[0].getMessage()
+        self.assertIn("401", message)
+        self.assertIn(".env", message)
+
+    @patch("client.requests")
+    def test_401_logged_again_after_recovery(self, mock_requests):
+        """The hint fires once per state change: 401 -> ok -> 401 logs twice."""
+        self._patch_config(self.TOKEN)
+        self._wire_exceptions(mock_requests)
+        ok_resp = self._mock_response(json_data={"should_refresh": False})
+        bad_resp = self._mock_response(status_code=401)
+
+        with self.assertLogs("eink-client", level="DEBUG") as logs:
+            mock_requests.get.return_value = bad_resp
+            self.client.check_should_refresh()
+            self.client.check_should_refresh()
+            mock_requests.get.return_value = ok_resp
+            self.client.check_should_refresh()
+            mock_requests.get.return_value = bad_resp
+            self.client.check_should_refresh()
+
+        auth_errors = [
+            r for r in logs.records
+            if r.levelno == logging.ERROR and "EINK_CLIENT_TOKEN" in r.getMessage()
+        ]
+        self.assertEqual(len(auth_errors), 2, f"got: {logs.output}")
+
+    @patch("client.cleanup")
+    @patch("client.load_display_driver")
+    @patch("client.requests")
+    @patch("client.signal")
+    @patch("client.time")
+    def test_main_loop_survives_401(self, mock_time, mock_signal, mock_requests,
+                                    mock_load, mock_cleanup):
+        """Main loop keeps polling through persistent 401 responses."""
+        import requests as real_requests
+        self._patch_config(self.TOKEN)
+        poll_patcher = patch.object(self.config, "POLL_INTERVAL", 2)
+        poll_patcher.start()
+        self.addCleanup(poll_patcher.stop)
+
+        mock_requests.get.return_value = self._mock_response(status_code=401)
+        mock_requests.post.return_value = self._mock_response(status_code=401)
+        mock_requests.ConnectionError = real_requests.ConnectionError
+
+        # Exit after two full poll rounds (POLL_INTERVAL=2 -> 2 sleeps/round).
+        call_count = [0]
+
+        def fake_sleep(seconds):
+            call_count[0] += 1
+            if call_count[0] >= 5:
+                raise KeyboardInterrupt()
+
+        mock_time.sleep.side_effect = fake_sleep
+        mock_time.strftime = time.strftime
+        mock_time.gmtime = time.gmtime
+
+        with self.assertLogs("eink-client", level="DEBUG") as logs:
+            try:
+                self.client.main()
+            except KeyboardInterrupt:
+                pass
+
+        # Startup (settings + preview) plus two refresh_status polls: the
+        # loop kept running after the first 401 instead of crashing.
+        get_urls = [call.args[0] for call in mock_requests.get.call_args_list]
+        self.assertEqual(
+            len([u for u in get_urls if u.endswith("/api/refresh_status")]), 2
+        )
+        auth_errors = [
+            r for r in logs.records
+            if r.levelno == logging.ERROR and "EINK_CLIENT_TOKEN" in r.getMessage()
+        ]
+        self.assertEqual(
+            len(auth_errors), 1,
+            f"expected exactly one auth error log, got: {logs.output}",
+        )
+
+    @patch("client.load_display_driver")
+    @patch("client.requests")
+    def test_token_value_never_logged(self, mock_requests, mock_load):
+        """Secrets hygiene: the token value must not appear in any log record."""
+        secret = "super-secret-token-value-a1b2c3d4"
+        self._patch_config(secret)
+        self._wire_exceptions(mock_requests)
+        mock_requests.get.return_value = self._mock_response(status_code=401)
+        mock_requests.post.return_value = self._mock_response(status_code=401)
+
+        with self.assertLogs("eink-client", level="DEBUG") as logs:
+            self._call_all_four()
+
+        for record in logs.records:
+            self.assertNotIn(secret, record.getMessage())
+
+
 if __name__ == "__main__":
     unittest.main()
