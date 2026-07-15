@@ -12,6 +12,9 @@
     <link rel="stylesheet" href="/static/css/responsive.css">
 </head>
 <body>
+    <!-- Auth banner (E5.1, filled by auth.js while no admin password is set) -->
+    <div id="auth-banner-container"></div>
+
     <!-- TOP BAR -->
     <header class="topbar">
         <div class="topbar-left">
@@ -45,6 +48,9 @@
             <button id="refresh-now-btn" class="btn-secondary" title="Refresh E-Ink Display">Refresh Display</button>
             <button id="preview-btn" class="btn-secondary">Preview</button>
             <button id="history-btn" title="Version History">History</button>
+            <button id="logout-btn" title="Logout" aria-label="Logout" style="display:none;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg><span class="logout-label">Logout</span>
+            </button>
             <button id="save-btn" class="btn-primary">Save</button>
             <button id="activate-btn" class="btn-secondary" title="Set as active display design">Set Active</button>
             <button id="settings-btn" title="Settings">Settings</button>
@@ -430,6 +436,8 @@
     <div id="notification-container"></div>
 
     <!-- SCRIPTS -->
+    <!-- auth.js must load first: it installs the global 401 interceptor -->
+    <script src="/static/js/auth.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <script src="/static/js/theme.js"></script>
     <script src="/static/js/history.js"></script>

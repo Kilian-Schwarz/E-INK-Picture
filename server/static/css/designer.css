@@ -465,6 +465,81 @@ select:focus {
     border-left: 3px solid var(--accent);
 }
 
+/* Auth Banner + Setup Dialog (E5.1) */
+.auth-banner {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 6px 12px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    border-left: 3px solid var(--warning);
+    font-size: 12px;
+}
+
+.auth-banner-text {
+    flex: 1;
+    min-width: 200px;
+    color: var(--text-secondary);
+}
+
+.auth-banner .btn-primary {
+    padding: 4px 10px;
+}
+
+.auth-banner-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: 4px;
+}
+
+.auth-banner-close:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.auth-setup-content {
+    width: 360px;
+    max-width: calc(100vw - 32px);
+}
+
+.auth-setup-error {
+    display: none;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--danger);
+}
+
+/* Logout: compact icon-only button in the topbar (right after Save); the
+   text label only shows once the button is reparented into the burger menu
+   (whose #topbar-menu > button rule overrides the flex display). */
+#logout-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 7px;
+}
+
+#logout-btn svg {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    vertical-align: -2px;
+}
+
+#logout-btn .logout-label {
+    display: none;
+}
+
+#topbar-menu #logout-btn .logout-label {
+    display: inline;
+    margin-left: 8px;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
     width: 6px;

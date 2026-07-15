@@ -10,13 +10,13 @@ const ResponsiveLayout = {
         '#new-design-btn', '#clone-design-btn', '#delete-design-btn',
         '#undo-btn', '#redo-btn', '.zoom-controls',
         '#refresh-now-btn', '#preview-btn', '#history-btn',
-        '#activate-btn', '#settings-btn', '#theme-toggle',
+        '#logout-btn', '#activate-btn', '#settings-btn', '#theme-toggle',
     ],
     // Tablet keeps undo/redo/zoom in the topbar
     MENU_SELECTORS_TABLET: [
         '#new-design-btn', '#clone-design-btn', '#delete-design-btn',
         '#refresh-now-btn', '#preview-btn', '#history-btn',
-        '#activate-btn', '#settings-btn', '#theme-toggle',
+        '#logout-btn', '#activate-btn', '#settings-btn', '#theme-toggle',
     ],
 
     mqMobile: null,
