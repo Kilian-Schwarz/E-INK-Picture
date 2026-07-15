@@ -1,0 +1,63 @@
+{
+  "name": "Minimal Clock",
+  "version": 2,
+  "canvas": {
+    "width": 800,
+    "height": 480,
+    "background": "#FFFFFF"
+  },
+  "elements": [
+    {
+      "id": "tpl_minimal-clock_1",
+      "type": "widget_clock",
+      "x": 100,
+      "y": 112,
+      "width": 600,
+      "height": 172,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "digital_large",
+        "fontSize": 140,
+        "color": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "tpl_minimal-clock_2",
+      "type": "shape",
+      "x": 368,
+      "y": 308,
+      "width": 64,
+      "height": 2,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#000000",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 0
+      }
+    },
+    {
+      "id": "tpl_minimal-clock_3",
+      "type": "widget_clock",
+      "x": 100,
+      "y": 334,
+      "width": 600,
+      "height": 38,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "custom",
+        "customTemplate": "%WEEKDAY%, %dd%. %MONTH_NAME% %yyyy%",
+        "fontSize": 24,
+        "color": "#000000",
+        "textAlign": "center"
+      }
+    }
+  ]
+}

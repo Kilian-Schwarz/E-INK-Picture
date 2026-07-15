@@ -363,6 +363,24 @@
     margin-bottom: 12px;
 }
 
+/* Template Gallery (E3.5) */
+.templates-section {
+    margin-bottom: 32px;
+}
+
+.templates-section h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.design-card-badge.setup-badge {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+}
+
 .designs-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

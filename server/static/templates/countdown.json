@@ -1,0 +1,84 @@
+{
+  "name": "Countdown",
+  "version": 2,
+  "canvas": {
+    "width": 800,
+    "height": 480,
+    "background": "#FFFFFF"
+  },
+  "elements": [
+    {
+      "id": "tpl_countdown_1",
+      "type": "shape",
+      "x": 60,
+      "y": 110,
+      "width": 680,
+      "height": 240,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#FFFF00",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 24
+      }
+    },
+    {
+      "id": "tpl_countdown_2",
+      "type": "text",
+      "x": 100,
+      "y": 154,
+      "width": 600,
+      "height": 38,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "text": "SILVESTER",
+        "fontSize": 28,
+        "fontWeight": "bold",
+        "color": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "tpl_countdown_3",
+      "type": "widget_timer",
+      "x": 76,
+      "y": 210,
+      "width": 648,
+      "height": 72,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "custom",
+        "customTemplate": "%days% Tage %hours%:%minutes%:%seconds%",
+        "targetDate": "__NEXT_NEW_YEAR__",
+        "finishedText": "Frohes neues Jahr!",
+        "fontSize": 56,
+        "color": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "tpl_countdown_4",
+      "type": "widget_clock",
+      "x": 100,
+      "y": 402,
+      "width": 600,
+      "height": 26,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "custom",
+        "customTemplate": "%WEEKDAY%, %dd%.%mm%.%yyyy%",
+        "fontSize": 16,
+        "color": "#000000",
+        "textAlign": "center"
+      }
+    }
+  ]
+}

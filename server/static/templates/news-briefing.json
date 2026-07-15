@@ -1,0 +1,136 @@
+{
+  "name": "News Briefing",
+  "version": 2,
+  "canvas": {
+    "width": 800,
+    "height": 480,
+    "background": "#FFFFFF"
+  },
+  "elements": [
+    {
+      "id": "tpl_news-briefing_1",
+      "type": "shape",
+      "x": 24,
+      "y": 30,
+      "width": 56,
+      "height": 10,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#FF0000",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 0
+      }
+    },
+    {
+      "id": "tpl_news-briefing_2",
+      "type": "text",
+      "x": 24,
+      "y": 50,
+      "width": 320,
+      "height": 48,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "text": "BRIEFING",
+        "fontSize": 36,
+        "fontWeight": "bold",
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_news-briefing_3",
+      "type": "widget_clock",
+      "x": 368,
+      "y": 68,
+      "width": 416,
+      "height": 26,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "full",
+        "fontSize": 16,
+        "color": "#000000",
+        "textAlign": "right"
+      }
+    },
+    {
+      "id": "tpl_news-briefing_4",
+      "type": "shape",
+      "x": 24,
+      "y": 112,
+      "width": 752,
+      "height": 2,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#000000",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 0
+      }
+    },
+    {
+      "id": "tpl_news-briefing_5",
+      "type": "widget_news",
+      "x": 16,
+      "y": 136,
+      "width": 768,
+      "height": 276,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "headlines",
+        "feedUrl": "https://www.tagesschau.de/xml/rss2",
+        "maxItems": 5,
+        "showDescription": false,
+        "fontSize": 22,
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_news-briefing_6",
+      "type": "shape",
+      "x": 24,
+      "y": 424,
+      "width": 752,
+      "height": 2,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#000000",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 0
+      }
+    },
+    {
+      "id": "tpl_news-briefing_7",
+      "type": "widget_weather",
+      "x": 16,
+      "y": 434,
+      "width": 480,
+      "height": 28,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "compact",
+        "latitude": "52.52",
+        "longitude": "13.41",
+        "fontSize": 16,
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    }
+  ]
+}

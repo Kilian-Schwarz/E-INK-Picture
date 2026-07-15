@@ -1,0 +1,178 @@
+{
+  "name": "Weather Dashboard",
+  "version": 2,
+  "canvas": {
+    "width": 800,
+    "height": 480,
+    "background": "#FFFFFF"
+  },
+  "elements": [
+    {
+      "id": "tpl_weather-dashboard_1",
+      "type": "text",
+      "x": 24,
+      "y": 26,
+      "width": 300,
+      "height": 42,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "text": "BERLIN",
+        "fontSize": 30,
+        "fontWeight": "bold",
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_weather-dashboard_2",
+      "type": "widget_clock",
+      "x": 368,
+      "y": 36,
+      "width": 416,
+      "height": 30,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "full",
+        "fontSize": 20,
+        "color": "#000000",
+        "textAlign": "right"
+      }
+    },
+    {
+      "id": "tpl_weather-dashboard_3",
+      "type": "shape",
+      "x": 24,
+      "y": 84,
+      "width": 752,
+      "height": 3,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#0000FF",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 0
+      }
+    },
+    {
+      "id": "tpl_weather-dashboard_4",
+      "type": "widget_weather",
+      "x": 16,
+      "y": 150,
+      "width": 392,
+      "height": 122,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "custom",
+        "customTemplate": "%temperature%°",
+        "latitude": "52.52",
+        "longitude": "13.41",
+        "fontSize": 96,
+        "color": "#0000FF",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_weather-dashboard_5",
+      "type": "widget_weather",
+      "x": 16,
+      "y": 284,
+      "width": 392,
+      "height": 44,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "custom",
+        "customTemplate": "%description%",
+        "latitude": "52.52",
+        "longitude": "13.41",
+        "fontSize": 30,
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_weather-dashboard_6",
+      "type": "widget_weather",
+      "x": 16,
+      "y": 340,
+      "width": 392,
+      "height": 30,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "custom",
+        "customTemplate": "Max %temp_max%°  ·  Min %temp_min%°",
+        "latitude": "52.52",
+        "longitude": "13.41",
+        "fontSize": 20,
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_weather-dashboard_7",
+      "type": "shape",
+      "x": 420,
+      "y": 150,
+      "width": 3,
+      "height": 220,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#0000FF",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 0
+      }
+    },
+    {
+      "id": "tpl_weather-dashboard_8",
+      "type": "text",
+      "x": 452,
+      "y": 158,
+      "width": 324,
+      "height": 26,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "text": "3-TAGE-VORHERSAGE",
+        "fontSize": 20,
+        "fontWeight": "bold",
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_weather-dashboard_9",
+      "type": "widget_forecast",
+      "x": 444,
+      "y": 196,
+      "width": 340,
+      "height": 174,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "detailed_list",
+        "days": 3,
+        "latitude": "52.52",
+        "longitude": "13.41",
+        "fontSize": 20,
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    }
+  ]
+}

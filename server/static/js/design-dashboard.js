@@ -8,6 +8,9 @@ var DesignDashboard = {
         this.isOpen = true;
         var overlay = document.getElementById('dashboard-overlay');
         if (overlay) overlay.classList.add('visible');
+        // Template gallery loads/resumes its preview queue alongside the
+        // design list (E3.5); not awaited so designs render immediately.
+        if (window.TemplateGallery) TemplateGallery.ensureLoaded();
         await this.loadDesigns();
     },
 

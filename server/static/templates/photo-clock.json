@@ -1,0 +1,129 @@
+{
+  "name": "Photo + Clock",
+  "version": 2,
+  "canvas": {
+    "width": 800,
+    "height": 480,
+    "background": "#FFFFFF"
+  },
+  "elements": [
+    {
+      "id": "tpl_photo-clock_1",
+      "type": "shape",
+      "x": 24,
+      "y": 24,
+      "width": 752,
+      "height": 432,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#FFFFFF",
+        "stroke": "#000000",
+        "strokeWidth": 4,
+        "rx": 0
+      }
+    },
+    {
+      "id": "tpl_photo-clock_2",
+      "type": "text",
+      "x": 100,
+      "y": 196,
+      "width": 600,
+      "height": 40,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "text": "Replace with your photo",
+        "fontSize": 28,
+        "fontWeight": "bold",
+        "color": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "tpl_photo-clock_3",
+      "type": "text",
+      "x": 100,
+      "y": 244,
+      "width": 600,
+      "height": 30,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "text": "Add a photo in the Media Library, then use this template again",
+        "fontSize": 18,
+        "color": "#000000",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "tpl_photo-clock_4",
+      "type": "image",
+      "x": 0,
+      "y": 0,
+      "width": 800,
+      "height": 480,
+      "rotation": 0,
+      "zIndex": 3,
+      "visible": true,
+      "properties": {
+        "image": "",
+        "templateSlot": "photo"
+      }
+    },
+    {
+      "id": "tpl_photo-clock_5",
+      "type": "shape",
+      "x": 24,
+      "y": 352,
+      "width": 324,
+      "height": 104,
+      "rotation": 0,
+      "zIndex": 4,
+      "visible": true,
+      "properties": {
+        "fill": "#000000",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 14
+      }
+    },
+    {
+      "id": "tpl_photo-clock_6",
+      "type": "widget_clock",
+      "x": 36,
+      "y": 358,
+      "width": 300,
+      "height": 64,
+      "rotation": 0,
+      "zIndex": 5,
+      "visible": true,
+      "properties": {
+        "layout": "digital_large",
+        "fontSize": 48,
+        "color": "#FFFFFF",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "tpl_photo-clock_7",
+      "type": "widget_clock",
+      "x": 36,
+      "y": 422,
+      "width": 300,
+      "height": 28,
+      "rotation": 0,
+      "zIndex": 5,
+      "visible": true,
+      "properties": {
+        "layout": "date_only",
+        "fontSize": 18,
+        "color": "#FFFFFF",
+        "textAlign": "center"
+      }
+    }
+  ]
+}

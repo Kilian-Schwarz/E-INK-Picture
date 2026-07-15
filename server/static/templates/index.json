@@ -1,0 +1,66 @@
+{
+  "templates": [
+    {
+      "id": "weather-dashboard",
+      "name": "Weather Dashboard",
+      "description": "Current conditions with 3-day forecast",
+      "file": "weather-dashboard.json",
+      "setup": []
+    },
+    {
+      "id": "family-calendar",
+      "name": "Family Calendar",
+      "description": "Week agenda beside a bold today tile",
+      "file": "family-calendar.json",
+      "setup": [
+        "Calendar ICS URL"
+      ]
+    },
+    {
+      "id": "photo-clock",
+      "name": "Photo + Clock",
+      "description": "Full-screen photo with clock overlay",
+      "file": "photo-clock.json",
+      "setup": [
+        "Your photo"
+      ]
+    },
+    {
+      "id": "week-planner",
+      "name": "Week Planner",
+      "description": "7-day agenda with the weather outlook",
+      "file": "week-planner.json",
+      "setup": [
+        "Calendar ICS URL"
+      ]
+    },
+    {
+      "id": "news-briefing",
+      "name": "News Briefing",
+      "description": "Headlines from tagesschau.de (feed URL is replaceable) with a weather footer",
+      "file": "news-briefing.json",
+      "setup": []
+    },
+    {
+      "id": "minimal-clock",
+      "name": "Minimal Clock",
+      "description": "Just the time, beautifully typeset",
+      "file": "minimal-clock.json",
+      "setup": []
+    },
+    {
+      "id": "countdown",
+      "name": "Countdown",
+      "description": "Days until New Year's Eve — retarget to any date",
+      "file": "countdown.json",
+      "setup": []
+    },
+    {
+      "id": "system-status",
+      "name": "System Monitor",
+      "description": "CPU, memory and temperature at a glance",
+      "file": "system-status.json",
+      "setup": []
+    }
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "name": "Week Planner",
+  "version": 2,
+  "canvas": {
+    "width": 800,
+    "height": 480,
+    "background": "#FFFFFF"
+  },
+  "elements": [
+    {
+      "id": "tpl_week-planner_1",
+      "type": "text",
+      "x": 24,
+      "y": 26,
+      "width": 420,
+      "height": 44,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "text": "WOCHENPLAN",
+        "fontSize": 32,
+        "fontWeight": "bold",
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_week-planner_2",
+      "type": "widget_clock",
+      "x": 368,
+      "y": 42,
+      "width": 416,
+      "height": 28,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "full",
+        "fontSize": 16,
+        "color": "#000000",
+        "textAlign": "right"
+      }
+    },
+    {
+      "id": "tpl_week-planner_3",
+      "type": "shape",
+      "x": 24,
+      "y": 84,
+      "width": 752,
+      "height": 4,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#00FF00",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 0
+      }
+    },
+    {
+      "id": "tpl_week-planner_4",
+      "type": "text",
+      "x": 24,
+      "y": 116,
+      "width": 200,
+      "height": 28,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "text": "TERMINE",
+        "fontSize": 20,
+        "fontWeight": "bold",
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_week-planner_5",
+      "type": "widget_calendar",
+      "x": 16,
+      "y": 152,
+      "width": 504,
+      "height": 296,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "agenda",
+        "icalUrl": "",
+        "maxEvents": 8,
+        "daysAhead": 7,
+        "fontSize": 16,
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_week-planner_6",
+      "type": "shape",
+      "x": 544,
+      "y": 116,
+      "width": 3,
+      "height": 332,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#00FF00",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 0
+      }
+    },
+    {
+      "id": "tpl_week-planner_7",
+      "type": "text",
+      "x": 572,
+      "y": 116,
+      "width": 204,
+      "height": 28,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "text": "WETTER",
+        "fontSize": 20,
+        "fontWeight": "bold",
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_week-planner_8",
+      "type": "widget_forecast",
+      "x": 564,
+      "y": 152,
+      "width": 212,
+      "height": 248,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "compact_row",
+        "days": 7,
+        "latitude": "52.52",
+        "longitude": "13.41",
+        "fontSize": 16,
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    }
+  ]
+}

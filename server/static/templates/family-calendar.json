@@ -1,0 +1,154 @@
+{
+  "name": "Family Calendar",
+  "version": 2,
+  "canvas": {
+    "width": 800,
+    "height": 480,
+    "background": "#FFFFFF"
+  },
+  "elements": [
+    {
+      "id": "tpl_family-calendar_1",
+      "type": "text",
+      "x": 24,
+      "y": 28,
+      "width": 440,
+      "height": 38,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "text": "FAMILIENKALENDER",
+        "fontSize": 28,
+        "fontWeight": "bold",
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_family-calendar_2",
+      "type": "shape",
+      "x": 24,
+      "y": 78,
+      "width": 752,
+      "height": 3,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#FF0000",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 0
+      }
+    },
+    {
+      "id": "tpl_family-calendar_3",
+      "type": "widget_calendar",
+      "x": 16,
+      "y": 102,
+      "width": 496,
+      "height": 346,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "layout": "agenda",
+        "icalUrl": "",
+        "maxEvents": 8,
+        "daysAhead": 7,
+        "fontSize": 16,
+        "color": "#000000",
+        "textAlign": "left"
+      }
+    },
+    {
+      "id": "tpl_family-calendar_4",
+      "type": "shape",
+      "x": 536,
+      "y": 102,
+      "width": 240,
+      "height": 306,
+      "rotation": 0,
+      "zIndex": 1,
+      "visible": true,
+      "properties": {
+        "fill": "#FF0000",
+        "stroke": "transparent",
+        "strokeWidth": 0,
+        "rx": 16
+      }
+    },
+    {
+      "id": "tpl_family-calendar_5",
+      "type": "widget_clock",
+      "x": 552,
+      "y": 142,
+      "width": 208,
+      "height": 38,
+      "rotation": 0,
+      "zIndex": 3,
+      "visible": true,
+      "properties": {
+        "layout": "custom",
+        "customTemplate": "%WEEKDAY%",
+        "fontSize": 28,
+        "color": "#FFFFFF",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "tpl_family-calendar_6",
+      "type": "widget_clock",
+      "x": 552,
+      "y": 190,
+      "width": 208,
+      "height": 120,
+      "rotation": 0,
+      "zIndex": 3,
+      "visible": true,
+      "properties": {
+        "layout": "custom",
+        "customTemplate": "%dd%",
+        "fontSize": 96,
+        "color": "#FFFFFF",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "tpl_family-calendar_7",
+      "type": "widget_clock",
+      "x": 552,
+      "y": 312,
+      "width": 208,
+      "height": 38,
+      "rotation": 0,
+      "zIndex": 3,
+      "visible": true,
+      "properties": {
+        "layout": "custom",
+        "customTemplate": "%MONTH_NAME%",
+        "fontSize": 28,
+        "color": "#FFFFFF",
+        "textAlign": "center"
+      }
+    },
+    {
+      "id": "tpl_family-calendar_8",
+      "type": "text",
+      "x": 536,
+      "y": 424,
+      "width": 240,
+      "height": 24,
+      "rotation": 0,
+      "zIndex": 2,
+      "visible": true,
+      "properties": {
+        "text": "Nächste 7 Tage",
+        "fontSize": 16,
+        "color": "#000000",
+        "textAlign": "center"
+      }
+    }
+  ]
+}
