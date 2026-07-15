@@ -5,7 +5,14 @@ Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel
 
 ## Aktueller Stand
 
-E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | E3.1–E3.4 + E3.6 gemergt | E5.1 KOMPLETT (Server + Client + Frontend) + E5.6 gemergt | E6.1 aktiv | Branch: main
+E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | **E3 komplett** (E3.1–E3.6; E3.7-Feinschliff als Backlog) | E5.1 KOMPLETT + E5.6 gemergt | E6.1 aktiv | Branch: main
+
+## HIL-Lauf 2 (2026-07-15, Deploy cd053b4 → 5a093eb, Pi 10.33.0.106)
+
+- **E5.6 L3 PASS***: Server-RSS settled 98,2 → **47,8 MB** (−51 %); GOMEMLIMIT + Semaphore aktiv laut Startup-Log. *Einschränkung: VmHWM unverändert (~109 MB) — Peak kommt aus dem Bild-Element-Resize-Pfad (dokumentiertes E5.6-Non-Goal) → Backlog „Bild-Element-Puffer-Diät". Das native 25-MB-Ziel bleibt für den Nativ-Betrieb zu messen (E2.5).
+- **E1.6 L3 (technisch) PASS**: Kalibriertes Dithering nachweislich auf dem Panel (Artefakt pixel-identisch zur Server-Preview, exakt 6 Farben). Visuell: Foto drastisch ruhiger, Hauttöne warm, Schwarz entschieden. **Kilians A/B am physischen Panel bleibt das finale Urteil.**
+- **E5.1-Übergang PASS**: Ohne Passwort alles offen wie vorher, 0×401 beim Client, stündliche Warn-Erinnerung wie designt.
+- Keine Regressionen: Panel-Write 19,9 s, 333 Requests alle 2xx, 2 Panel-Refreshes gesamt (beide autonom). Evidenz: artifacts/hil-2/.
 
 ## E3.7-Backlog (Feinschliff, gesammelt aus Verifikationen)
 
@@ -16,6 +23,7 @@ E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | E3.1–E3.4 + E3.6 gemer
 - Resize-Snap an Guides (bewusstes E3.4-Non-Goal, Folgetask-Kandidat).
 - Sprachmix im Renderer: Forecast-Wochentage/Wetterbeschreibungen englisch neben deutschen Datumszeilen (Bestand; Chore: Lokalisierung der Widget-Strings).
 - weather.go:156 holt hart forecast_days=4 — week-planner-Template verspricht 7 Tage (Backend erhöhen oder Template-Beschreibung anpassen).
+- Bild-Element-Puffer-Diät (E5.6-Non-Goal): VmHWM ~109 MB kommt aus dem Image-Resize-Pfad (Kernel-Temp pro Bild-Element, Worst Case ~150 MB transient bei großen Fotos) — Kandidat für E5-Folgetask, nötig fürs native 25-MB-Ziel bei Foto-Designs.
 
 ## Test-Hardware (Baseline 2026-07-14, hardware-validator)
 
