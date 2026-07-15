@@ -3,9 +3,18 @@
 Manager-geführtes Log für den Weg zu v1.0. Nach jedem Task aktualisiert.
 Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel-Foto | L5 Review.
 
-## Aktueller Stand
+## Aktueller Stand (2026-07-15, nach E5.5-Merge)
 
-E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | **E3 komplett** (E3.1–E3.6; E3.7-Feinschliff als Backlog) | E5.1 KOMPLETT + E5.6 gemergt | E6.1 aktiv | Branch: main
+E1 komplett | E2.1+E2.3 gemergt (E2.5-Hardware-Gate offen, E2.4-Spec fertig — Start wartet auf ersten Release-Tag) | E3 komplett (E3.7-Feinschliff = Backlog) | **E5 software-komplett**: E5.1, E5.2/E5.3, E5.4, E5.5, E5.6 alle gemergt | E6.1+E6.2 gemergt | Branch: **main @ 33059a4** (E5.5), gepusht. Damit ist der **Software-Backlog für v1.0 im Kern durch**; offen sind v0.9.0-RC, E2.4 (braucht Release-Tags), E4-Datenquellen (P1) und die Hardware-/Kilian-Gates.
+
+**E5.5 (Offline-Hardening) gemergt @ 33059a4:** persistenter Wetter-Cache (data/cache/weather.json, atomar, "stale ok", restart-fest) + In-Memory-Negativ-Cache (2 min pro Quelle, spart 10-s-Timeout pro Render). Reviewer-Blocker (Custom-API-Fallback-Drift "Error" vs. "HTTP <code>") gefixt und durch scharfen Test abgesichert. Hygiene-Nachzug: data/cache/ gitignored + .gitkeep, damit der Runtime-Cache nie versehentlich committet wird. L1✅ L5✅ APPROVE; L3 (Offline-Verhalten auf dem Pi) offen → HIL-Lauf 3.
+
+**Nächste Schritte:**
+1. ✅ main gepusht (33059a4), CI-Lauf grün, feat/offline-hardening gelöscht
+2. v0.9.0-RC Kilian vorschlagen (Prozess laut release.yml-Kopfkommentar: CHANGELOG Unreleased → [0.9.0] umbenennen als chore(release)-Commit, dann Tag — NUR nach Kilians Freigabe taggen!)
+3. E2.4 (Self-Update) implementieren — Spec liegt unter specs/E2.4-self-update.md, braucht v0.9.0+v0.9.1 für den echten L3-Beweis
+4. E6.3 (README-Finale mit Screenshots/Panel-Foto — Foto braucht Kilian), E4-Datenquellen (P1), E3.7-Feinschliff
+5. HIL-Lauf 3 wenn sinnvoll gebündelt (bringt E5.2–E5.5 aufs Gerät: Nachtfenster-Probe, Skip-Zählung, Watchdog-chmod-Probe, Recovery-Messung, Offline-Cache-Verhalten)
 
 ## HIL-Lauf 2 (2026-07-15, Deploy cd053b4 → 5a093eb, Pi 10.33.0.106)
 
@@ -80,6 +89,10 @@ E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | **E3 komplett** (E3.1–
 | E5.3 (Server) | Nachtfenster sleep_start/sleep_end (halboffen, Mitternachts-Wrap, fail-open), manueller Trigger durchbricht strukturell, reason-Feld in refresh_status | L1✅ (-race) L5✅ APPROVE (Pfad-Beweis + Grenz-Negativproben); L3 (Fenster-Probe auf Pi) offen | 890d540 |
 | E5.2 (Client) | Content-Skip via SHA-256 der Wire-Bytes (5 konservative Konjunkte, 24h-Guard, Kill-Switch, in-memory); statische Designs ≈ 0 Panel-Zyklen | L1✅ (54 Tests, 2 Schärfe-Negativproben) L5✅ APPROVE (Refactor-Drift-Audit sauber); L3 (Skip-Zählung 1h auf Pi) offen | 76bdbe8 |
 | E2.3 | Erst-Setup-Wizard: 5 Schritte (Display/Standort/Intervall/Passwort/Startdesign), server-seitiges Erscheinen-Kriterium (GET /api/setup/status, Heartbeat-fest), setup_completed-Latch, Galerie-Host-Refactor | L1✅ L2✅ (142 Asserts, Erscheinen-Matrix live) L5✅ APPROVE („produktreifes Onboarding") | 1f0063b |
+| E6.2 (Go) | Versions-Stempel: var version via ldflags, /health liefert version (Rollback-Beweis für E2.4) | L1✅ L5✅ APPROVE | c3a48a6 |
+| E6.2 (CI) | release.yml: Tag → Gate → 4 gestempelte Binaries + sha256sums + install.sh, CHANGELOG-Notes (harter Fail), --verify-tag, Injection-sicher | L1✅ (actionlint, 5 Extraktions-Fälle, Injektions-Probe) L5✅ APPROVE; L2 = erster echter Tag (Manager-Folgeschritt) | f64fb70 |
+| E5.4 | Treiber-Watchdog: Reset statt Crash (nie sleep über kaputten Bus), init==-1 als Fehler, Eskalation nach 3 Fehlzyklen an systemd, Initial-Retry (<2 min Recovery) | L1✅ (68 Tests, 5 Negativproben) L5✅ APPROVE; L3 (HIL) offen | c1313d8 |
+| E5.5 | Offline-Hardening: persistenter Wetter-Cache (data/cache/weather.json, atomar CreateTemp+Rename, ≤1 Write/30min/Ort, fail-open, "stale ok" restart-fest) + In-Memory-Negativ-Cache (2 min/Quelle, Wetter+Forecast teilen 1 Versuch, Hit byte-identisch zum Direktfehler) + gitignore-Hygiene (data/cache/ + .gitkeep) | L1✅ (gofmt/vet/build + Services-Suite inkl. -race) L5: REQUEST_CHANGES (Custom-API-Fallback-Drift "Error" vs "HTTP <code>", Suite war blind) → Fix (exakter Fallback in failureEntry) test-first, Gegenprobe rot → APPROVE; L3 (Offline-Probe Pi) offen → HIL-3 | 33059a4 |
 
 ## Offen / Blockiert
 
