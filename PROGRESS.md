@@ -5,11 +5,17 @@ Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel
 
 ## Aktueller Stand
 
-E1 komplett (L3 E1.2 auf Hardware bestanden) | E3: E3.1+E3.3 gemergt, E3.2 startet | E5.6 + E6.1 gemergt | Branch: main
+E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | E3.1–E3.3 gemergt, E3.4 im Review, E3.6 wartet | E5.1 + E5.6 gemergt | E6.1 aktiv | Branch: main
+
+## Offene Sub-Tasks aus E5.1
+
+- pi-client: X-Client-Token-Header auf den 4 Client-Calls (AC10) — danach HIL-Lauf
+- frontend-designer: static/js/auth.js (401-Interceptor → /login, Logout-Button, No-Password-Banner) + designer.html-Hook
+- Gate L3: bcrypt-Cost-10-Timing auf dem Pi messen (>3 s → Cost 9)
 
 ## Test-Hardware (Baseline 2026-07-14, hardware-validator)
 
-- Host: 10.33.0.121, SSH: ksch@ mit Key ~/.ssh/id_ed25519_10.33.0.121 (BatchMode OK)
+- Host: **10.33.0.106** (seit 2026-07-15; vorher 10.33.0.121 — DHCP, Reservation empfohlen), SSH: ksch@ mit Key ~/.ssh/id_ed25519_10.33.0.121 (Config deckt beide IPs ab; Konnektivität + Identität am 15.07. verifiziert, Container laufen)
 - Pi-Modell: **Raspberry Pi 3 Model B Rev 1.2** (aarch64, Debian 13, 64-bit) — NICHT Pi Zero 2 W; Pi-Zero-Verifikation braucht später separates Gerät
 - Panel: **epd7in3e** (6-Color Spectra 6, 800x480); SPI aktiv (/dev/spidev0.0/0.1)
 - Betriebsart: Docker Compose (e-ink-picture-server-1 healthy + e-ink-picture-client-1), Git-Checkout ~/E-INK-Picture @ main
@@ -51,6 +57,8 @@ E1 komplett (L3 E1.2 auf Hardware bestanden) | E3: E3.1+E3.3 gemergt, E3.2 start
 | E3.3 | Responsive Layout: <768px Bottom-Sheets + Tabbar + Zoom-Fit, 768–1024px Icon-Rails mit Flyouts, Desktop pixelidentisch (0/1.296.000 Pixel Diff) | L1✅ L2✅ PASS (4 Puppeteer-Protokolle, Drag bei offenem Sheet per API-JSON bewiesen) L5✅ APPROVE | 1676857 |
 | E5.6 | Render-Semaphore (Default N=1) + GOMEMLIMIT (64MiB) + Puffer-Diät (TotalAlloc 36,4→11,4 MiB, Goldens byte-identisch) + Font-Race-Fix (Parse-Cache statt Face-Cache) | L1✅ (inkl. -race-Suiten) L5: REQUEST_CHANGES (Reviewer fand echten Font-Race bei N≥2 inkl. Panic) → Fix test-first → APPROVE (Gegenprobe rot, N=4-Stress sauber); L3 (RSS-Messung auf dem Pi) offen | f583c70 |
 | E3.2 | Pinch-Zoom + Two-Finger-Pan (eine Geste, Anker-Drift 0,01 px), Long-Press-Kontextmenü, Touch-Handle-Clamp; Overflow jetzt voll scrollbar (vorbestehender Desktop-Mangel mitbehoben) | L1✅ L2✅ (CDP-2-Punkt-Touch, 22/22+23/23) L5: REQUEST_CHANGES (Spec-Geometrie übersah Flex-Zentrierung → Amendment 1) → Fix → APPROVE | 60354b5 |
+| E2.1+E2.2 | One-Command-Installer: install.sh-Bootstrap + setup.sh komplett neu (headless, Waveshare-Pin + Sparse-Fetch, kein stiller Preview-only, SPI nonint, Idempotenz, --update, Docker-Preflight, --dry-run, 8 Skript-Tests) | L1✅ (shellcheck 0, 8/8, Dry-Run-Matrix mutationsfrei) L5✅ APPROVE (Funktionsverlust-Audit: keiner); L3/E2.5 (frisches OS → Panel) wartet auf Test-Pi-Umstellung | 06e0882 |
+| E5.1 | Auth: Deny-by-default-Guard (55 Routen), bcrypt-Admin-Passwort, Sessions (7d sliding), Client-Token für 4 Endpoints, Rate-Limit, CSRF (Lax+Origin), CORS-Rework, SECRET_KEY entfernt, Token-Generierung in Setup-Skripten, Security-Doku | L1✅ (-race, e2e 32/32) L5✅ Doppel-Review: Code APPROVE (nach AC9-Nacharbeit) + Security nicht blockierend (33 Bypass-Probes gehalten, TOCTOU gefixt); L3 (bcrypt-Timing Pi) offen | 05ae8df |
 
 ## Offen / Blockiert
 
