@@ -10,7 +10,7 @@ E1 komplett | E2.1+E2.3 gemergt (E2.5-Hardware-Gate offen, E2.4-Spec fertig — 
 **E5.5 (Offline-Hardening) gemergt @ 33059a4:** persistenter Wetter-Cache (data/cache/weather.json, atomar, "stale ok", restart-fest) + In-Memory-Negativ-Cache (2 min pro Quelle, spart 10-s-Timeout pro Render). Reviewer-Blocker (Custom-API-Fallback-Drift "Error" vs. "HTTP <code>") gefixt und durch scharfen Test abgesichert. Hygiene-Nachzug: data/cache/ gitignored + .gitkeep, damit der Runtime-Cache nie versehentlich committet wird. L1✅ L5✅ APPROVE; L3 (Offline-Verhalten auf dem Pi) offen → HIL-Lauf 3.
 
 **Nächste Schritte:**
-1. ✅ main gepusht (33059a4), CI-Lauf grün, feat/offline-hardening gelöscht
+1. ✅ main gepusht (34d20f7), CI-Lauf **grün** (success), feat/offline-hardening gelöscht
 2. v0.9.0-RC Kilian vorschlagen (Prozess laut release.yml-Kopfkommentar: CHANGELOG Unreleased → [0.9.0] umbenennen als chore(release)-Commit, dann Tag — NUR nach Kilians Freigabe taggen!)
 3. E2.4 (Self-Update) implementieren — Spec liegt unter specs/E2.4-self-update.md, braucht v0.9.0+v0.9.1 für den echten L3-Beweis
 4. E6.3 (README-Finale mit Screenshots/Panel-Foto — Foto braucht Kilian), E4-Datenquellen (P1), E3.7-Feinschliff
