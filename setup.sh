@@ -38,7 +38,25 @@ WAVESHARE_EPD_SUBDIR="RaspberryPi_JetsonNano/python"
 REQUESTS_CONSTRAINT="requests>=2.31.0,<3"
 PILLOW_CONSTRAINT="Pillow>=10.0.0,<13"
 
-GPIO_PACKAGES=("RPi.GPIO>=0.7.1" "spidev>=3.6" "gpiod>=2.0.2" "gpiozero>=2.0" "lgpio>=0.2")
+# lgpio is handled separately (see install_lgpio), NOT pip-built here: on the
+# target Python (3.13) its sdist needs the swig toolchain and the pip build
+# fails (HIL-3). The distro package python3-lgpio matches the system Python and
+# is exposed to the venv via --system-site-packages.
+GPIO_PACKAGES=("RPi.GPIO>=0.7.1" "spidev>=3.6" "gpiod>=2.0.2" "gpiozero>=2.0")
+RPI_GPIO_CONSTRAINT="RPi.GPIO>=0.7.1"
+
+# Pin factory (gpiozero): on Raspberry Pi OS with kernel >= 6.6 (Bookworm/Trixie)
+# lgpio is the ONLY working factory. The legacy 'native' sysfs factory is gone
+# (OSError [Errno 22]), RPi.GPIO fails edge detection, pigpio needs a daemon —
+# HIL-3 settled this empirically. rpigpio stays only as a documented pre-6.6
+# fallback. See specs/E2.5a-native-gpio-fix.md.
+LGPIO_APT_PACKAGE="python3-lgpio"
+PIN_FACTORY_DEFAULT="lgpio"
+PIN_FACTORY_FALLBACK="rpigpio"
+
+# The pinned waveshareteam/e-Paper package drags in Jetson.GPIO, whose RPi/GPIO
+# shim shadows the real RPi.GPIO (HIL-3). It is removed after the driver install.
+JETSON_GPIO_PACKAGE="Jetson.GPIO"
 
 ESSENTIAL_APT_PACKAGES=(python3 python3-pip python3-venv python3-dev git curl wget
     libopenjp2-7-dev libjpeg-dev zlib1g-dev)
@@ -57,6 +75,7 @@ DRY_RUN=false
 PREVIEW_ONLY=false
 REBOOT_REQUIRED=false
 FAILED_GPIO_PACKAGES=""
+PIN_FACTORY=""
 OS=""
 ARCH=""
 GO_ARCH=""
@@ -172,6 +191,31 @@ is_raspberry_pi() {
     case "$(pi_model)" in
         *"Raspberry Pi"*) return 0 ;;
     esac
+    return 1
+}
+
+kernel_release() {
+    if test_overrides_active && [ -n "${EINK_TEST_KERNEL:-}" ]; then
+        echo "$EINK_TEST_KERNEL"
+    else
+        uname -r
+    fi
+}
+
+# 0 = kernel ($1, e.g. "6.12.47" or "6.12.47-rpt-rpi") is >= 6.6 — the target
+# where lgpio is mandatory (sysfs/native gone). An unparseable version is
+# treated as modern (>= 6.6) so a missing lgpio fails loudly instead of
+# silently selecting a broken factory.
+kernel_ge_66() {
+    local rel="${1:-}" major minor
+    rel="${rel%%-*}"          # strip -rpt-rpi / -v8 suffixes
+    major="${rel%%.*}"
+    minor="${rel#*.}"
+    minor="${minor%%.*}"
+    case "$major" in ''|*[!0-9]*) return 0 ;; esac
+    case "$minor" in ''|*[!0-9]*) minor=0 ;; esac
+    if [ "$major" -gt 6 ]; then return 0; fi
+    if [ "$major" -eq 6 ] && [ "$minor" -ge 6 ]; then return 0; fi
     return 1
 }
 
@@ -440,12 +484,25 @@ build_server() {
 }
 
 # ----- Python venv + core packages -----
+# 0 = pyvenv.cfg ($1) enables system site-packages (needed so the apt-installed
+# python3-lgpio in the system dist-packages is importable inside the venv).
+venv_has_system_site() {
+    grep -Eiq '^[[:space:]]*include-system-site-packages[[:space:]]*=[[:space:]]*true' "$1" 2>/dev/null
+}
+
 setup_venv() {
     if [ -d "$VENV_DIR" ]; then
-        info "Virtual environment already exists (reused)"
-        return 0
+        if [ "$DRY_RUN" = true ] || venv_has_system_site "$VENV_DIR/pyvenv.cfg"; then
+            info "Virtual environment already exists (reused)"
+            return 0
+        fi
+        # An old venv without --system-site-packages cannot see the system
+        # python3-lgpio, so the lgpio pin factory would be unavailable.
+        # Recreate it once so the E2.5a fix applies on update.
+        warn "Recreating venv with --system-site-packages (required for the system lgpio pin factory)"
+        run rm -rf "$VENV_DIR"
     fi
-    run python3 -m venv "$VENV_DIR"
+    run python3 -m venv --system-site-packages "$VENV_DIR"
     run "$VENV_DIR/bin/pip" install --no-cache-dir --upgrade pip setuptools wheel
 }
 
@@ -526,8 +583,112 @@ waveshare_pin_current() {
     [ -f "$1" ] && [ "$(cat "$1" 2>/dev/null)" = "$WAVESHARE_EPD_PIN" ]
 }
 
+# Importing the driver constructs epdconfig's gpiozero objects at import time,
+# so the pin factory must be forced here too — otherwise gpiozero auto-selects
+# the broken 'native' factory on kernel >= 6.6 and the check fails spuriously.
 driver_import_ok() {
-    "$VENV_DIR/bin/python3" -c "from waveshare_epd import ${EINK_DISPLAY_DRIVER:-epd7in3e}" >/dev/null 2>&1
+    GPIOZERO_PIN_FACTORY="${PIN_FACTORY:-$PIN_FACTORY_DEFAULT}" \
+        "$VENV_DIR/bin/python3" -c "from waveshare_epd import ${EINK_DISPLAY_DRIVER:-epd7in3e}" >/dev/null 2>&1
+}
+
+# 0 = the venv python can import lgpio (via the apt python3-lgpio in the
+# system dist-packages, exposed through the --system-site-packages venv).
+lgpio_import_ok() {
+    "$VENV_DIR/bin/python3" -c "import lgpio" >/dev/null 2>&1
+}
+
+# 0 = 'import RPi.GPIO' works AND Jetson.GPIO is no longer installed — the
+# Jetson shim cannot function without it, so this confirms the genuine RPi.GPIO
+# resolves after de-shadowing.
+rpi_gpio_is_genuine() {
+    "$VENV_DIR/bin/python3" -c "import RPi.GPIO" >/dev/null 2>&1 \
+        && ! "$VENV_DIR/bin/pip" show "$JETSON_GPIO_PACKAGE" >/dev/null 2>&1
+}
+
+# Makes lgpio importable in the venv. Preferred: the distro package
+# python3-lgpio (built for the system Python, no swig toolchain), visible via
+# --system-site-packages. Fallback: a source build in the venv, which needs
+# swig (HIL-3: "command 'swig' failed: No such file or directory").
+install_lgpio() {
+    info "Installing lgpio pin factory ($LGPIO_APT_PACKAGE)..."
+    if [ "$DRY_RUN" = true ]; then
+        echo "[DRY-RUN] sudo apt-get install -y $LGPIO_APT_PACKAGE"
+        echo "[DRY-RUN] $VENV_DIR/bin/python3 -c 'import lgpio' (verify importable via --system-site-packages)"
+        return 0
+    fi
+    if ! run sudo apt-get install -y -qq "$LGPIO_APT_PACKAGE"; then
+        warn "apt package $LGPIO_APT_PACKAGE unavailable — trying a source build (needs swig)"
+    fi
+    if lgpio_import_ok; then
+        info "lgpio available via $LGPIO_APT_PACKAGE"
+        return 0
+    fi
+    warn "lgpio not importable from the distro package — building from source"
+    if ! run sudo apt-get install -y -qq swig; then
+        warn "swig install failed — the lgpio source build will likely fail"
+    fi
+    if ! "$VENV_DIR/bin/pip" install --no-cache-dir "lgpio>=0.2"; then
+        warn "lgpio source build failed"
+    fi
+    lgpio_import_ok
+}
+
+# Removes the Jetson.GPIO contamination and restores the genuine RPi.GPIO
+# (uninstalling Jetson.GPIO can take the co-located RPi/GPIO files with it).
+remove_jetson_gpio() {
+    if [ "$DRY_RUN" = true ]; then
+        echo "[DRY-RUN] $VENV_DIR/bin/pip uninstall -y $JETSON_GPIO_PACKAGE (its RPi/GPIO shim shadows real RPi.GPIO)"
+        echo "[DRY-RUN] $VENV_DIR/bin/pip install --no-cache-dir --force-reinstall --no-deps '$RPI_GPIO_CONSTRAINT' (restore genuine RPi.GPIO)"
+        return 0
+    fi
+    if "$VENV_DIR/bin/pip" show "$JETSON_GPIO_PACKAGE" >/dev/null 2>&1; then
+        "$VENV_DIR/bin/pip" uninstall -y "$JETSON_GPIO_PACKAGE" || warn "could not uninstall $JETSON_GPIO_PACKAGE"
+        "$VENV_DIR/bin/pip" install --no-cache-dir --force-reinstall --no-deps "$RPI_GPIO_CONSTRAINT" \
+            || warn "could not reinstall genuine RPi.GPIO"
+        info "Removed $JETSON_GPIO_PACKAGE and restored genuine RPi.GPIO"
+    fi
+    if ! rpi_gpio_is_genuine; then
+        warn "RPi.GPIO not importable/genuine after $JETSON_GPIO_PACKAGE removal"
+    fi
+}
+
+# Pure decision ($1 = lgpio_ok, $2 = kernel_ge_66, both "true"/"false"):
+# echoes the pin factory to use, or "fatal" when lgpio is missing on kernel
+# >= 6.6, where there is no working fallback.
+decide_pin_factory() {
+    if [ "$1" = "true" ]; then
+        echo "$PIN_FACTORY_DEFAULT"
+    elif [ "$2" = "true" ]; then
+        echo "fatal"
+    else
+        echo "$PIN_FACTORY_FALLBACK"
+    fi
+}
+
+# Sets PIN_FACTORY from lgpio availability + kernel version. On a fatal outcome
+# (lgpio missing, kernel >= 6.6) it keeps lgpio so the import gate genuinely
+# tries — and fails loudly — rather than silently using a broken factory.
+select_pin_factory() {
+    local lgpio_ok=false kernel_modern=false decision
+    if [ "$DRY_RUN" = true ] || lgpio_import_ok; then
+        lgpio_ok=true
+    fi
+    if kernel_ge_66 "$(kernel_release)"; then
+        kernel_modern=true
+    fi
+    decision="$(decide_pin_factory "$lgpio_ok" "$kernel_modern")"
+    if [ "$decision" = "fatal" ]; then
+        FAILED_GPIO_PACKAGES="$FAILED_GPIO_PACKAGES $LGPIO_APT_PACKAGE"
+        PIN_FACTORY="$PIN_FACTORY_DEFAULT"
+        warn "lgpio unavailable on kernel >= 6.6 — no working pin factory; the driver gate will refuse (see E2.5a)"
+        return 0
+    fi
+    if [ "$lgpio_ok" != true ]; then
+        FAILED_GPIO_PACKAGES="$FAILED_GPIO_PACKAGES $LGPIO_APT_PACKAGE"
+        warn "lgpio unavailable — falling back to pin factory '$decision' (kernel < 6.6, documented)"
+    fi
+    PIN_FACTORY="$decision"
+    info "Pin factory: $PIN_FACTORY"
 }
 
 # Lean pinned fetch: partial clone of just the python subdir instead of a
@@ -574,21 +735,23 @@ install_waveshare_driver() {
 
 check_driver_import() {
     local driver="${EINK_DISPLAY_DRIVER:-epd7in3e}"
+    local factory="${PIN_FACTORY:-$PIN_FACTORY_DEFAULT}"
     if [ "$DRY_RUN" = true ]; then
-        echo "[DRY-RUN] $VENV_DIR/bin/python3 -c 'from waveshare_epd import $driver' (final import check)"
+        echo "[DRY-RUN] GPIOZERO_PIN_FACTORY=$factory $VENV_DIR/bin/python3 -c 'from waveshare_epd import $driver' (final import check)"
         return 0
     fi
     if [ "$PREVIEW_ONLY" = true ]; then
         return 0
     fi
     if driver_import_ok; then
-        info "Driver import check passed (waveshare_epd.$driver)"
+        info "Driver import check passed (waveshare_epd.$driver, pin factory: $factory)"
         return 0
     fi
-    local detail="final import check 'from waveshare_epd import $driver'"
+    local detail="final import check 'from waveshare_epd import $driver' (pin factory: $factory)"
     if [ -n "$FAILED_GPIO_PACKAGES" ]; then
         detail="$detail; failed GPIO packages:$FAILED_GPIO_PACKAGES"
     fi
+    detail="$detail; on kernel >= 6.6 lgpio ($LGPIO_APT_PACKAGE) is the only working gpiozero factory — see E2.5a"
     apply_driver_policy "$detail"
 }
 
@@ -598,10 +761,14 @@ install_display_stack() {
         info "Not a Raspberry Pi — display driver stack skipped, client will run in PREVIEW-ONLY mode"
         return 0
     fi
+    install_lgpio
     install_gpio_packages
     if ! install_waveshare_driver; then
         apply_driver_policy "Waveshare driver installation (pin $WAVESHARE_EPD_PIN)"
+        return 0
     fi
+    remove_jetson_gpio
+    select_pin_factory
     check_driver_import
 }
 
@@ -626,6 +793,50 @@ create_env_file() {
     fi
     sed 's|DATA_DIR=/app/data|DATA_DIR=./data|' "$SCRIPT_DIR/.env.example" > "$SCRIPT_DIR/.env"
     info ".env created — edit to customize settings"
+}
+
+# ----- GPIOZERO_PIN_FACTORY (E2.5a) -----
+# 0 = env file ($1) has no active GPIOZERO_PIN_FACTORY value yet (a commented
+# example line in .env.example does not count).
+pin_factory_env_needed() {
+    ! grep -Eq '^GPIOZERO_PIN_FACTORY=.+' "$1" 2>/dev/null
+}
+
+# Idempotent: writes GPIOZERO_PIN_FACTORY=$2 into env file $1 (fills an empty
+# line if present, else appends). An existing non-empty value is never
+# overwritten, so a manual user override wins.
+set_pin_factory_env() {
+    local envfile="$1" factory="$2" tmp
+    if ! pin_factory_env_needed "$envfile"; then
+        return 0
+    fi
+    if grep -q '^GPIOZERO_PIN_FACTORY=' "$envfile" 2>/dev/null; then
+        tmp="$(mktemp)"
+        sed "s/^GPIOZERO_PIN_FACTORY=[[:space:]]*$/GPIOZERO_PIN_FACTORY=$factory/" "$envfile" > "$tmp"
+        mv "$tmp" "$envfile"
+    else
+        printf 'GPIOZERO_PIN_FACTORY=%s\n' "$factory" >> "$envfile"
+    fi
+}
+
+# Persists the selected pin factory into .env (both systemd units and the
+# manual ./eink.sh path read it). Skipped in preview-only mode (no panel, so
+# no factory is forced and gpiozero auto-detection stays out of the way).
+configure_pin_factory_env() {
+    local envfile="${1:-$SCRIPT_DIR/.env}" factory="${PIN_FACTORY:-$PIN_FACTORY_DEFAULT}"
+    if [ "$PREVIEW_ONLY" = true ]; then
+        return 0
+    fi
+    if [ "$DRY_RUN" = true ]; then
+        echo "[DRY-RUN] set GPIOZERO_PIN_FACTORY=$factory in .env (client pin factory; lgpio on kernel >= 6.6)"
+        return 0
+    fi
+    if pin_factory_env_needed "$envfile"; then
+        set_pin_factory_env "$envfile" "$factory"
+        info "Pin factory pinned in .env: GPIOZERO_PIN_FACTORY=$factory"
+    else
+        info "GPIOZERO_PIN_FACTORY already set in .env (kept)"
+    fi
 }
 
 # ----- EINK_CLIENT_TOKEN (E5.1 authentication) -----
@@ -795,6 +1006,7 @@ main() {
     install_display_stack
     create_data_dirs
     create_env_file
+    configure_pin_factory_env
     ensure_client_token
     install_logrotate
     run chmod +x "$SCRIPT_DIR/eink.sh"

@@ -57,6 +57,16 @@ curl -fsSL https://raw.githubusercontent.com/Kilian-Schwarz/E-INK-Picture/main/i
 - **Waveshare driver pin:** The e-Paper driver is installed from a pinned
   upstream commit (see `WAVESHARE_EPD_PIN` in `setup.sh`) for reproducible
   installs. Pin bumps are deliberate single commits.
+- **GPIO pin factory (kernel ≥ 6.6):** On current Raspberry Pi OS
+  (Bookworm/Trixie, kernel ≥ 6.6) `lgpio` is the only working gpiozero pin
+  factory — the legacy `native`/sysfs factory is gone and RPi.GPIO edge
+  detection fails. The installer therefore installs the distro package
+  `python3-lgpio` (exposed to the venv via `--system-site-packages`), removes
+  the `Jetson.GPIO` shim that the pinned Waveshare package drags in (it shadows
+  the real `RPi.GPIO`), and pins `GPIOZERO_PIN_FACTORY=lgpio` in `.env`. On an
+  older kernel where `lgpio` is unavailable it falls back to `rpigpio`. If the
+  driver still cannot be imported on Pi hardware the setup aborts with a clear
+  error; use `--allow-preview-only` to continue without a display.
 
 ## Manual Install (alternative)
 

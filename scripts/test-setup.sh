@@ -316,6 +316,168 @@ test_client_token() {
     rm -rf "$tmp"
 }
 
+# ----- E2.5a: pin factory / lgpio -----
+
+test_kernel_detection() {
+    if ! kernel_ge_66 "6.12.47"; then fail "6.12.47 must be >= 6.6"; fi
+    if ! kernel_ge_66 "6.6.0"; then fail "6.6.0 must be >= 6.6"; fi
+    if ! kernel_ge_66 "6.12.47-rpt-rpi-v8"; then fail "suffixed 6.12 release must parse as >= 6.6"; fi
+    if ! kernel_ge_66 "7.0.0"; then fail "7.0.0 must be >= 6.6"; fi
+    if kernel_ge_66 "6.5.0"; then fail "6.5.0 must be < 6.6"; fi
+    if kernel_ge_66 "5.15.0"; then fail "5.15.0 must be < 6.6"; fi
+    if kernel_ge_66 "5.10.103-v7l+"; then fail "5.10 must be < 6.6"; fi
+    # Unparseable version -> treated as modern (fail loud, never pick a broken factory).
+    if ! kernel_ge_66 "weird"; then fail "unparseable version must default to >= 6.6"; fi
+}
+
+test_venv_system_site() {
+    local tmp cfg
+    tmp="$(mktemp -d)"
+    cfg="$tmp/pyvenv.cfg"
+    printf 'home = /usr/bin\ninclude-system-site-packages = false\nversion = 3.13.5\n' > "$cfg"
+    if venv_has_system_site "$cfg"; then
+        fail "include-system-site-packages = false must NOT count as enabled"
+    fi
+    printf 'home = /usr/bin\ninclude-system-site-packages = true\nversion = 3.13.5\n' > "$cfg"
+    if ! venv_has_system_site "$cfg"; then
+        fail "include-system-site-packages = true must count as enabled"
+    fi
+    if venv_has_system_site "$tmp/missing.cfg"; then
+        fail "missing pyvenv.cfg must be treated as not enabled"
+    fi
+    rm -rf "$tmp"
+}
+
+test_pin_factory_selection() {
+    assert_eq "lgpio"   "$(decide_pin_factory true true)"   "lgpio present -> lgpio (kernel>=6.6)"
+    assert_eq "lgpio"   "$(decide_pin_factory true false)"  "lgpio present -> lgpio (old kernel)"
+    assert_eq "fatal"   "$(decide_pin_factory false true)"  "lgpio missing + kernel>=6.6 -> fatal (no fallback)"
+    assert_eq "rpigpio" "$(decide_pin_factory false false)" "lgpio missing + old kernel -> rpigpio fallback"
+
+    # lgpio is no longer pip-built here (handled by install_lgpio via apt).
+    case " ${GPIO_PACKAGES[*]} " in
+        *lgpio*) fail "GPIO_PACKAGES must not contain lgpio (installed via $LGPIO_APT_PACKAGE)" ;;
+    esac
+
+    # lgpio-missing on an OLD kernel: select_pin_factory falls back to rpigpio
+    # and returns without aborting the install.
+    local factory
+    factory="$(
+        lgpio_import_ok() { return 1; }
+        DRY_RUN=false
+        FAILED_GPIO_PACKAGES=""
+        PIN_FACTORY=""
+        EINK_TEST_KERNEL="5.15.0"
+        select_pin_factory >/dev/null 2>&1
+        printf '%s' "$PIN_FACTORY"
+    )"
+    assert_eq "rpigpio" "$factory" "select_pin_factory falls back to rpigpio (lgpio missing, old kernel)"
+
+    # lgpio-missing on kernel >= 6.6: keeps lgpio so the import gate refuses
+    # loudly, but select_pin_factory itself still must not abort.
+    factory="$(
+        lgpio_import_ok() { return 1; }
+        DRY_RUN=false
+        FAILED_GPIO_PACKAGES=""
+        PIN_FACTORY=""
+        EINK_TEST_KERNEL="6.12.47"
+        select_pin_factory >/dev/null 2>&1
+        printf '%s' "$PIN_FACTORY"
+    )"
+    assert_eq "lgpio" "$factory" "select_pin_factory keeps lgpio on kernel>=6.6 (gate refuses later)"
+}
+
+test_pin_factory_env() {
+    local tmp env first
+    tmp="$(mktemp -d)"
+    env="$tmp/.env"
+
+    # Missing line -> needed; appended exactly once, other lines untouched.
+    printf 'PORT=5000\n' > "$env"
+    if ! pin_factory_env_needed "$env"; then
+        fail "env without GPIOZERO_PIN_FACTORY must need it"
+    fi
+    set_pin_factory_env "$env" "lgpio"
+    assert_eq 1 "$(grep -c '^GPIOZERO_PIN_FACTORY=' "$env")" "factory line appended exactly once"
+    if ! grep -q '^GPIOZERO_PIN_FACTORY=lgpio$' "$env"; then
+        fail "appended factory must be lgpio"
+    fi
+    if ! grep -q '^PORT=5000$' "$env"; then
+        fail "existing lines must survive the append"
+    fi
+
+    # Idempotent: an existing value is never overwritten (user override wins).
+    first="$(grep '^GPIOZERO_PIN_FACTORY=' "$env")"
+    set_pin_factory_env "$env" "rpigpio"
+    assert_eq "$first" "$(grep '^GPIOZERO_PIN_FACTORY=' "$env")" "existing factory never overwritten"
+    if pin_factory_env_needed "$env"; then
+        fail "an env with a factory value must not be flagged as needing one"
+    fi
+
+    # Fresh-install shape: empty line from .env.example is filled in place.
+    printf 'PORT=5000\nGPIOZERO_PIN_FACTORY=\nTZ=UTC\n' > "$env"
+    set_pin_factory_env "$env" "lgpio"
+    assert_eq 1 "$(grep -c '^GPIOZERO_PIN_FACTORY=' "$env")" "empty line filled, not duplicated"
+    if ! grep -q '^GPIOZERO_PIN_FACTORY=lgpio$' "$env"; then
+        fail "empty line must be filled with the chosen factory"
+    fi
+    if ! grep -q '^TZ=UTC$' "$env"; then
+        fail "lines after the factory line must survive the fill"
+    fi
+
+    # A commented example line does not count as an active setting.
+    printf '# GPIOZERO_PIN_FACTORY=lgpio\n' > "$env"
+    if ! pin_factory_env_needed "$env"; then
+        fail "a commented example line must still need an active factory"
+    fi
+
+    rm -rf "$tmp"
+}
+
+test_pin_factory_dry_run_plan() {
+    local out
+    DRY_RUN=true
+    PIN_FACTORY=""
+    PREVIEW_ONLY=false
+
+    out="$(install_lgpio)"
+    case "$out" in
+        *"apt-get install -y $LGPIO_APT_PACKAGE"*) : ;;
+        *) fail "install_lgpio dry-run must plan 'apt-get install -y $LGPIO_APT_PACKAGE'" ;;
+    esac
+
+    out="$(remove_jetson_gpio)"
+    case "$out" in
+        *"uninstall -y $JETSON_GPIO_PACKAGE"*) : ;;
+        *) fail "remove_jetson_gpio dry-run must plan uninstall of $JETSON_GPIO_PACKAGE" ;;
+    esac
+
+    # The import gate must force the pin factory (else gpiozero picks the broken
+    # native factory on kernel >= 6.6).
+    out="$(check_driver_import)"
+    case "$out" in
+        *"GPIOZERO_PIN_FACTORY=$PIN_FACTORY_DEFAULT"*) : ;;
+        *) fail "check_driver_import dry-run must force GPIOZERO_PIN_FACTORY=$PIN_FACTORY_DEFAULT" ;;
+    esac
+
+    # The chosen factory is written into .env for the client.
+    out="$(configure_pin_factory_env /dev/null)"
+    case "$out" in
+        *"GPIOZERO_PIN_FACTORY=$PIN_FACTORY_DEFAULT"*) : ;;
+        *) fail "configure_pin_factory_env dry-run must set GPIOZERO_PIN_FACTORY=$PIN_FACTORY_DEFAULT" ;;
+    esac
+
+    # Preview-only mode forces no factory (no panel -> gpiozero stays out of it).
+    PREVIEW_ONLY=true
+    out="$(configure_pin_factory_env /dev/null)"
+    if [ -n "$out" ]; then
+        fail "configure_pin_factory_env must stay silent in preview-only mode"
+    fi
+
+    PREVIEW_ONLY=false
+    DRY_RUN=false
+}
+
 # ----- Runner -----
 run_test test_arch_mapping
 run_test test_pi_detection
@@ -326,6 +488,11 @@ run_test test_driver_fail_policy
 run_test test_render_unit_template
 run_test test_idempotency_markers
 run_test test_client_token
+run_test test_kernel_detection
+run_test test_venv_system_site
+run_test test_pin_factory_selection
+run_test test_pin_factory_env
+run_test test_pin_factory_dry_run_plan
 
 echo ""
 echo "${TESTS_PASSED}/${TESTS_RUN} tests passed"
