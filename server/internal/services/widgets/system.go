@@ -1,9 +1,7 @@
 package widgets
 
 import (
-	"context"
 	"fmt"
-	"image"
 	"os"
 	"strconv"
 	"strings"
@@ -14,10 +12,6 @@ type SystemWidget struct{}
 
 func NewSystemWidget() *SystemWidget {
 	return &SystemWidget{}
-}
-
-func (w *SystemWidget) Render(_ context.Context, _ map[string]any, _ image.Rectangle, _ *image.RGBA) error {
-	return nil
 }
 
 // GetContent reads system metrics from /proc and /sys.

@@ -1,10 +1,8 @@
 package widgets
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"image"
 	"io"
 	"log/slog"
 	"net/http"
@@ -22,10 +20,6 @@ func NewCustomWidget() *CustomWidget {
 	return &CustomWidget{
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
-}
-
-func (w *CustomWidget) Render(_ context.Context, _ map[string]any, _ image.Rectangle, _ *image.RGBA) error {
-	return nil
 }
 
 // GetContent fetches a URL and optionally extracts a JSON value.

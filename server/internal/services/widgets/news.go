@@ -1,9 +1,7 @@
 package widgets
 
 import (
-	"context"
 	"encoding/xml"
-	"image"
 	"io"
 	"log/slog"
 	"net/http"
@@ -20,10 +18,6 @@ func NewNewsWidget() *NewsWidget {
 	return &NewsWidget{
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
-}
-
-func (w *NewsWidget) Render(_ context.Context, _ map[string]any, _ image.Rectangle, _ *image.RGBA) error {
-	return nil
 }
 
 type rssItem struct {

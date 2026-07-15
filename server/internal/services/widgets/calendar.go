@@ -1,9 +1,7 @@
 package widgets
 
 import (
-	"context"
 	"fmt"
-	"image"
 	"io"
 	"log/slog"
 	"net/http"
@@ -21,10 +19,6 @@ func NewCalendarWidget() *CalendarWidget {
 	return &CalendarWidget{
 		client: &http.Client{Timeout: 10 * time.Second},
 	}
-}
-
-func (w *CalendarWidget) Render(_ context.Context, _ map[string]any, _ image.Rectangle, _ *image.RGBA) error {
-	return nil
 }
 
 // GetContent fetches iCal events and returns formatted text.
