@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Responsive designer layout for phones and tablets: below 768px the side panels become bottom sheets behind a fixed tab bar (Widgets | Layers | Properties, one sheet at a time, no backdrop — the uncovered canvas stays interactive), overflow topbar actions move into a burger menu, and a zoom-fit scales the full 800x480 design into the visible canvas area on load, resize, and orientation change. Between 768px and 1024px both panels collapse to 44px icon rails whose 260px flyouts overlay the canvas without reflowing it. Desktop (>=1024px) is pixel- and behavior-identical to before. New files: `server/static/css/responsive.css`, `server/static/js/responsive-layout.js`.
+
 - Explicit rename button (`#design-name-edit-btn`) in the designer topbar next to the design name — a touch-friendly alternative to the double-click rename, which remains available for desktop use.
 
 - New settings `dither_algorithm` (`floyd_steinberg` | `atkinson`, default `floyd_steinberg`) and `calibration` (`default` | `off`, default `default`), persisted in `settings.json`, exposed via `GET /settings` and validated by `POST /update_settings` (unknown values return 400). Configuration is API-only for now (no settings UI yet).

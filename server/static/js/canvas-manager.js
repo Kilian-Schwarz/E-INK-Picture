@@ -45,13 +45,31 @@ const CanvasManager = {
         const area = document.getElementById('canvas-area');
         if (!wrapper || !area) return;
 
-        // Center the canvas in the viewport
+        // Center the canvas in the viewport.
+        // Compact viewports (<1024px) use a reduced minimum padding so the
+        // fitted canvas can use the full width; desktop keeps the literal 40.
+        const minPad = window.matchMedia('(max-width: 1023.98px)').matches ? 8 : 40;
         const areaRect = area.getBoundingClientRect();
         const canvasW = 800 * this.zoom;
         const canvasH = 480 * this.zoom;
-        const padX = Math.max(40, (areaRect.width - canvasW) / 2);
-        const padY = Math.max(40, (areaRect.height - canvasH) / 2);
+        const padX = Math.max(minPad, (areaRect.width - canvasW) / 2);
+        const padY = Math.max(minPad, (areaRect.height - canvasH) / 2);
         wrapper.style.padding = padY + 'px ' + padX + 'px';
+    },
+
+    // Fit the whole design into the visible canvas area (E3.3).
+    // Desktop (>=1024px) is intentionally untouched (early return).
+    fitToViewport() {
+        if (!window.matchMedia('(max-width: 1023.98px)').matches) return; // desktop untouched
+        const area = document.getElementById('canvas-area');
+        if (!area || !this.canvas) return;
+        const M = 8; // must match centerCanvas() compact min padding
+        const fit = Math.min(
+            (area.clientWidth - 2 * M) / this.displayConfig.width,
+            (area.clientHeight - 2 * M) / this.displayConfig.height
+        );
+        this.setZoom(fit);        // clamps 0.25-4, setDimensions + centerCanvas
+        this.canvas.calcOffset(); // pointer coords after layout change
     },
 
     setupZoom() {
@@ -310,6 +328,7 @@ const CanvasManager = {
             height: config.height * this.zoom,
         });
         this.centerCanvas();
+        this.fitToViewport();
     },
 
     getCanvas() {

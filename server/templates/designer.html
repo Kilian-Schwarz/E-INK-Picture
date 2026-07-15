@@ -2,13 +2,14 @@
 <html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>E-Ink Designer</title>
     <link rel="stylesheet" href="/static/css/designer.css">
     <link rel="stylesheet" href="/static/css/panels.css">
     <link rel="stylesheet" href="/static/css/widgets.css">
     <link rel="stylesheet" href="/static/css/media-dashboard.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/responsive.css">
 </head>
 <body>
     <!-- TOP BAR -->
@@ -47,14 +48,21 @@
             <button id="activate-btn" class="btn-secondary" title="Set as active display design">Set Active</button>
             <button id="settings-btn" title="Settings">Settings</button>
             <button id="theme-toggle" title="Toggle Theme">Theme</button>
+            <button id="topbar-menu-btn" title="Menu" aria-label="Menu" aria-haspopup="true">&#9776;</button>
         </div>
     </header>
+
+    <!-- Topbar overflow menu (compact viewports only, filled via DOM reparenting) -->
+    <div id="topbar-menu"></div>
 
     <!-- MAIN LAYOUT -->
     <div class="designer-layout">
         <!-- LEFT PANEL -->
         <aside class="panel panel-left">
-            <div class="panel-section">
+            <button type="button" class="sheet-handle" aria-label="Close panel"></button>
+            <button type="button" class="panel-toggle" title="Widgets &amp; Layers">&#9776;</button>
+            <div class="panel-body">
+            <div class="panel-section" id="widgets-section">
                 <h3 class="panel-title">Widgets</h3>
                 <div class="widget-list" id="widget-list">
                     <div class="widget-item" data-type="text">
@@ -103,9 +111,10 @@
                     </div>
                 </div>
             </div>
-            <div class="panel-section">
+            <div class="panel-section" id="layers-section">
                 <h3 class="panel-title">Layers</h3>
                 <div id="layers-panel"></div>
+            </div>
             </div>
         </aside>
 
@@ -118,6 +127,9 @@
 
         <!-- RIGHT PANEL -->
         <aside class="panel panel-right">
+            <button type="button" class="sheet-handle" aria-label="Close panel"></button>
+            <button type="button" class="panel-toggle" title="Properties">&#9881;</button>
+            <div class="panel-body">
             <div id="properties-panel">
                 <div class="panel-section" id="canvas-properties">
                     <h3 class="panel-title">Canvas</h3>
@@ -189,6 +201,7 @@
                     </div>
                 </div>
             </div>
+            </div>
         </aside>
     </div>
 
@@ -198,6 +211,13 @@
         <span id="status-client"></span>
         <span id="status-display">800x480 | Waveshare 7.5" V2</span>
     </footer>
+
+    <!-- MOBILE TAB BAR (visible < 768px only) -->
+    <nav id="mobile-tabbar" aria-label="Panels">
+        <button type="button" data-sheet="widgets">Widgets</button>
+        <button type="button" data-sheet="layers">Layers</button>
+        <button type="button" data-sheet="properties">Properties</button>
+    </nav>
 
     <!-- MODALS -->
     <div id="settings-modal" class="modal" style="display:none;">
@@ -416,5 +436,6 @@
     <script src="/static/js/design-dashboard.js"></script>
     <script src="/static/js/shortcuts.js"></script>
     <script src="/static/js/designer.js"></script>
+    <script src="/static/js/responsive-layout.js"></script>
 </body>
 </html>
