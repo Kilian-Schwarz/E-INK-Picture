@@ -5,13 +5,15 @@ Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel
 
 ## Aktueller Stand
 
-E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | E3.1–E3.3 gemergt, E3.4 im Review, E3.6 wartet | E5.1 + E5.6 gemergt | E6.1 aktiv | Branch: main
+E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | E3.1–E3.4 + E3.6 gemergt | E5.1 KOMPLETT (Server + Client + Frontend) + E5.6 gemergt | E6.1 aktiv | Branch: main
 
-## Offene Sub-Tasks aus E5.1
+## E3.7-Backlog (Feinschliff, gesammelt aus Verifikationen)
 
-- pi-client: X-Client-Token-Header auf den 4 Client-Calls (AC10) — danach HIL-Lauf
-- frontend-designer: static/js/auth.js (401-Interceptor → /login, Logout-Button, No-Password-Banner) + designer.html-Hook
-- Gate L3: bcrypt-Cost-10-Timing auf dem Pi messen (>3 s → Cost 9)
+- **Topbar-Overflow Desktop**: kein Wrap-/Overflow-Handling bei 1024–1594 px (Bestand; Theme/Settings/Save teils abgeschnitten). Präzise Lücke: 1024–1279 px hat KEINEN erreichbaren Logout (ab 1280 sichtbar; 768–1023 Tablet-Burger ok).
+- favicon.ico-Route fehlt (404 eingeloggt / 401 anonym — Konsolen-Rauschen).
+- Properties-Panel zeigt beim Guide-Snap transient die rohe Position (Kosmetik, dokumentiert in E3.4-Spec).
+- Crop-Modal: Listener-Akkumulation bei Reopen via X/Overlay (vorbestehend, benign — E3.1-Review-Finding).
+- Resize-Snap an Guides (bewusstes E3.4-Non-Goal, Folgetask-Kandidat).
 
 ## Test-Hardware (Baseline 2026-07-14, hardware-validator)
 
@@ -59,6 +61,9 @@ E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | E3.1–E3.3 gemergt, E3.
 | E3.2 | Pinch-Zoom + Two-Finger-Pan (eine Geste, Anker-Drift 0,01 px), Long-Press-Kontextmenü, Touch-Handle-Clamp; Overflow jetzt voll scrollbar (vorbestehender Desktop-Mangel mitbehoben) | L1✅ L2✅ (CDP-2-Punkt-Touch, 22/22+23/23) L5: REQUEST_CHANGES (Spec-Geometrie übersah Flex-Zentrierung → Amendment 1) → Fix → APPROVE | 60354b5 |
 | E2.1+E2.2 | One-Command-Installer: install.sh-Bootstrap + setup.sh komplett neu (headless, Waveshare-Pin + Sparse-Fetch, kein stiller Preview-only, SPI nonint, Idempotenz, --update, Docker-Preflight, --dry-run, 8 Skript-Tests) | L1✅ (shellcheck 0, 8/8, Dry-Run-Matrix mutationsfrei) L5✅ APPROVE (Funktionsverlust-Audit: keiner); L3/E2.5 (frisches OS → Panel) wartet auf Test-Pi-Umstellung | 06e0882 |
 | E5.1 | Auth: Deny-by-default-Guard (55 Routen), bcrypt-Admin-Passwort, Sessions (7d sliding), Client-Token für 4 Endpoints, Rate-Limit, CSRF (Lax+Origin), CORS-Rework, SECRET_KEY entfernt, Token-Generierung in Setup-Skripten, Security-Doku | L1✅ (-race, e2e 32/32) L5✅ Doppel-Review: Code APPROVE (nach AC9-Nacharbeit) + Security nicht blockierend (33 Bypass-Probes gehalten, TOCTOU gefixt); L3 (bcrypt-Timing Pi) offen | 05ae8df |
+| E5.1-Client | Python-Client sendet X-Client-Token (zentrale Wrapper, 401 einmal-pro-Zustandswechsel, Secrets-Hygiene-Test) | L1✅ (38 Tests) L5✅ APPROVE (Mutations-Gegenprobe, Server-Guard-Matrix) | 262a4dd |
+| E3.6 | Preview-Modal zeigt Panel-Palette als Default (quantisiert inkl. Kalibrierung), Panel/Original-Toggle mit Cache, 503-Handling, Objekt-URL-Leak-Fix | L1✅ L2✅ (Farbzensus 6 bzw. 2 exakt, Request-/Revoke-Zähler, Late-Response-Race, Mobil-Tap) L5✅ APPROVE | 7e97126 |
+| E5.1-Frontend | auth.js: 401-Interceptor (loop-sicher), Setup-Banner + Dialog mit Auto-Login, Icon-Logout (Desktop sichtbar ab 1280, Burger-Menü mobil) | L1✅ L2✅ (38+17 Asserts) L5: REQUEST_CHANGES (Logout unsichtbar 1024–1594) → Icon-Fix → APPROVE | aae87b2 |
 
 ## Offen / Blockiert
 
