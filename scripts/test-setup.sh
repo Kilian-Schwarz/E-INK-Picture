@@ -348,6 +348,7 @@ test_venv_system_site() {
     rm -rf "$tmp"
 }
 
+# shellcheck disable=SC2034  # subshell vars (FAILED_GPIO_PACKAGES, EINK_TEST_KERNEL) are read by the sourced setup.sh functions, not seen standalone
 test_pin_factory_selection() {
     assert_eq "lgpio"   "$(decide_pin_factory true true)"   "lgpio present -> lgpio (kernel>=6.6)"
     assert_eq "lgpio"   "$(decide_pin_factory true false)"  "lgpio present -> lgpio (old kernel)"
@@ -434,6 +435,7 @@ test_pin_factory_env() {
     rm -rf "$tmp"
 }
 
+# shellcheck disable=SC2034  # PREVIEW_ONLY toggles the sourced configure_pin_factory_env, not seen standalone
 test_pin_factory_dry_run_plan() {
     local out
     DRY_RUN=true
@@ -478,6 +480,40 @@ test_pin_factory_dry_run_plan() {
     DRY_RUN=false
 }
 
+# Integration guard (E2.5a review): the WHOLE install_display_stack sequence must
+# run under `set -euo pipefail` with lgpio unavailable WITHOUT aborting, and flow
+# through to the real pin-factory selection + driver gate + preview-only policy.
+# The isolated select_pin_factory test above missed the original bug because the
+# harness runs with errexit OFF; here we re-enable it exactly like the real run,
+# so a bare non-zero return inside install_lgpio (the fixed blocker) is caught.
+# All installers/probes are stubbed; select_pin_factory/check_driver_import/
+# apply_driver_policy stay REAL and read the subshell vars via the sourced
+# setup.sh (invisible to standalone shellcheck -> the SC2034 disable below).
+# shellcheck disable=SC2034
+test_display_stack_no_abort_on_lgpio_unavailable() {
+    local out
+    out="$(
+        set -euo pipefail
+        run() { return 0; }                        # swallow apt/sudo
+        is_raspberry_pi() { return 0; }            # force Pi hardware
+        lgpio_import_ok() { return 1; }            # lgpio can never be made importable
+        install_gpio_packages() { :; }             # skip real pip installs
+        install_waveshare_driver() { return 0; }   # driver "installs"
+        remove_jetson_gpio() { :; }
+        DRY_RUN=false
+        PREVIEW_ONLY=false
+        ALLOW_PREVIEW_ONLY=true                    # user opted out of the display -> must NOT crash
+        FAILED_GPIO_PACKAGES=""
+        EINK_TEST_KERNEL="6.12.47"
+        install_display_stack
+        printf 'FLOWED_TO_END preview=%s' "$PREVIEW_ONLY"
+    )"
+    case "$out" in
+        *"FLOWED_TO_END preview=true"*) : ;;
+        *) fail "install_display_stack aborted under set -e with lgpio unavailable — must reach the preview-only gate (got: '$out')" ;;
+    esac
+}
+
 # ----- Runner -----
 run_test test_arch_mapping
 run_test test_pi_detection
@@ -493,6 +529,7 @@ run_test test_venv_system_site
 run_test test_pin_factory_selection
 run_test test_pin_factory_env
 run_test test_pin_factory_dry_run_plan
+run_test test_display_stack_no_abort_on_lgpio_unavailable
 
 echo ""
 echo "${TESTS_PASSED}/${TESTS_RUN} tests passed"

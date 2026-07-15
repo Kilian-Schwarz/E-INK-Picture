@@ -605,32 +605,48 @@ rpi_gpio_is_genuine() {
         && ! "$VENV_DIR/bin/pip" show "$JETSON_GPIO_PACKAGE" >/dev/null 2>&1
 }
 
-# Makes lgpio importable in the venv. Preferred: the distro package
-# python3-lgpio (built for the system Python, no swig toolchain), visible via
-# --system-site-packages. Fallback: a source build in the venv, which needs
-# swig (HIL-3: "command 'swig' failed: No such file or directory").
+# Makes lgpio importable in the venv. On current Raspberry Pi OS (Trixie) the
+# distro package python3-lgpio does NOT exist and lgpio ships no wheel for
+# Python 3.13, so the swig SOURCE BUILD is the primary path on the real target;
+# the apt attempt is kept first only because it is harmless and works on the
+# OSes that do ship it.
+#
+# INFORMATIONAL by contract: this function NEVER aborts and ALWAYS returns 0 —
+# it does not decide preview-only. select_pin_factory re-checks lgpio as the
+# authoritative signal and check_driver_import owns the ALLOW_PREVIEW_ONLY
+# policy. (Earlier this ended in a bare `lgpio_import_ok`, so a non-zero return
+# under `set -euo pipefail` aborted the whole script before the fallback / gate
+# / preview-only logic could run — see E2.5a review.)
 install_lgpio() {
-    info "Installing lgpio pin factory ($LGPIO_APT_PACKAGE)..."
+    info "Installing lgpio pin factory..."
     if [ "$DRY_RUN" = true ]; then
-        echo "[DRY-RUN] sudo apt-get install -y $LGPIO_APT_PACKAGE"
-        echo "[DRY-RUN] $VENV_DIR/bin/python3 -c 'import lgpio' (verify importable via --system-site-packages)"
+        echo "[DRY-RUN] sudo apt-get install -y $LGPIO_APT_PACKAGE (best effort; absent on Debian Trixie)"
+        echo "[DRY-RUN] sudo apt-get install -y swig (build dep for the lgpio source build)"
+        echo "[DRY-RUN] $VENV_DIR/bin/pip install lgpio>=0.2 (source build — no distro package/wheel for this Python)"
+        echo "[DRY-RUN] $VENV_DIR/bin/python3 -c 'import lgpio' (verify importable)"
         return 0
     fi
-    if ! run sudo apt-get install -y -qq "$LGPIO_APT_PACKAGE"; then
-        warn "apt package $LGPIO_APT_PACKAGE unavailable — trying a source build (needs swig)"
-    fi
-    if lgpio_import_ok; then
+    # 1) Distro package first (harmless where present; just warn when absent).
+    if run sudo apt-get install -y -qq "$LGPIO_APT_PACKAGE" && lgpio_import_ok; then
         info "lgpio available via $LGPIO_APT_PACKAGE"
         return 0
     fi
-    warn "lgpio not importable from the distro package — building from source"
+    # 2) Source build (the real primary path on Trixie/Py3.13). swig is the
+    #    build dep the pip build needs (HIL-3); gcc/python3-dev are already
+    #    installed by install_system_packages. Install swig BEFORE pip build.
+    info "Building lgpio from source (no distro package/wheel for this Python)..."
     if ! run sudo apt-get install -y -qq swig; then
         warn "swig install failed — the lgpio source build will likely fail"
     fi
     if ! "$VENV_DIR/bin/pip" install --no-cache-dir "lgpio>=0.2"; then
         warn "lgpio source build failed"
     fi
-    lgpio_import_ok
+    if lgpio_import_ok; then
+        info "lgpio built and importable"
+    else
+        warn "lgpio still not importable — pin-factory selection / the driver gate will decide next"
+    fi
+    return 0
 }
 
 # Removes the Jetson.GPIO contamination and restores the genuine RPi.GPIO
@@ -761,7 +777,11 @@ install_display_stack() {
         info "Not a Raspberry Pi — display driver stack skipped, client will run in PREVIEW-ONLY mode"
         return 0
     fi
-    install_lgpio
+    # install_lgpio is informational and returns 0; `|| true` is belt-and-braces
+    # so a future edit reintroducing a non-zero return can never abort the
+    # script under `set -euo pipefail` before the fallback / gate / preview-only
+    # logic below runs.
+    install_lgpio || true
     install_gpio_packages
     if ! install_waveshare_driver; then
         apply_driver_policy "Waveshare driver installation (pin $WAVESHARE_EPD_PIN)"
