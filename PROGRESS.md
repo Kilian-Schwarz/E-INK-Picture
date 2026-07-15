@@ -24,6 +24,8 @@ E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | **E3 komplett** (E3.1–
 - Sprachmix im Renderer: Forecast-Wochentage/Wetterbeschreibungen englisch neben deutschen Datumszeilen (Bestand; Chore: Lokalisierung der Widget-Strings).
 - weather.go:156 holt hart forecast_days=4 — week-planner-Template verspricht 7 Tage (Backend erhöhen oder Template-Beschreibung anpassen).
 - Bild-Element-Puffer-Diät (E5.6-Non-Goal): VmHWM ~109 MB kommt aus dem Image-Resize-Pfad (Kernel-Temp pro Bild-Element, Worst Case ~150 MB transient bei großen Fotos) — Kandidat für E5-Folgetask, nötig fürs native 25-MB-Ziel bei Foto-Designs.
+- Wizard Schritt 5: früher Karten-Tap kann mit laufendem Queue-Render überlappen (max 2 in flight gemessen; Server serialisiert eh — Fix: auf Queue-Leerlauf warten vor Erfolgs-Render).
+- Dashboard-Use-Flow kopiert den inerten templateSlot:"location"-Marker mit (harmlos, Renderer ignoriert ihn).
 
 ## Test-Hardware (Baseline 2026-07-14, hardware-validator)
 
@@ -77,6 +79,7 @@ E1 komplett | E2.1 gemergt (E2.5-Hardware-Gate offen) | **E3 komplett** (E3.1–
 | E3.5 | Template-Galerie: 8 durchkomponierte Designs (embedded JSONs), panel-echte Previews (sequenziell, Cache, 503-fest), Use-Flow mit Token-/Foto-Slot-Substitution, Go-Lint+Render-Testsuite (offline erzwungen) | L1✅ (24 Subtests) L2✅ (34/34, 16 Renders gesichtet) L5✅ APPROVE (Design-Veto nicht gezogen) | 3f1e23c |
 | E5.3 (Server) | Nachtfenster sleep_start/sleep_end (halboffen, Mitternachts-Wrap, fail-open), manueller Trigger durchbricht strukturell, reason-Feld in refresh_status | L1✅ (-race) L5✅ APPROVE (Pfad-Beweis + Grenz-Negativproben); L3 (Fenster-Probe auf Pi) offen | 890d540 |
 | E5.2 (Client) | Content-Skip via SHA-256 der Wire-Bytes (5 konservative Konjunkte, 24h-Guard, Kill-Switch, in-memory); statische Designs ≈ 0 Panel-Zyklen | L1✅ (54 Tests, 2 Schärfe-Negativproben) L5✅ APPROVE (Refactor-Drift-Audit sauber); L3 (Skip-Zählung 1h auf Pi) offen | 76bdbe8 |
+| E2.3 | Erst-Setup-Wizard: 5 Schritte (Display/Standort/Intervall/Passwort/Startdesign), server-seitiges Erscheinen-Kriterium (GET /api/setup/status, Heartbeat-fest), setup_completed-Latch, Galerie-Host-Refactor | L1✅ L2✅ (142 Asserts, Erscheinen-Matrix live) L5✅ APPROVE („produktreifes Onboarding") | 1f0063b |
 
 ## Offen / Blockiert
 
