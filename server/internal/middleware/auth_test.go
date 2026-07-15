@@ -65,6 +65,7 @@ func TestGuardPublicRoutesWithoutSession(t *testing.T) {
 	cases := []struct{ method, path string }{
 		{"GET", "/health"},
 		{"GET", "/login"},
+		{"GET", "/favicon.ico"},
 		{"POST", "/api/auth/login"},
 		{"POST", "/api/auth/setup"},
 		{"GET", "/api/auth/status"},

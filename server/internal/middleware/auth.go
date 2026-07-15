@@ -36,6 +36,7 @@ type GuardConfig struct {
 var publicRoutes = map[string]bool{
 	"GET /health":           true,
 	"GET /login":            true,
+	"GET /favicon.ico":      true,
 	"POST /api/auth/login":  true,
 	"POST /api/auth/setup":  true,
 	"GET /api/auth/status":  true,

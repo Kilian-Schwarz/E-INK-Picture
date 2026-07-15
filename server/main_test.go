@@ -166,13 +166,45 @@ func TestGuardFullStackClassification(t *testing.T) {
 	}
 
 	// (e) Public routes without session → 200.
-	publicRoutes := []string{"/health", "/login", "/api/auth/status", "/api/setup/status", "/static/js/designer.js"}
+	publicRoutes := []string{"/health", "/login", "/favicon.ico", "/api/auth/status", "/api/setup/status", "/static/js/designer.js"}
 	for _, path := range publicRoutes {
 		w := do(app, "GET", path, nil, nil)
 		if w.Code != http.StatusOK {
 			t.Errorf("(e) GET %s = %d, want 200 (public)", path, w.Code)
 		}
 	}
+}
+
+// TestFaviconFullStack covers E3.7c: GET /favicon.ico returns 200 with an
+// image content-type over the fully wired stack for BOTH an anonymous request
+// (password set, no session) and an authenticated one — no 401, no 404, no
+// redirect to /login.
+func TestFaviconFullStack(t *testing.T) {
+	app := newTestApp(t, nil)
+	if err := app.authMgr.SetPassword(testPassword); err != nil {
+		t.Fatalf("SetPassword: %v", err)
+	}
+
+	assertFavicon := func(name string, mutate func(*http.Request)) {
+		w := do(app, "GET", "/favicon.ico", nil, mutate)
+		if w.Code != http.StatusOK {
+			t.Errorf("%s: GET /favicon.ico = %d, want 200", name, w.Code)
+			return
+		}
+		if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "image/") {
+			t.Errorf("%s: Content-Type = %q, want image/*", name, ct)
+		}
+		if w.Body.Len() == 0 {
+			t.Errorf("%s: empty favicon body", name)
+		}
+	}
+
+	// (a) Anonymous: password set, no session cookie.
+	assertFavicon("anonymous", nil)
+
+	// (b) Authenticated: valid session cookie.
+	cookie := login(t, app, testPassword)
+	assertFavicon("authenticated", withCookie(cookie))
 }
 
 // TestClientTokenFullStack covers AC2 over the fully wired stack.

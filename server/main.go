@@ -249,6 +249,20 @@ func newApplication(cfg *config.Config) (*application, error) {
 	staticSub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSub))))
 
+	// Favicon (E3.7c): browsers probe /favicon.ico on every page load. Serve
+	// the embedded icon directly (public, no session) so the probe returns 200
+	// instead of guard 401 (anonymous) or router 404 (logged in). The bytes are
+	// read once from the embed and served with image/png.
+	favicon, err := staticFS.ReadFile("static/favicon.png")
+	if err != nil {
+		return nil, fmt.Errorf("read favicon: %w", err)
+	}
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=604800")
+		w.Write(favicon)
+	})
+
 	// Middleware chain: Logging(CORS(Guard(mux))). The guard sits before any
 	// router match — unregistered routes are denied by default; OPTIONS
 	// preflights are answered by CORS and never reach the guard.
