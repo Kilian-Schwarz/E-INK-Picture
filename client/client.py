@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """E-Ink Picture Client — fetches rendered preview from server and displays on E-Ink."""
 
+import hashlib
 import logging
 import os
 import signal
@@ -27,6 +28,12 @@ driver_name = config.DISPLAY_DRIVER
 # Auth failure state: the 401 hint is logged once per state change,
 # not on every poll iteration.
 _auth_error_logged = False
+
+# Content-skip state (E5.2). In-memory only by design: a process restart
+# always writes the first frame (no persisted hash).
+_last_fetch_hash: Optional[str] = None  # SHA-256 of the last fetched /preview wire bytes
+_last_displayed_hash: Optional[str] = None  # hash of the last image successfully written to the panel
+_last_panel_write_monotonic: Optional[float] = None  # time.monotonic() of that write
 
 
 def _auth_headers() -> dict:
@@ -117,11 +124,20 @@ def fetch_display_config() -> dict:
 
 
 def fetch_preview() -> Optional[Image.Image]:
-    """Fetch rendered preview PNG from server."""
+    """Fetch rendered preview PNG from server.
+
+    On success, records the SHA-256 of the raw wire bytes in
+    _last_fetch_hash — the comparison point for the content skip (E5.2),
+    computed before any Pillow decode.
+    """
+    global _last_fetch_hash
     try:
         resp = _server_get("/preview", timeout=30)
         resp.raise_for_status()
-        img = Image.open(BytesIO(resp.content))
+        content = resp.content
+        content_hash = hashlib.sha256(content).hexdigest()
+        img = Image.open(BytesIO(content))
+        _last_fetch_hash = content_hash
         logger.info("Preview fetched: %dx%d, mode=%s", img.size[0], img.size[1], img.mode)
         return img
     except requests.ConnectionError:
@@ -209,31 +225,118 @@ def display_image(img: Image.Image, display_config: dict) -> bool:
         return False
 
 
-def check_should_refresh() -> bool:
-    """Ask server if display should refresh."""
+def get_refresh_status() -> dict:
+    """Fetch /api/refresh_status; empty dict on any error."""
     try:
         resp = _server_get("/api/refresh_status", timeout=5)
         if resp.ok:
             data = resp.json()
-            return data.get("should_refresh", False)
+            if isinstance(data, dict):
+                return data
     except Exception:
         pass
-    return False
+    return {}
 
 
-def send_heartbeat() -> None:
-    """Tell server that display was updated."""
+def check_should_refresh() -> bool:
+    """Ask server if display should refresh."""
+    return bool(get_refresh_status().get("should_refresh", False))
+
+
+def _max_skip_elapsed() -> bool:
+    """True when the last real panel write is older than MAX_SKIP_HOURS.
+
+    Measured with time.monotonic() (immune to wall-clock jumps).
+    MAX_SKIP_HOURS <= 0 disables the guard.
+    """
+    if config.MAX_SKIP_HOURS <= 0:
+        return False
+    if _last_panel_write_monotonic is None:
+        return True
+    return time.monotonic() - _last_panel_write_monotonic > config.MAX_SKIP_HOURS * 3600
+
+
+def _should_skip_panel_write(content_hash: Optional[str], reason: Optional[str]) -> bool:
+    """Decide whether the physical panel write can be skipped (E5.2).
+
+    Conservative: skip ONLY when ALL conditions hold — content skip enabled,
+    hardware present, interval-driven refresh (reason "manual" or missing =>
+    always write), hash identical to the last successfully displayed image,
+    and the panel-care guard (MAX_SKIP_HOURS) not expired.
+    """
+    if not config.CONTENT_SKIP:
+        return False
+    if epd is None:
+        return False
+    if reason != "interval":
+        return False
+    if content_hash is None or _last_displayed_hash is None:
+        return False
+    if content_hash != _last_displayed_hash:
+        return False
+    if _max_skip_elapsed():
+        return False
+    return True
+
+
+def _record_panel_write(content_hash: Optional[str]) -> None:
+    """Remember hash and time of a successful physical panel write.
+
+    In-memory only (a restart always writes). No-op without hardware: the
+    preview-only path must never feed the skip decision.
+    """
+    global _last_displayed_hash, _last_panel_write_monotonic
+    if epd is None:
+        return
+    _last_displayed_hash = content_hash
+    _last_panel_write_monotonic = time.monotonic()
+
+
+def send_heartbeat(status: str = "refreshed") -> None:
+    """Tell server that the display content is current ("refreshed" or "skipped")."""
     try:
         _server_post(
             "/api/client_heartbeat",
             {
-                "status": "refreshed",
+                "status": status,
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             },
             timeout=5,
         )
     except Exception:
         pass
+
+
+def handle_refresh(display_config: dict, reason: Optional[str]) -> None:
+    """Fetch the current preview and update the panel, honoring the content skip.
+
+    Skip path: no epd.init/display/sleep (panel stays in deep sleep), the
+    last-sent artifact is left untouched, heartbeat is sent with "skipped".
+    The hash is recorded only AFTER a successful panel write; a display
+    failure leaves it unchanged so the next cycle writes again.
+    """
+    img = fetch_preview()
+    if img is None:
+        logger.warning("Failed to fetch preview for refresh")
+        return
+    content_hash = _last_fetch_hash
+    if _should_skip_panel_write(content_hash, reason):
+        logger.info("skipping panel refresh (content unchanged)")
+        send_heartbeat("skipped")
+        return
+    if display_image(img, display_config):
+        _record_panel_write(content_hash)
+        send_heartbeat("refreshed")
+
+
+def process_refresh_cycle() -> None:
+    """One poll cycle: ask the server and refresh the panel if needed."""
+    status = get_refresh_status()
+    if not status.get("should_refresh", False):
+        return
+    logger.info("Server says: refresh needed")
+    display_config = fetch_display_config()
+    handle_refresh(display_config, status.get("reason"))
 
 
 def cleanup() -> None:
@@ -274,11 +377,12 @@ def main() -> None:
     if not display_config:
         display_config = {}
 
-    # Initial display update
+    # Initial display update (always unconditional, spec E5.2 fact 8)
     logger.info("Performing initial display update...")
     img = fetch_preview()
     if img:
         if display_image(img, display_config):
+            _record_panel_write(_last_fetch_hash)
             send_heartbeat()
     else:
         logger.warning("No image on startup - will retry on next poll")
@@ -296,15 +400,7 @@ def main() -> None:
         if not running:
             break
 
-        if check_should_refresh():
-            logger.info("Server says: refresh needed")
-            display_config = fetch_display_config()
-            img = fetch_preview()
-            if img:
-                if display_image(img, display_config):
-                    send_heartbeat()
-            else:
-                logger.warning("Failed to fetch preview for refresh")
+        process_refresh_cycle()
 
     cleanup()
     logger.info("Client stopped")

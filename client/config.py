@@ -9,3 +9,9 @@ DEPLOYMENT_MODE = os.getenv("EINK_DEPLOYMENT_MODE", "local")
 LOG_LEVEL = os.getenv("EINK_LOG_LEVEL", "INFO")
 LAST_SENT_PATH = os.getenv("EINK_LAST_SENT_PATH", "/tmp/eink_last_sent.png")
 CLIENT_TOKEN = os.getenv("EINK_CLIENT_TOKEN", "")
+# Content skip (E5.2): default enabled; only the literal string "false"
+# (case-insensitive) disables it.
+CONTENT_SKIP = os.getenv("EINK_CONTENT_SKIP", "").lower() != "false"
+# Panel care guard: force a panel write after this many hours even if the
+# content is unchanged (Waveshare: at least 1 refresh per 24h). 0 = off.
+MAX_SKIP_HOURS = int(os.getenv("EINK_MAX_SKIP_HOURS", "24"))

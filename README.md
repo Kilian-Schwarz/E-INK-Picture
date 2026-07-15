@@ -357,6 +357,34 @@ python3 client.py
 
 Configuration is done via environment variables (see `client/.env.example`).
 
+### Panel care: content skip
+
+The client hashes the raw PNG bytes from `GET /preview` (SHA-256). When the
+server reports an interval-driven refresh (`reason: "interval"` in
+`GET /api/refresh_status`) and the bytes are identical to the last image
+successfully written to the panel, the physical panel write is skipped
+entirely — no `init`/`display`/`sleep`, the panel stays in deep sleep — and
+the heartbeat is sent with `status: "skipped"` instead of `"refreshed"`.
+Manual triggers (`reason: "manual"`) and responses without a `reason` field
+(older servers) always write.
+
+Designs with clock/minute widgets produce different bytes every minute — the
+content skip inherently never kicks in there; the main lever for such designs
+is the night window (`sleep_start`/`sleep_end`).
+
+Guard rails:
+
+- `EINK_CONTENT_SKIP=false` disables the skip entirely (kill switch).
+- `EINK_MAX_SKIP_HOURS` (default `24`, `0` = off) forces a panel write when
+  the last real write is older — Waveshare recommends at least one refresh
+  per 24 hours. Measured with a monotonic clock; the hash state is in-memory
+  only, so a client restart always writes the first frame.
+
+Note: `last_client_refresh` on the server now means "content is current on
+the client", not "panel was physically written" — the heartbeat `status`
+value tells the two apart. Waveshare also recommends a refresh interval of at
+least 180 s; the server does not enforce this.
+
 For automatic updates, add a cron job:
 
 ```bash

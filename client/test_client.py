@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for E-Ink Picture Client with mock display."""
 
+import hashlib
 import importlib
 import json
 import logging
@@ -103,6 +104,28 @@ class RecordingEPD(MockEPD):
         if self.artifact_path is not None:
             self.artifact_existed_at_display = os.path.exists(self.artifact_path)
         super().display(buffer)
+
+
+class CountingEPD(RecordingEPD):
+    """RecordingEPD that counts init/display/sleep calls (E5.2 skip-path proof)."""
+
+    def __init__(self, artifact_path=None):
+        super().__init__(artifact_path)
+        self.init_calls = 0
+        self.display_calls = 0
+        self.sleep_calls = 0
+
+    def init(self):
+        self.init_calls += 1
+        super().init()
+
+    def display(self, buffer):
+        self.display_calls += 1
+        super().display(buffer)
+
+    def sleep(self):
+        self.sleep_calls += 1
+        super().sleep()
 
 
 def make_test_png(width=800, height=480, color=(255, 255, 255)):
@@ -587,6 +610,317 @@ class TestResizeGuard(ArtifactSandboxMixin, unittest.TestCase):
         self.assertTrue(mock_epd.artifact_existed_at_display)
 
 
+class FakeSkipServer:
+    """Dispatching fake for client._server_get/_server_post (E5.2 tests).
+
+    Serves refresh_status (should_refresh/reason), display settings and the
+    current PNG bytes; records every heartbeat payload.
+    """
+
+    def __init__(self, png_bytes, reason="interval", should_refresh=True):
+        self.png_bytes = png_bytes
+        self.reason = reason  # None = field absent (old server, version skew)
+        self.should_refresh = should_refresh
+        self.heartbeats = []
+
+    def get(self, path, timeout=None):
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.ok = True
+        resp.raise_for_status = MagicMock()
+        if path == "/api/refresh_status":
+            body = {"should_refresh": self.should_refresh, "refresh_interval": 3600}
+            if self.reason is not None:
+                body["reason"] = self.reason
+            resp.json.return_value = body
+        elif path == "/settings":
+            resp.json.return_value = {
+                "display": {
+                    "driver": "epd7in3e",
+                    "width": 800,
+                    "height": 480,
+                    "colors": COLOR_DISPLAY_CONFIG["colors"],
+                }
+            }
+        elif path == "/preview":
+            resp.content = self.png_bytes
+        else:
+            raise AssertionError(f"unexpected GET {path}")
+        return resp
+
+    def post(self, path, payload, timeout=None):
+        if path != "/api/client_heartbeat":
+            raise AssertionError(f"unexpected POST {path}")
+        self.heartbeats.append(payload)
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.ok = True
+        return resp
+
+
+class ContentSkipSandbox(ArtifactSandboxMixin):
+    """E5.2 shared setup: CountingEPD, fake server, fresh in-memory skip state."""
+
+    def setUp(self):
+        super().setUp()
+        import config
+        self.config = config
+        client = self.client
+        for attr in ("_last_fetch_hash", "_last_displayed_hash",
+                     "_last_panel_write_monotonic", "driver_name"):
+            self.addCleanup(setattr, client, attr, getattr(client, attr))
+        client._last_fetch_hash = None
+        client._last_displayed_hash = None
+        client._last_panel_write_monotonic = None
+        client.driver_name = "epd7in3e"
+        self.epd = CountingEPD(artifact_path=self.artifact_path)
+        client.epd = self.epd
+        self.server = FakeSkipServer(make_test_png(color=(10, 20, 30)))
+        for name, handler in (("_server_get", self.server.get),
+                              ("_server_post", self.server.post)):
+            patcher = patch.object(client, name, side_effect=handler)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def heartbeat_statuses(self):
+        return [hb["status"] for hb in self.server.heartbeats]
+
+
+class TestContentSkip(ContentSkipSandbox, unittest.TestCase):
+    """E5.2 AC6-AC8: content skip, forced writes, hash-after-success."""
+
+    def test_skip_second_cycle_identical_content(self):
+        """AC6: identical bytes + reason interval => full skip on cycle 2."""
+        self.client.process_refresh_cycle()
+
+        self.assertEqual(self.epd.init_calls, 1)
+        self.assertEqual(self.epd.display_calls, 1)
+        self.assertEqual(self.epd.sleep_calls, 1)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed"])
+        self.assertTrue(os.path.exists(self.artifact_path))
+        artifact_mtime_ns = os.stat(self.artifact_path).st_mtime_ns
+        with open(self.artifact_path, "rb") as fh:
+            artifact_bytes = fh.read()
+
+        with self.assertLogs("eink-client", level="INFO") as logs:
+            self.client.process_refresh_cycle()
+
+        # Panel stays in deep sleep: no init, no display, no sleep.
+        self.assertEqual(self.epd.init_calls, 1)
+        self.assertEqual(self.epd.display_calls, 1)
+        self.assertEqual(self.epd.sleep_calls, 1)
+        # Heartbeat is still sent, with status "skipped".
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "skipped"])
+        self.assertIn("timestamp", self.server.heartbeats[1])
+        # Last-sent artifact untouched (mtime and content).
+        self.assertEqual(os.stat(self.artifact_path).st_mtime_ns, artifact_mtime_ns)
+        with open(self.artifact_path, "rb") as fh:
+            self.assertEqual(fh.read(), artifact_bytes)
+        # Stable log line (HIL grep base).
+        self.assertTrue(
+            any(
+                record.levelno == logging.INFO
+                and "skipping panel refresh (content unchanged)" in record.getMessage()
+                for record in logs.records
+            ),
+            f"expected skip INFO log, got: {logs.output}",
+        )
+
+    def test_no_refresh_when_server_says_false(self):
+        """Sanity: should_refresh=false => no preview fetch, no write, no heartbeat."""
+        self.server.should_refresh = False
+        self.client.process_refresh_cycle()
+
+        self.assertEqual(self.epd.display_calls, 0)
+        self.assertEqual(self.heartbeat_statuses(), [])
+        get_paths = [c.args[0] for c in self.client._server_get.call_args_list]
+        self.assertNotIn("/preview", get_paths)
+
+    def test_changed_content_forces_write(self):
+        """AC7a: different bytes => display runs, heartbeat "refreshed"."""
+        self.client.process_refresh_cycle()
+        self.server.png_bytes = make_test_png(color=(200, 0, 0))
+
+        self.client.process_refresh_cycle()
+
+        self.assertEqual(self.epd.display_calls, 2)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "refreshed"])
+
+    def test_skip_hash_updated_only_after_success(self):
+        """AC7b/c: display failure keeps the old hash, sends no heartbeat,
+        and the next cycle with the same bytes writes again (no skip on
+        never-shown content)."""
+        self.client.process_refresh_cycle()
+        hash_a = hashlib.sha256(self.server.png_bytes).hexdigest()
+        self.assertEqual(self.client._last_displayed_hash, hash_a)
+
+        self.server.png_bytes = make_test_png(color=(0, 99, 0))
+        hash_b = hashlib.sha256(self.server.png_bytes).hexdigest()
+        with patch.object(self.epd, "display", side_effect=Exception("SPI error")):
+            self.client.process_refresh_cycle()
+
+        # Old hash unchanged, no heartbeat for the failed cycle (AC7c).
+        self.assertEqual(self.client._last_displayed_hash, hash_a)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed"])
+
+        # Same bytes again: must write, not skip.
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.client._last_displayed_hash, hash_b)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "refreshed"])
+
+        # Now the content has really been shown once: next cycle skips.
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "refreshed", "skipped"])
+
+    def test_manual_reason_forces_write(self):
+        """AC8: reason "manual" => panel write despite identical bytes."""
+        self.client.process_refresh_cycle()
+        self.server.reason = "manual"
+
+        self.client.process_refresh_cycle()
+
+        self.assertEqual(self.epd.display_calls, 2)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "refreshed"])
+
+    def test_missing_reason_forces_write(self):
+        """AC8: missing reason field (old server) => never skip (version skew)."""
+        self.client.process_refresh_cycle()
+        self.server.reason = None
+
+        self.client.process_refresh_cycle()
+
+        self.assertEqual(self.epd.display_calls, 2)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "refreshed"])
+
+
+class TestContentSkipGuardsAndSwitches(ContentSkipSandbox, unittest.TestCase):
+    """E5.2 AC9/AC10: 24h guard, kill switch, restart state, no-hardware path."""
+
+    def test_max_skip_hours_guard_forces_write(self):
+        """AC9: last panel write older than MAX_SKIP_HOURS => write despite
+        identical bytes; afterwards the guard clock is reset."""
+        fake_now = [1000.0]
+        with patch("client.time.monotonic", side_effect=lambda: fake_now[0]), \
+                patch.object(self.config, "MAX_SKIP_HOURS", 24):
+            self.client.process_refresh_cycle()
+            fake_now[0] += 30.0
+            self.client.process_refresh_cycle()  # skip
+            fake_now[0] += 24 * 3600 + 1.0
+            self.client.process_refresh_cycle()  # guard expired => write
+            fake_now[0] += 30.0
+            self.client.process_refresh_cycle()  # guard clock reset => skip again
+
+        self.assertEqual(self.epd.display_calls, 2)
+        self.assertEqual(
+            self.heartbeat_statuses(),
+            ["refreshed", "skipped", "refreshed", "skipped"],
+        )
+
+    def test_max_skip_hours_zero_disables_guard(self):
+        """AC9: MAX_SKIP_HOURS=0 => guard off, skip stays skip."""
+        fake_now = [1000.0]
+        with patch("client.time.monotonic", side_effect=lambda: fake_now[0]), \
+                patch.object(self.config, "MAX_SKIP_HOURS", 0):
+            self.client.process_refresh_cycle()
+            fake_now[0] += 1000 * 3600.0
+            self.client.process_refresh_cycle()
+
+        self.assertEqual(self.epd.display_calls, 1)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "skipped"])
+
+    def test_kill_switch_disables_skip(self):
+        """AC10a: CONTENT_SKIP=False => identical bytes are always written."""
+        with patch.object(self.config, "CONTENT_SKIP", False):
+            self.client.process_refresh_cycle()
+            self.client.process_refresh_cycle()
+
+        self.assertEqual(self.epd.display_calls, 2)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "refreshed"])
+
+    def test_restart_state_always_writes_first_frame(self):
+        """AC10b: fresh process state => first frame is always written."""
+        self.client.process_refresh_cycle()
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "skipped"])
+
+        # Simulate a process restart: in-memory state gone, nothing persisted.
+        self.client._last_fetch_hash = None
+        self.client._last_displayed_hash = None
+        self.client._last_panel_write_monotonic = None
+
+        self.client.process_refresh_cycle()
+
+        self.assertEqual(self.epd.display_calls, 2)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "skipped", "refreshed"])
+
+    def test_no_hardware_never_skips(self):
+        """AC10c: epd is None (preview-only) => skip logic inactive."""
+        self.client.epd = None
+
+        with patch.object(Image.Image, "save"):
+            self.client.process_refresh_cycle()
+            self.client.process_refresh_cycle()
+
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "refreshed"])
+        # The preview-only path never feeds the skip state.
+        self.assertIsNone(self.client._last_displayed_hash)
+        self.assertFalse(os.path.exists(self.artifact_path))
+
+
+class TestContentSkipConfig(unittest.TestCase):
+    """E5.2 AC11: config.CONTENT_SKIP / config.MAX_SKIP_HOURS defaults and overrides."""
+
+    def tearDown(self):
+        # Restore module state from the real environment after reload tests.
+        import config
+        importlib.reload(config)
+
+    def test_content_skip_default_enabled(self):
+        """Without EINK_CONTENT_SKIP the content skip is enabled."""
+        import config
+        with patch.dict(os.environ):
+            os.environ.pop("EINK_CONTENT_SKIP", None)
+            importlib.reload(config)
+            self.assertTrue(config.CONTENT_SKIP)
+
+    def test_content_skip_only_string_false_disables(self):
+        """Only the string "false" (case-insensitive) disables the skip."""
+        import config
+        cases = [
+            ("false", False),
+            ("FALSE", False),
+            ("False", False),
+            ("true", True),
+            ("0", True),
+            ("no", True),
+            ("off", True),
+            ("", True),
+        ]
+        for value, expected in cases:
+            with self.subTest(value=value):
+                with patch.dict(os.environ, {"EINK_CONTENT_SKIP": value}):
+                    importlib.reload(config)
+                    self.assertEqual(config.CONTENT_SKIP, expected)
+
+    def test_max_skip_hours_default(self):
+        """Without EINK_MAX_SKIP_HOURS the guard defaults to 24 hours."""
+        import config
+        with patch.dict(os.environ):
+            os.environ.pop("EINK_MAX_SKIP_HOURS", None)
+            importlib.reload(config)
+            self.assertEqual(config.MAX_SKIP_HOURS, 24)
+
+    def test_max_skip_hours_env_override(self):
+        """EINK_MAX_SKIP_HOURS overrides the default after module reload."""
+        import config
+        with patch.dict(os.environ, {"EINK_MAX_SKIP_HOURS": "0"}):
+            importlib.reload(config)
+            self.assertEqual(config.MAX_SKIP_HOURS, 0)
+        with patch.dict(os.environ, {"EINK_MAX_SKIP_HOURS": "48"}):
+            importlib.reload(config)
+            self.assertEqual(config.MAX_SKIP_HOURS, 48)
+
+
 class TestRefreshStatus(unittest.TestCase):
     """Test server refresh polling."""
 
@@ -646,6 +980,20 @@ class TestHeartbeat(unittest.TestCase):
         self.assertIn("/api/client_heartbeat", call_args[0][0])
         body = call_args[1]["json"]
         self.assertEqual(body["status"], "refreshed")
+        self.assertIn("timestamp", body)
+
+    @patch("client.requests")
+    @patch("client.config")
+    def test_send_heartbeat_skipped_status(self, mock_config, mock_requests):
+        """E5.2: heartbeat carries an explicit "skipped" status on content skip."""
+        mock_config.SERVER_URL = "http://localhost:5000"
+
+        import client
+        client.send_heartbeat("skipped")
+
+        mock_requests.post.assert_called_once()
+        body = mock_requests.post.call_args[1]["json"]
+        self.assertEqual(body["status"], "skipped")
         self.assertIn("timestamp", body)
 
     @patch("client.requests")
