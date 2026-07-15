@@ -23,6 +23,18 @@ E1 komplett | E2.1+E2.3 gemergt (E2.5-Hardware-Gate offen, E2.4-Spec fertig — 
 - **E5.1-Übergang PASS**: Ohne Passwort alles offen wie vorher, 0×401 beim Client, stündliche Warn-Erinnerung wie designt.
 - Keine Regressionen: Panel-Write 19,9 s, 333 Requests alle 2xx, 2 Panel-Refreshes gesamt (beide autonom). Evidenz: artifacts/hil-2/.
 
+## HIL-Lauf 3 (2026-07-15, Pi 10.33.0.106) — Docker→Nativ-Umstieg **fehlgeschlagen (Software)**, Rollback ok
+
+- **Backup:** data/ vor dem Umstieg gesichert + off-device verifiziert (artifacts/hil-3/eink-data-backup-20260715-220052.tgz, 6,58 MB). ✅
+- **Native switch FAILED (Gate B):** `setup.sh --headless --update` lief ~19 min (apt, **Go-Build erfolgreich** → server/eink-server aus b061b85, venv ok), brach am **Display-Treiber-Check** ab. Root-Cause = **reine Software, KEIN HW-Defekt**: `lgpio`-Wheel baut nicht → `gpiozero` fällt auf die auf **Kernel 6.12 kaputte NativeFactory** (sysfs, `OSError [Errno 22]`) → `from waveshare_epd import epd7in3e` scheitert → Abbruch vor systemd-Install. Evidenz: artifacts/hil-3/setup-native-FAILED.log.
+- **Gegenbeweis HW intakt:** unter Docker lädt exakt derselbe epd7in3e-Treiber, bespielt das Panel in **19,7 s**, geht sauber schlafen. Panel + SPI + Verkabelung OK.
+- **Rollback:** `docker compose up -d` → beide Container healthy, UI erreichbar `http://10.33.0.106:5000` (offen, kein Passwort — keine .env). **Nuance:** Rollback nutzt die **alten Images (~5a093eb-Ära), NICHT b061b85** (kein `--build`). Für aktuelle Version: `docker compose up -d --build` oder nativer Fix.
+- **eink_last_sent.png = exakt 6 Farben** (epd7in3e-Palette, 800x480) — Dithering erreicht das Panel korrekt (aus altem Image, aber Pipeline-Beweis). artifacts/hil-3/eink_last_sent.png.
+- **Native RAM (L3 E5.6) BLOCKIERT** — native Services liefen nie. Docker-Messung (nicht vergleichbar): Server ~47,4 MB / Client ~35,9 MB.
+- **Throttle:** vorher/nachher `0x70000` unverändert (nur historische Bits seit Boot, keine aktiven) — der schwere Build hat **keine** akute Unterspannung ausgelöst.
+- **E5.2/E5.5 Spot-Checks inkonklusiv** (altes Image): Content-Skip verhaltensbasiert ok (1 Write / 8 Zyklen), aber kein expliziter Skip-Log-Marker; data/cache/weather.json nicht angelegt (Image älter als E5.5 oder kein Wetter-Widget).
+- **NEU: v1.0-Blocker E2.5** — die native „ein Befehl"-Installation funktioniert auf Kernel-6.12-RaspiOS NICHT (GPIO-Toolchain). Fix nötig in setup.sh (lgpio-Wheel bauen können ODER Pin-Factory erzwingen: `GPIOZERO_PIN_FACTORY=lgpio`/`rpigpio` statt kaputte NativeFactory). Spec: specs/E2.5a-native-gpio-fix.md.
+
 ## E3.7-Backlog (Feinschliff, gesammelt aus Verifikationen)
 
 - **Topbar-Overflow Desktop**: kein Wrap-/Overflow-Handling bei 1024–1594 px (Bestand; Theme/Settings/Save teils abgeschnitten). Präzise Lücke: 1024–1279 px hat KEINEN erreichbaren Logout (ab 1280 sichtbar; 768–1023 Tablet-Burger ok).
