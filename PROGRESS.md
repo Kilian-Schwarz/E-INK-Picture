@@ -5,16 +5,17 @@ Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel
 
 ## Aktueller Stand (2026-07-15, nach E5.5-Merge)
 
-E1 komplett | E2.1+E2.3 gemergt (E2.5-Hardware-Gate offen, E2.4-Spec fertig — Start wartet auf ersten Release-Tag) | E3 komplett (E3.7-Feinschliff = Backlog) | **E5 software-komplett**: E5.1, E5.2/E5.3, E5.4, E5.5, E5.6 alle gemergt | E6.1+E6.2 gemergt | Branch: **main @ 33059a4** (E5.5), gepusht. Damit ist der **Software-Backlog für v1.0 im Kern durch**; offen sind v0.9.0-RC, E2.4 (braucht Release-Tags), E4-Datenquellen (P1) und die Hardware-/Kilian-Gates.
+E1 komplett | E2.1+E2.3 gemergt — **E2.5 (native Installation) durch HIL-3 als BLOCKIERT entlarvt** (GPIO-Toolchain auf Kernel 6.12, Spec E2.5a) | E3 komplett + **E3.7a/b/c gemergt** (Sprachmix→Deutsch, forecast_days 7, Logout-Fix, favicon) | **E5 software-komplett** (E5.1–E5.6) | E6.1+E6.2 gemergt | Branch: **main @ 67b03b9**, kombinierte Verifikation grün. Software-Backlog für v1.0 weit vorangetrieben; offene v1.0-Gates: **E2.5a native-GPIO-Fix (P0 — blockiert die „ein Befehl"-Installation)**, v0.9.0-RC (Kilian: erst taggen wenn alles nachweislich fertig + auf Pi verifiziert), E2.4 (braucht Tags), E4-Datenquellen (P1), Hardware-/Kilian-Gates (Panel-A/B E1.6, 72h-Lauf, Foto).
 
 **E5.5 (Offline-Hardening) gemergt @ 33059a4:** persistenter Wetter-Cache (data/cache/weather.json, atomar, "stale ok", restart-fest) + In-Memory-Negativ-Cache (2 min pro Quelle, spart 10-s-Timeout pro Render). Reviewer-Blocker (Custom-API-Fallback-Drift "Error" vs. "HTTP <code>") gefixt und durch scharfen Test abgesichert. Hygiene-Nachzug: data/cache/ gitignored + .gitkeep, damit der Runtime-Cache nie versehentlich committet wird. L1✅ L5✅ APPROVE; L3 (Offline-Verhalten auf dem Pi) offen → HIL-Lauf 3.
 
 **Nächste Schritte:**
-1. ✅ main gepusht (34d20f7), CI-Lauf **grün** (success), feat/offline-hardening gelöscht
-2. v0.9.0-RC Kilian vorschlagen (Prozess laut release.yml-Kopfkommentar: CHANGELOG Unreleased → [0.9.0] umbenennen als chore(release)-Commit, dann Tag — NUR nach Kilians Freigabe taggen!)
-3. E2.4 (Self-Update) implementieren — Spec liegt unter specs/E2.4-self-update.md, braucht v0.9.0+v0.9.1 für den echten L3-Beweis
-4. E6.3 (README-Finale mit Screenshots/Panel-Foto — Foto braucht Kilian), E4-Datenquellen (P1), E3.7-Feinschliff
-5. HIL-Lauf 3 wenn sinnvoll gebündelt (bringt E5.2–E5.5 aufs Gerät: Nachtfenster-Probe, Skip-Zählung, Watchdog-chmod-Probe, Recovery-Messung, Offline-Cache-Verhalten)
+1. ✅ E3.7a/b/c gemergt (main 67b03b9), kombinierte Tests grün → push + CI, Branches löschen
+2. **Aktuelle Version für Kilian aufs Panel** (hardware-validator läuft: Path 1 nativ mit GPIO-Fix, sonst Docker-Rebuild von b061b85) — dann Kilians Panel-A/B (E1.6) in separater Session
+3. **E2.5a native-GPIO-Fix (P0)** — setup.sh: lgpio bauen bzw. Pin-Factory erzwingen; L3 = nativer Bring-up auf dem Pi (schaltet zugleich E2.5 + native RAM-Messung E5.6 frei)
+4. E4-Datenquellen (P1): Widget-Registry, CalDAV (URL-basiert, kein Key), neue Widgets — Google-OAuth braucht Kilians Keyed-API-Entscheid; E3.7 Rest-Feinschliff
+5. Wenn alles nachweislich fertig + auf Pi verifiziert: v0.9.0-RC → Tag (Prozess laut release.yml; NUR mit Kilians Freigabe)
+6. Nebenbei prüfen: 17 Dependabot-Vulns (7 kritisch) vor v1.0 aufräumen
 
 ## HIL-Lauf 2 (2026-07-15, Deploy cd053b4 → 5a093eb, Pi 10.33.0.106)
 
@@ -37,13 +38,13 @@ E1 komplett | E2.1+E2.3 gemergt (E2.5-Hardware-Gate offen, E2.4-Spec fertig — 
 
 ## E3.7-Backlog (Feinschliff, gesammelt aus Verifikationen)
 
-- **Topbar-Overflow Desktop**: kein Wrap-/Overflow-Handling bei 1024–1594 px (Bestand; Theme/Settings/Save teils abgeschnitten). Präzise Lücke: 1024–1279 px hat KEINEN erreichbaren Logout (ab 1280 sichtbar; 768–1023 Tablet-Burger ok).
-- favicon.ico-Route fehlt (404 eingeloggt / 401 anonym — Konsolen-Rauschen).
+- ✅ **Topbar-Overflow / Logout (E3.7b, 86360ce):** Logout in allen Breiten erreichbar (Burger-Cutoff auf gemessene Fit-Breite 1569.98px). **NEU als Folgekandidat:** 1024–1569px zeigen jetzt das Burger-Menü statt der Desktop-Zeile — Laptop-Breiten (1366/1440) verlieren die geräumige Topbar. Ein echtes Topbar-Overflow-Redesign (kompaktere/icon-only Controls) wäre nötig, um die einzeilige Desktop-Ansicht bis ~1024px zu behalten. Kilians Design-Urteil abwarten.
+- ✅ **favicon.ico (E3.7c, 67b03b9):** Route + PNG-Asset, öffentlich — Rauschen weg.
 - Properties-Panel zeigt beim Guide-Snap transient die rohe Position (Kosmetik, dokumentiert in E3.4-Spec).
 - Crop-Modal: Listener-Akkumulation bei Reopen via X/Overlay (vorbestehend, benign — E3.1-Review-Finding).
 - Resize-Snap an Guides (bewusstes E3.4-Non-Goal, Folgetask-Kandidat).
-- Sprachmix im Renderer: Forecast-Wochentage/Wetterbeschreibungen englisch neben deutschen Datumszeilen (Bestand; Chore: Lokalisierung der Widget-Strings).
-- weather.go:156 holt hart forecast_days=4 — week-planner-Template verspricht 7 Tage (Backend erhöhen oder Template-Beschreibung anpassen).
+- ✅ **Sprachmix im Renderer (E3.7a, 0d1e648):** Wochentage + Wetterbeschreibungen jetzt Deutsch (locale.go). **Rest-Folgekandidat:** JS-No-Data-Placeholder `22°C Sunny` (widgets.js:147) noch englisch — statischer Demo-Stub für den Kein-Daten-Zustand, kein WMO-Map-Fall, pre-existing.
+- ✅ **forecast_days 4→7 (E3.7a, 0d1e648):** Backend liefert jetzt 7 Tage (URL + 2 Parse-Caps); week-planner voll bedient.
 - Bild-Element-Puffer-Diät (E5.6-Non-Goal): VmHWM ~109 MB kommt aus dem Image-Resize-Pfad (Kernel-Temp pro Bild-Element, Worst Case ~150 MB transient bei großen Fotos) — Kandidat für E5-Folgetask, nötig fürs native 25-MB-Ziel bei Foto-Designs.
 - Wizard Schritt 5: früher Karten-Tap kann mit laufendem Queue-Render überlappen (max 2 in flight gemessen; Server serialisiert eh — Fix: auf Queue-Leerlauf warten vor Erfolgs-Render).
 - Dashboard-Use-Flow kopiert den inerten templateSlot:"location"-Marker mit (harmlos, Renderer ignoriert ihn).
@@ -105,6 +106,9 @@ E1 komplett | E2.1+E2.3 gemergt (E2.5-Hardware-Gate offen, E2.4-Spec fertig — 
 | E6.2 (CI) | release.yml: Tag → Gate → 4 gestempelte Binaries + sha256sums + install.sh, CHANGELOG-Notes (harter Fail), --verify-tag, Injection-sicher | L1✅ (actionlint, 5 Extraktions-Fälle, Injektions-Probe) L5✅ APPROVE; L2 = erster echter Tag (Manager-Folgeschritt) | f64fb70 |
 | E5.4 | Treiber-Watchdog: Reset statt Crash (nie sleep über kaputten Bus), init==-1 als Fehler, Eskalation nach 3 Fehlzyklen an systemd, Initial-Retry (<2 min Recovery) | L1✅ (68 Tests, 5 Negativproben) L5✅ APPROVE; L3 (HIL) offen | c1313d8 |
 | E5.5 | Offline-Hardening: persistenter Wetter-Cache (data/cache/weather.json, atomar CreateTemp+Rename, ≤1 Write/30min/Ort, fail-open, "stale ok" restart-fest) + In-Memory-Negativ-Cache (2 min/Quelle, Wetter+Forecast teilen 1 Versuch, Hit byte-identisch zum Direktfehler) + gitignore-Hygiene (data/cache/ + .gitkeep) | L1✅ (gofmt/vet/build + Services-Suite inkl. -race) L5: REQUEST_CHANGES (Custom-API-Fallback-Drift "Error" vs "HTTP <code>", Suite war blind) → Fix (exakter Fallback in failureEntry) test-first, Gegenprobe rot → APPROVE; L3 (Offline-Probe Pi) offen → HIL-3 | 33059a4 |
+| E3.7a | Sprachmix behoben: deutsche Wochentage (voll + Mo/Di/… statt Byte-Slice) + deutsche WMO-Wetterbeschreibungen an der Quelle; neue locale.go als Single Source of Truth (preview.go/weather.go/JS konsumieren); forecast_days 4→7 (URL + 2 Parse-Caps) | L1✅ (gofmt/vet/build, go test ./… inkl. -race grün) L2✅ (Goldens unverändert — kein Golden hat Wetter-Widget; Determinismus re-verifiziert) L5✅ APPROVE (unabhängig, deutsche Ausgabe per Test bewiesen, kein Englisch-Leak) | 0d1e648 |
+| E3.7b | Logout in allen Breiten erreichbar: Burger-Cutoff auf gemessene Fit-Breite 1569.98px angehoben (CSS-Media + JS mqTablet/currentMode konsistent) — 1024–1569px nutzen jetzt Burger statt klippender Zeile | L1✅ L2✅ (echter Chrome-Headless-Sweep 320–1920px, Logout erreichbar+klickbar im Ex-Loch, anonym nie sichtbar, Desktop ≥1570 unverändert) L5✅ APPROVE | 86360ce |
+| E3.7c | /favicon.ico serviert (PNG, image/png), öffentlich allow-gelistet (publicRoutes) — beendet 404/401-Konsolenrauschen; Templates verlinken via <link rel="icon"> | L1✅ (gofmt/vet, Tests + -race) L5✅ APPROVE (anon-401-Leak durch Test mit gesetztem Passwort geschlossen) | 67b03b9 |
 
 ## Offen / Blockiert
 
