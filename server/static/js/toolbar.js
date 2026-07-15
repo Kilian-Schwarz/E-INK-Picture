@@ -32,6 +32,7 @@ var Toolbar = {
 
         // Preview
         if (previewBtn) previewBtn.addEventListener('click', function() { self.preview(); });
+        this.initPreviewModal();
 
         // Settings
         if (settingsBtn) settingsBtn.addEventListener('click', function() {
@@ -131,27 +132,138 @@ var Toolbar = {
         LayersPanel.refresh();
     },
 
-    async preview() {
-        var previewImg = document.getElementById('preview-image');
-        previewImg.src = '';
-        document.getElementById('preview-modal').style.display = 'flex';
+    // --- Preview modal ---
+    // "panel" = POST /api/preview_live without raw (quantized to the driver
+    // palette, incl. calibration — what the display actually shows).
+    // "raw" = same POST with the raw query param set (full-color composition).
+    // Per modal session: design frozen once, max one fetch per mode (object
+    // URLs cached), URLs revoked on close. Future mini-preview wiring contract
+    // lives in specs/E3.6 — the LivePreview stub in designer.js stays a no-op.
+    _previewSession: 0,
+    _previewUrls: { panel: null, raw: null },
+    _previewDesign: null,
+    _previewLoading: false,
 
+    initPreviewModal() {
+        var self = this;
+        var tabPanel = document.getElementById('preview-tab-panel');
+        var tabRaw = document.getElementById('preview-tab-raw');
+        if (tabPanel) tabPanel.addEventListener('click', function() { self.selectPreviewMode('panel'); });
+        if (tabRaw) tabRaw.addEventListener('click', function() { self.selectPreviewMode('raw'); });
+
+        // Additional observers next to the generic close handlers in
+        // designer.js: revoke cached object URLs when the modal closes.
+        var modal = document.getElementById('preview-modal');
+        if (modal) {
+            modal.querySelectorAll('.modal-close, .modal-overlay').forEach(function(el) {
+                el.addEventListener('click', function() { self.closePreviewSession(); });
+            });
+        }
+    },
+
+    async preview() {
+        // Fresh session: clear any stale state, freeze the design once.
+        this.closePreviewSession();
+        var designData = Storage.canvasToDesignJSON();
+        designData.name = Storage.currentDesignName || 'preview';
+        this._previewDesign = designData;
+
+        document.getElementById('preview-image').src = '';
+        this.setPreviewTabs('panel');
+        this.setPreviewStatus('');
+        document.getElementById('preview-modal').style.display = 'flex';
+        await this.fetchPreviewMode('panel', true);
+    },
+
+    selectPreviewMode(mode) {
+        if (this._previewLoading) return; // tabs are disabled while loading; belt and braces
+        if (this._previewUrls[mode]) {
+            // Cached: pure src swap, no request
+            document.getElementById('preview-image').src = this._previewUrls[mode];
+            this.setPreviewTabs(mode);
+            this.setPreviewStatus('');
+            return;
+        }
+        this.fetchPreviewMode(mode, false);
+    },
+
+    async fetchPreviewMode(mode, isInitial) {
+        var session = this._previewSession;
+        var previewImg = document.getElementById('preview-image');
+        this._previewLoading = true;
+        this.setPreviewTabsDisabled(true);
+        this.setPreviewStatus('Rendering…');
         try {
-            var designData = Storage.canvasToDesignJSON();
-            designData.name = Storage.currentDesignName || 'preview';
-            var resp = await fetch('/api/preview_live?raw=true', {
+            var url = mode === 'raw' ? '/api/preview_live?raw=true' : '/api/preview_live';
+            var resp = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(designData),
+                body: JSON.stringify(this._previewDesign),
             });
-            if (!resp.ok) throw new Error('Preview failed');
+            if (!resp.ok) throw new Error('Preview failed: ' + resp.status);
             var blob = await resp.blob();
-            previewImg.src = URL.createObjectURL(blob);
+            var objectUrl = URL.createObjectURL(blob);
+            if (session !== this._previewSession) {
+                // Modal closed while rendering — drop the late response
+                URL.revokeObjectURL(objectUrl);
+                return;
+            }
+            this._previewUrls[mode] = objectUrl;
+            previewImg.src = objectUrl;
+            this.setPreviewTabs(mode);
+            this.setPreviewStatus('');
         } catch (e) {
-            console.error('Live preview failed, falling back to saved:', e);
-            var designName = document.getElementById('design-select') ? document.getElementById('design-select').value : '';
-            var url = designName ? '/preview?name=' + encodeURIComponent(designName) : '/preview';
-            previewImg.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+            if (session !== this._previewSession) return;
+            if (isInitial) {
+                // Initial open failed: fall back to the saved design
+                // (quantized like the panel default; deliberately not cached)
+                console.error('Live preview failed, falling back to saved:', e);
+                var designName = document.getElementById('design-select') ? document.getElementById('design-select').value : '';
+                var fallbackUrl = designName ? '/preview?name=' + encodeURIComponent(designName) : '/preview';
+                previewImg.src = fallbackUrl + (fallbackUrl.indexOf('?') >= 0 ? '&' : '?') + 't=' + Date.now();
+                this.setPreviewStatus('Live preview unavailable — showing saved design');
+            } else {
+                // Toggle fetch failed (e.g. 503 while the renderer is busy):
+                // keep the old image and the old active tab, no auto-retry
+                console.error('Preview render failed:', e);
+                this.setPreviewStatus('Renderer busy — try again');
+            }
+        } finally {
+            if (session === this._previewSession) {
+                this._previewLoading = false;
+                this.setPreviewTabsDisabled(false);
+            }
         }
+    },
+
+    closePreviewSession() {
+        this._previewSession++; // invalidates in-flight responses
+        this._previewLoading = false;
+        if (this._previewUrls.panel) URL.revokeObjectURL(this._previewUrls.panel);
+        if (this._previewUrls.raw) URL.revokeObjectURL(this._previewUrls.raw);
+        this._previewUrls = { panel: null, raw: null };
+        this._previewDesign = null;
+        this.setPreviewTabsDisabled(false);
+    },
+
+    setPreviewTabs(mode) {
+        var tabPanel = document.getElementById('preview-tab-panel');
+        var tabRaw = document.getElementById('preview-tab-raw');
+        if (tabPanel) tabPanel.classList.toggle('active', mode === 'panel');
+        if (tabRaw) tabRaw.classList.toggle('active', mode === 'raw');
+    },
+
+    setPreviewTabsDisabled(disabled) {
+        var tabPanel = document.getElementById('preview-tab-panel');
+        var tabRaw = document.getElementById('preview-tab-raw');
+        if (tabPanel) tabPanel.disabled = disabled;
+        if (tabRaw) tabRaw.disabled = disabled;
+    },
+
+    setPreviewStatus(text) {
+        var status = document.getElementById('preview-status');
+        if (!status) return;
+        status.textContent = text;
+        status.style.display = text ? 'block' : 'none';
     }
 };
