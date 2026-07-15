@@ -40,6 +40,7 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 		Calibration     models.CalibrationMode `json:"calibration,omitempty"`
 		SleepStart      *string                `json:"sleep_start,omitempty"`
 		SleepEnd        *string                `json:"sleep_end,omitempty"`
+		SetupCompleted  *bool                  `json:"setup_completed,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", http.StatusBadRequest)
@@ -111,6 +112,15 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 		}
 		current.SleepStart = start
 		current.SleepEnd = end
+	}
+
+	// setup_completed is a one-way latch (specs/E2.3-setup-wizard.md,
+	// Richtung 2): the wizard sets it on finish or skip. Once true it can
+	// never be reset to false via the API — a reset would re-arm the wizard's
+	// appearance criterion on installations without a password. Attempts to
+	// send false are accepted but ignored.
+	if req.SetupCompleted != nil && *req.SetupCompleted {
+		current.SetupCompleted = true
 	}
 
 	if err := h.settings.SaveSettings(current); err != nil {

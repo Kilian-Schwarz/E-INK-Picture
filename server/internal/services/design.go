@@ -481,6 +481,60 @@ func (s *DesignService) EnsureDesignExists() error {
 	return s.EnsureActive()
 }
 
+// IsPristine reports whether the design store is factory-fresh
+// (specs/E2.3-setup-wizard.md, Richtung 1d/1e): at most one design exists,
+// that design (if any) has zero elements (the untouched startup
+// "Default Design"), and no history snapshots have been written. Unreadable
+// design files count as a usage trace (conservative: in doubt, no wizard).
+func (s *DesignService) IsPristine() (bool, error) {
+	files, err := s.listFiles()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	if len(files) > 1 {
+		return false, nil
+	}
+	if len(files) == 1 {
+		d, err := s.loadDesign(files[0])
+		if err != nil {
+			return false, nil
+		}
+		if len(d.Elements) > 0 {
+			return false, nil
+		}
+	}
+	return s.historyEmpty()
+}
+
+// historyEmpty reports whether data/designs/history holds no snapshots.
+// Any file anywhere under the history root counts as a snapshot trace.
+func (s *DesignService) historyEmpty() (bool, error) {
+	root := filepath.Join(s.dataDir, "designs", "history")
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			return false, nil
+		}
+		sub, err := os.ReadDir(filepath.Join(root, e.Name()))
+		if err != nil {
+			return false, err
+		}
+		if len(sub) > 0 {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 func boolPtr(v bool) *bool { return &v }
 
 // generateID creates a short random hex ID.

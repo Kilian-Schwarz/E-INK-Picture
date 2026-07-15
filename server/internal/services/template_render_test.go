@@ -346,10 +346,10 @@ func TestTemplateLint(t *testing.T) {
 				}
 
 				if slot, ok := props["templateSlot"]; ok {
-					if entry.ID != "photo-clock" || elem.Type != "image" {
-						t.Errorf("%s: templateSlot is only allowed on the photo template's image element", ref)
-					} else if slot != "photo" {
-						t.Errorf("%s: templateSlot must be \"photo\", got %v", ref, slot)
+					isPhotoSlot := entry.ID == "photo-clock" && elem.Type == "image" && slot == "photo"
+					isLocationSlot := entry.ID == "weather-dashboard" && elem.Type == "text" && slot == "location"
+					if !isPhotoSlot && !isLocationSlot {
+						t.Errorf("%s: templateSlot %v is only allowed as \"photo\" on the photo template's image element or \"location\" on a weather-dashboard text element", ref, slot)
 					}
 				}
 

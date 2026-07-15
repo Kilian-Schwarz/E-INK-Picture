@@ -36,6 +36,10 @@ const (
 // Settings holds application-wide configuration persisted to disk.
 // SleepStart/SleepEnd define the nightly sleep window in local wall-clock
 // time ("HH:MM", 24h); both empty means the window is disabled.
+// SetupCompleted is the setup wizard's one-way completion latch
+// (specs/E2.3-setup-wizard.md): the wizard sets it on finish or skip; once
+// true it never returns to false. Being a struct field it survives the
+// TriggerRefresh/RecordClientRefresh roundtrips that rewrite settings.json.
 type Settings struct {
 	DisplayType        DisplayType     `json:"display_type"`
 	RefreshInterval    int             `json:"refresh_interval"`
@@ -44,6 +48,7 @@ type Settings struct {
 	Calibration        CalibrationMode `json:"calibration,omitempty"`
 	SleepStart         string          `json:"sleep_start,omitempty"`
 	SleepEnd           string          `json:"sleep_end,omitempty"`
+	SetupCompleted     bool            `json:"setup_completed,omitempty"`
 	LastRefreshTrigger string          `json:"last_refresh_trigger,omitempty"`
 	LastClientRefresh  string          `json:"last_client_refresh,omitempty"`
 }

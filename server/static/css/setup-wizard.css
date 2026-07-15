@@ -1,0 +1,549 @@
+/* Setup wizard (spec E2.3) — full-screen overlay, mobile-first (390px is
+   the primary case), existing design tokens (designer.css). While the
+   wizard is open the E5.1 auth banner stays hidden via the body class —
+   auth.js itself is untouched. */
+
+body.setup-wizard-open #auth-banner-container {
+    display: none;
+}
+
+/* The designer beneath the overlay keeps booting and emits its usual
+   notifications ("Designer loaded!" etc.) — meaningless noise while the
+   wizard is open, so they stay hidden with it. */
+body.setup-wizard-open #notification-container {
+    display: none;
+}
+
+.setup-wizard {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 900; /* above dashboard (500) + context menus (600), below notifications */
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overflow-x: hidden;
+}
+
+.setup-wizard-inner {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 16px 16px 48px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 100%;
+}
+
+/* --- header ------------------------------------------------------------- */
+.setup-wizard-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.setup-wizard-brand {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+}
+
+.setup-wizard-skip {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 13px;
+    text-decoration: underline;
+    padding: 12px 4px;
+    min-height: 44px;
+}
+
+.setup-wizard-skip:hover:not(:disabled) {
+    color: var(--text-secondary);
+}
+
+/* --- step indicator ------------------------------------------------------ */
+.setup-step-dots {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.setup-step-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+    flex: none;
+}
+
+.setup-step-dot.current {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.setup-step-dot.done {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+}
+
+.setup-step-line {
+    width: 24px;
+    height: 2px;
+    background: var(--border);
+    flex: none;
+}
+
+.setup-step-line.done {
+    background: var(--accent);
+}
+
+.setup-step-label {
+    margin-top: 8px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* --- content shell -------------------------------------------------------- */
+.setup-wizard-content {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.setup-wizard-content h2 {
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.setup-intro {
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+
+.setup-hint {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+}
+
+.setup-error-text {
+    font-size: 13px;
+    color: var(--danger);
+}
+
+.setup-wizard-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.setup-wizard-actions .setup-back {
+    margin-right: auto;
+}
+
+/* comfortable touch targets inside the wizard only */
+.setup-wizard .btn-primary,
+.setup-wizard .btn-secondary {
+    padding: 12px 20px;
+    font-size: 14px;
+    min-height: 44px;
+    border-radius: 8px;
+}
+
+.setup-wizard .prop-input {
+    width: 100%;
+    padding: 12px;
+    min-height: 44px;
+    font-size: 14px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    outline: none;
+}
+
+.setup-wizard .prop-input:focus {
+    border-color: var(--accent);
+}
+
+.setup-wizard .property-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.setup-wizard .property-group {
+    margin-bottom: 12px;
+}
+
+/* --- step 1: display cards ------------------------------------------------ */
+.setup-display-cards {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+}
+
+.setup-display-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    text-align: left;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    color: var(--text-primary);
+    min-height: 44px;
+}
+
+.setup-display-card:hover {
+    border-color: var(--border-light);
+}
+
+.setup-display-card.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.setup-display-illustration svg {
+    display: block;
+    width: 100%;
+    max-width: 240px;
+    height: auto;
+    color: var(--border-light);
+}
+
+.setup-display-name {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.setup-color-chips {
+    display: flex;
+    gap: 6px;
+}
+
+.setup-color-chip {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    flex: none;
+}
+
+.setup-display-driver {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.setup-server-time {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    padding: 10px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+/* --- step 2: location ------------------------------------------------------ */
+.setup-search-row {
+    display: flex;
+    gap: 8px;
+}
+
+.setup-search-row .prop-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.setup-location-results {
+    display: flex;
+    flex-direction: column;
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.setup-location-result {
+    text-align: left;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.4;
+    min-height: 44px;
+    overflow-wrap: anywhere;
+}
+
+.setup-location-result:hover {
+    border-color: var(--accent);
+}
+
+.setup-location-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--accent);
+    border-radius: 22px;
+    padding: 8px 8px 8px 14px;
+    font-size: 13px;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+}
+
+.setup-chip-clear {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 18px;
+    line-height: 1;
+    padding: 6px 10px;
+    border-radius: 50%;
+}
+
+.setup-chip-clear:hover {
+    color: var(--danger);
+}
+
+/* --- step 3: interval + advanced ------------------------------------------- */
+.setup-interval-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+.setup-interval-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 8px;
+    color: var(--text-primary);
+    min-height: 44px;
+}
+
+.setup-interval-card:hover {
+    border-color: var(--border-light);
+}
+
+.setup-interval-card.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.setup-interval-value {
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.setup-interval-note {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.setup-advanced-toggle {
+    align-self: flex-start;
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 13px;
+    padding: 10px 0;
+    min-height: 44px;
+}
+
+.setup-advanced {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+}
+
+.setup-advanced .setup-hint {
+    margin-top: 6px;
+}
+
+/* --- step 4: password ------------------------------------------------------- */
+.setup-password-done {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.setup-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--success);
+    color: #1e1e2e;
+    font-size: 13px;
+    font-weight: 700;
+    flex: none;
+}
+
+#setup-step4-login-hint a {
+    color: var(--accent);
+    font-size: 13px;
+}
+
+/* --- step 5: gallery ---------------------------------------------------------- */
+.setup-wizard-grid {
+    /* .designs-grid provides the responsive grid; nothing extra needed,
+       hook kept for targeted tweaks */
+    width: 100%;
+}
+
+.setup-blank-row {
+    display: flex;
+    justify-content: center;
+}
+
+.setup-blank-link {
+    background: none;
+    border: 1px dashed var(--border-light);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    padding: 12px 18px;
+    min-height: 44px;
+}
+
+.setup-blank-link:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* --- success page --------------------------------------------------------------- */
+.setup-success {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 14px;
+}
+
+.setup-success-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--success);
+    color: #1e1e2e;
+    font-size: 28px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.setup-success-preview {
+    width: 100%;
+    max-width: 480px;
+    min-height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.setup-success-preview img {
+    width: 100%;
+    height: auto;
+    border: 2px solid var(--border);
+    border-radius: 6px;
+}
+
+.setup-summary {
+    width: 100%;
+    max-width: 480px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 14px;
+    text-align: left;
+}
+
+.setup-summary > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+
+.setup-summary > div:last-child {
+    border-bottom: none;
+}
+
+.setup-summary dt {
+    color: var(--text-muted);
+    flex: none;
+}
+
+.setup-summary dd {
+    margin: 0;
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+.setup-success-actions {
+    justify-content: center;
+    width: 100%;
+}
+
+/* --- desktop refinements ----------------------------------------------------------- */
+@media (min-width: 640px) {
+    .setup-wizard-inner {
+        padding: 32px 24px 64px;
+        gap: 24px;
+    }
+
+    .setup-display-cards {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .setup-step-line {
+        width: 48px;
+    }
+
+    .setup-wizard-content h2 {
+        font-size: 26px;
+    }
+}

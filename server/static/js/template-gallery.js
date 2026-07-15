@@ -5,24 +5,42 @@
 // Preview contract (spec E3.5, Richtung 3): one POST /api/preview_live per
 // template (panel mode, no raw param), strictly sequential (never more than
 // one request in flight, E5.6 semaphore), object URLs cached per page
-// session. The queue pauses while the dashboard is closed and resumes on
-// the next open; a failed card falls back to the template name and is NOT
-// retried within the session.
+// session. The queue pauses while the host is hidden and resumes on the
+// next ensureLoaded(); a failed card falls back to the template name and is
+// NOT retried within the session.
+//
+// Host refactor (spec E2.3, Richtung 7): the gallery renders into whichever
+// host is passed to ensureLoaded() — grid element id, pause criterion and
+// select behavior are host-provided. Without a host argument the design
+// dashboard defaults apply (behavior identical to pre-refactor). Preview
+// cache and queue are shared across hosts: globally never more than one
+// render in flight, no matter who is showing the cards.
 var TemplateGallery = {
     manifest: null,
     _manifestLoading: false,
-    _cardsRendered: false,
     _queueRunning: false,
     _using: false,
     _templateCache: {},   // id -> design JSON (as shipped, un-substituted)
     _previewUrls: {},     // id -> object URL (page-session cache)
     _previewFailed: {},   // id -> true (no auto-retry this session)
-    _cards: {},           // id -> card DOM node
+    _cards: {},           // id -> card DOM node (current host's grid)
     _createdNames: [],    // names created this session (collision suffix)
+    _host: null,          // active host (see _dashboardHost for the shape)
+    _renderedGrid: null,  // grid element the cards are currently rendered in
 
-    // Called from DesignDashboard.open(). Loads the manifest once per page
-    // session, renders the cards once, then (re)starts the preview queue.
-    async ensureLoaded() {
+    // Default host: the design dashboard (pre-refactor behavior).
+    _dashboardHost: {
+        gridId: 'templates-grid',
+        isPaused: function () { return !DesignDashboard.isOpen; },
+        onSelect: function (t) { TemplateGallery.useTemplate(t); }
+    },
+
+    // Called from DesignDashboard.open() (no argument) or from an alternate
+    // host such as the setup wizard ({gridId, isPaused, onSelect}). Loads
+    // the manifest once per page session, renders the cards into the host's
+    // grid, then (re)starts the shared preview queue.
+    async ensureLoaded(host) {
+        this._host = host || this._dashboardHost;
         if (!this.manifest) {
             if (this._manifestLoading) return;
             this._manifestLoading = true;
@@ -38,17 +56,18 @@ var TemplateGallery = {
                 this._manifestLoading = false;
             }
         }
-        if (!this._cardsRendered) {
+        var grid = document.getElementById(this._host.gridId);
+        if (grid && grid !== this._renderedGrid) {
             this.renderCards();
-            this._cardsRendered = true;
         }
         this._runQueue();
     },
 
     renderCards() {
-        var grid = document.getElementById('templates-grid');
+        var grid = document.getElementById(this._host.gridId);
         if (!grid) return;
         grid.innerHTML = '';
+        this._cards = {};
         var self = this;
         this.manifest.forEach(function(t) {
             var card = document.createElement('div');
@@ -73,22 +92,33 @@ var TemplateGallery = {
                 '</div>';
 
             card.addEventListener('click', function() {
-                self.useTemplate(t);
+                self._host.onSelect(t);
             });
 
             self._cards[t.id] = card;
             grid.appendChild(card);
+
+            // Re-renders (host switch) restore the page-session cache state
+            // immediately instead of waiting for the queue.
+            if (self._previewUrls[t.id]) {
+                self._attachPreview(card, self._previewUrls[t.id], t.name);
+            } else if (self._previewFailed[t.id]) {
+                var ph = card.querySelector('.no-preview');
+                if (ph) ph.textContent = t.name;
+            }
         });
+        this._renderedGrid = grid;
     },
 
     // Strictly sequential preview queue: at most one preview_live request in
-    // flight; pauses when the dashboard closes; cached cards cost nothing.
+    // flight; pauses when the host reports itself hidden; cached cards cost
+    // nothing.
     async _runQueue() {
         if (this._queueRunning || !this.manifest) return;
         this._queueRunning = true;
         try {
             for (var i = 0; i < this.manifest.length; i++) {
-                if (!DesignDashboard.isOpen) break; // pause; next open resumes
+                if (this._host.isPaused()) break; // pause; next ensureLoaded resumes
                 var t = this.manifest[i];
                 if (this._previewUrls[t.id] || this._previewFailed[t.id]) continue;
                 await this._loadPreview(t);
@@ -96,6 +126,32 @@ var TemplateGallery = {
         } finally {
             this._queueRunning = false;
         }
+    },
+
+    // Drops the whole preview cache (spec E2.3, Richtung 7): revokes the
+    // object URLs, forgets failures (a new display profile deserves a fresh
+    // attempt) and forces a card re-render on the next ensureLoaded(). The
+    // setup wizard calls this when display_type changed since the previews
+    // were rendered, so the cards become panel-true again.
+    invalidatePreviews() {
+        var self = this;
+        Object.keys(this._previewUrls).forEach(function(id) {
+            URL.revokeObjectURL(self._previewUrls[id]);
+        });
+        this._previewUrls = {};
+        this._previewFailed = {};
+        this._renderedGrid = null;
+    },
+
+    _attachPreview(card, url, alt) {
+        var preview = card.querySelector('.design-card-preview');
+        if (!preview) return;
+        var placeholder = preview.querySelector('.no-preview');
+        if (placeholder) preview.removeChild(placeholder);
+        var img = document.createElement('img');
+        img.src = url;
+        img.alt = alt;
+        preview.insertBefore(img, preview.firstChild);
     },
 
     async _loadPreview(t) {
@@ -115,13 +171,7 @@ var TemplateGallery = {
             var blob = await resp.blob();
             this._previewUrls[t.id] = URL.createObjectURL(blob);
             if (card) {
-                var preview = card.querySelector('.design-card-preview');
-                var placeholder = preview.querySelector('.no-preview');
-                if (placeholder) preview.removeChild(placeholder);
-                var img = document.createElement('img');
-                img.src = this._previewUrls[t.id];
-                img.alt = t.name;
-                preview.insertBefore(img, preview.firstChild);
+                this._attachPreview(card, this._previewUrls[t.id], t.name);
             }
         } catch (e) {
             // 503 (renderer busy) or network error: show the template name
@@ -208,6 +258,8 @@ var TemplateGallery = {
 
     // Use flow (Richtung 4): copy, substitute, create as INACTIVE design
     // (activation stays a deliberate user click), open in the designer.
+    // This is the dashboard's select behavior; the setup wizard brings its
+    // own (create + activate + trigger, spec E2.3 Richtung 9).
     async useTemplate(t) {
         if (this._using) return;
         this._using = true;

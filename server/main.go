@@ -128,6 +128,7 @@ func newApplication(cfg *config.Config) (*application, error) {
 	settingsH := handlers.NewSettingsHandler(settingsSvc)
 	widgetH := handlers.NewWidgetHandler(weatherSvc)
 	authH := handlers.NewAuthHandler(authMgr, sessions, limiter, cfg.CookieSecure)
+	setupH := handlers.NewSetupHandler(authMgr, settingsSvc, designSvc, imageSvc)
 
 	// Setup router
 	mux := http.NewServeMux()
@@ -163,6 +164,9 @@ func newApplication(cfg *config.Config) (*application, error) {
 	mux.HandleFunc("POST /api/auth/logout", authH.Logout)
 	mux.HandleFunc("POST /api/auth/setup", authH.Setup)
 	mux.HandleFunc("GET /api/auth/status", authH.Status)
+
+	// Setup wizard status (public, specs/E2.3-setup-wizard.md)
+	mux.HandleFunc("GET /api/setup/status", setupH.Status)
 
 	// Design endpoints
 	mux.HandleFunc("GET /design", designH.GetActive)

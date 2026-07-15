@@ -34,11 +34,12 @@ type GuardConfig struct {
 // not listed here (or under /static/) requires authentication once a password
 // is set — deny by default, the guard runs before any router match.
 var publicRoutes = map[string]bool{
-	"GET /health":          true,
-	"GET /login":           true,
-	"POST /api/auth/login": true,
-	"POST /api/auth/setup": true,
-	"GET /api/auth/status": true,
+	"GET /health":           true,
+	"GET /login":            true,
+	"POST /api/auth/login":  true,
+	"POST /api/auth/setup":  true,
+	"GET /api/auth/status":  true,
+	"GET /api/setup/status": true,
 }
 
 // staticPrefix serves embedded CSS/JS (no user data); the login page needs it.

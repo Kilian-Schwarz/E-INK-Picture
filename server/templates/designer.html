@@ -10,10 +10,14 @@
     <link rel="stylesheet" href="/static/css/media-dashboard.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/responsive.css">
+    <link rel="stylesheet" href="/static/css/setup-wizard.css">
 </head>
 <body>
     <!-- Auth banner (E5.1, filled by auth.js while no admin password is set) -->
     <div id="auth-banner-container"></div>
+
+    <!-- Setup wizard overlay (E2.3, filled by setup-wizard.js on fresh installs) -->
+    <div id="setup-wizard-root"></div>
 
     <!-- TOP BAR -->
     <header class="topbar">
@@ -456,6 +460,7 @@
     <script src="/static/js/media-library.js"></script>
     <script src="/static/js/template-gallery.js"></script>
     <script src="/static/js/design-dashboard.js"></script>
+    <script src="/static/js/setup-wizard.js"></script>
     <script src="/static/js/shortcuts.js"></script>
     <script src="/static/js/designer.js"></script>
     <script src="/static/js/responsive-layout.js"></script>

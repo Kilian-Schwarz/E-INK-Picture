@@ -165,7 +165,7 @@ func TestGuardFullStackClassification(t *testing.T) {
 	}
 
 	// (e) Public routes without session → 200.
-	publicRoutes := []string{"/health", "/login", "/api/auth/status", "/static/js/designer.js"}
+	publicRoutes := []string{"/health", "/login", "/api/auth/status", "/api/setup/status", "/static/js/designer.js"}
 	for _, path := range publicRoutes {
 		w := do(app, "GET", path, nil, nil)
 		if w.Code != http.StatusOK {
@@ -437,6 +437,52 @@ func TestSetupThenLoginFullStack(t *testing.T) {
 	w = do(app, "POST", "/api/auth/setup", strings.NewReader(`{"password":"second-pw"}`), nil)
 	if w.Code != http.StatusForbidden {
 		t.Errorf("second setup = %d, want 403", w.Code)
+	}
+}
+
+// TestSetupStatusPublicFullStack (E2.3 AC2): GET /api/setup/status answers
+// through the fully wired stack without a session even when a password is
+// set, and carries exactly the five spec'd fields — nothing sensitive.
+func TestSetupStatusPublicFullStack(t *testing.T) {
+	app := newTestApp(t, nil)
+
+	// Fresh install (newApplication ran EnsureDesignExists): wizard on.
+	w := do(app, "GET", "/api/setup/status", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("fresh: GET /api/setup/status = %d, want 200", w.Code)
+	}
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["wizard"] != true || resp["password_set"] != false {
+		t.Errorf("fresh: wizard=%v password_set=%v, want true/false", resp["wizard"], resp["password_set"])
+	}
+
+	// With a password and WITHOUT a session the route stays reachable
+	// (public allowlist) and reports wizard=false.
+	if err := app.authMgr.SetPassword(testPassword); err != nil {
+		t.Fatalf("SetPassword: %v", err)
+	}
+	w = do(app, "GET", "/api/setup/status", nil, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("with password, no session: GET /api/setup/status = %d, want 200", w.Code)
+	}
+	resp = map[string]any{}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["wizard"] != false || resp["password_set"] != true {
+		t.Errorf("with password: wizard=%v password_set=%v, want false/true", resp["wizard"], resp["password_set"])
+	}
+	want := []string{"wizard", "password_set", "setup_completed", "server_time", "server_timezone"}
+	for _, key := range want {
+		if _, ok := resp[key]; !ok {
+			t.Errorf("response is missing field %q", key)
+		}
+	}
+	if len(resp) != len(want) {
+		t.Errorf("response must contain exactly %d fields, got %d: %v", len(want), len(resp), resp)
 	}
 }
 

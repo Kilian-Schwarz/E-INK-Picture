@@ -179,6 +179,47 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 	return &settings, nil
 }
 
+// userSettingsMarkers are the raw settings.json keys that only the UI save
+// path (POST /update_settings -> GetSettings -> SaveSettings) materializes.
+// The heartbeat/trigger writers (RecordClientRefresh/TriggerRefresh)
+// roundtrip the Settings struct whose omitempty tags keep these keys out of
+// the file — their presence therefore marks a deliberate user configuration
+// (specs/E2.3-setup-wizard.md, Fakt 2 / Richtung 1c).
+var userSettingsMarkers = []string{
+	"render_quality",
+	"dither_algorithm",
+	"calibration",
+	"sleep_start",
+	"sleep_end",
+}
+
+// HasUserSettings reports whether settings.json carries at least one
+// user-set marker key. A missing file counts as fresh; a corrupt file counts
+// as touched (conservative: in doubt, no setup wizard).
+func (s *SettingsService) HasUserSettings() (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	data, err := os.ReadFile(s.filePath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return true, nil
+	}
+	for _, key := range userSettingsMarkers {
+		if _, ok := raw[key]; ok {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // SaveSettings writes settings to disk.
 func (s *SettingsService) SaveSettings(settings *models.Settings) error {
 	s.mu.Lock()
