@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -64,6 +65,12 @@ type PreviewService struct {
 	settings *SettingsService
 	dataDir  string
 
+	// hass is the read-only Home-Assistant fetch layer (B5a). It is optional:
+	// fillHassContent tolerates a nil hass (returns germanHassNotConfigured) so
+	// existing PreviewService constructions that never wire it keep working.
+	// main injects it via SetHassService after both services are built.
+	hass *HassService
+
 	// fontCache holds PARSED fonts keyed by font path. It must never cache
 	// font.Face instances: opentype.Face is not safe for concurrent use
 	// (lazy metrics, sfnt.Buffer, rasterizer state mutate per glyph), while
@@ -97,6 +104,14 @@ func NewPreviewService(d *DesignService, w *WeatherService, i *ImageService, s *
 		renderSem:   make(chan struct{}, 1),
 		scalerCache: make(map[scalerKey]xdraw.Scaler),
 	}
+}
+
+// SetHassService injects the read-only Home-Assistant fetch layer used by
+// fillHassContent (widget_hass). It is optional and set once at startup (main),
+// mirroring SetMaxConcurrentRenders: a PreviewService without it renders every
+// widget_hass element as germanHassNotConfigured.
+func (s *PreviewService) SetHassService(h *HassService) {
+	s.hass = h
 }
 
 // SetMaxConcurrentRenders resizes the render semaphore. Must be called before
@@ -254,6 +269,8 @@ func (s *PreviewService) Render(ctx context.Context, design *models.DesignV2, ra
 			defaultFontSize = 24
 		case "widget_timer":
 			defaultFontSize = 24
+		case "widget_hass":
+			defaultFontSize = 18
 		case "text":
 			defaultFontSize = 24
 		}
@@ -355,6 +372,8 @@ func (s *PreviewService) WidgetTextContent(elemType string, props map[string]any
 		return s.fillCustomContent(props), true
 	case "widget_system":
 		return s.fillSystemContent(props), true
+	case "widget_hass":
+		return s.fillHassContent(props), true
 	default:
 		return "", false
 	}
@@ -889,6 +908,163 @@ func applySystemPlaceholders(template string) string {
 		"%temperature%", temp,
 	)
 	return r.Replace(template)
+}
+
+// fillHassContent renders a widget_hass element's live text from Home-Assistant
+// (specs/B5-home-assistant.md, sub-task B5b). It reads the dedicated hassMode
+// prop (temperature/alarm/presence — never layout), fetches each configured
+// entity read-only via HassService, and maps state to German text sourced
+// entirely from locale.go (AC-HA7). It is nil-tolerant (no hass wired →
+// germanHassNotConfigured) and never returns the token nor panics.
+func (s *PreviewService) fillHassContent(props map[string]any) string {
+	entities := splitHassEntities(GetPropString(props, "entityId", ""))
+	if len(entities) == 0 {
+		return germanHassNoEntity
+	}
+	if s.hass == nil {
+		return germanHassNotConfigured
+	}
+
+	label := GetPropString(props, "label", "")
+	switch GetPropString(props, "hassMode", "temperature") {
+	case "alarm":
+		return s.fillHassAlarm(entities, label)
+	case "presence":
+		return s.fillHassPresence(entities, label)
+	default:
+		return s.fillHassTemperature(entities, label)
+	}
+}
+
+// splitHassEntities parses a comma-separated entity list, trimming whitespace
+// and dropping empty items.
+func splitHassEntities(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if id := strings.TrimSpace(part); id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// fetchHassEntity fetches one entity and maps the service error to the German
+// graceful string from locale.go. On success text is "" and the entity is
+// returned; on failure the entity is nil and text holds the placeholder.
+func (s *PreviewService) fetchHassEntity(entityID string) (*HassEntity, string) {
+	ent, err := s.hass.FetchEntity(context.Background(), entityID)
+	if err == nil {
+		return ent, ""
+	}
+	switch {
+	case errors.Is(err, ErrHassNotConfigured):
+		return nil, germanHassNotConfigured
+	case errors.Is(err, ErrHassEntityUnknown):
+		return nil, germanHassUnknownPrefix + entityID
+	default:
+		return nil, germanHassUnavailable
+	}
+}
+
+// fillHassTemperature renders sensor.* readings. One entity yields "<state><unit>"
+// (or germanHassNoValue for a non-numeric reading), optionally prefixed by label.
+// Several entities yield one "<name>: <state><unit>" line each.
+func (s *PreviewService) fillHassTemperature(entities []string, label string) string {
+	if len(entities) == 1 {
+		ent, text := s.fetchHassEntity(entities[0])
+		if ent == nil {
+			return text
+		}
+		return withHassLabel(label, formatHassTemp(ent))
+	}
+
+	var lines []string
+	okCount := 0
+	lastFail := ""
+	for _, id := range entities {
+		ent, text := s.fetchHassEntity(id)
+		if ent == nil {
+			lastFail = text
+			continue
+		}
+		okCount++
+		lines = append(lines, hassDisplayName(ent, id)+": "+formatHassTemp(ent))
+	}
+	if okCount == 0 {
+		return lastFail
+	}
+	return strings.Join(lines, "\n")
+}
+
+// fillHassAlarm renders an alarm_control_panel state as German text, optionally
+// prefixed by label. Only the first entity is used (alarm is single-panel).
+func (s *PreviewService) fillHassAlarm(entities []string, label string) string {
+	ent, text := s.fetchHassEntity(entities[0])
+	if ent == nil {
+		return text
+	}
+	return withHassLabel(label, germanAlarmText(ent.State))
+}
+
+// fillHassPresence renders person.*/device_tracker.* presence. One entity yields
+// the German presence text (optionally label-prefixed). Several entities yield a
+// count summary (germanHassHomeCount) followed by each present person's name.
+func (s *PreviewService) fillHassPresence(entities []string, label string) string {
+	if len(entities) == 1 {
+		ent, text := s.fetchHassEntity(entities[0])
+		if ent == nil {
+			return text
+		}
+		return withHassLabel(label, germanPresenceText(ent.State))
+	}
+
+	homeCount := 0
+	okCount := 0
+	lastFail := ""
+	var names []string
+	for _, id := range entities {
+		ent, text := s.fetchHassEntity(id)
+		if ent == nil {
+			lastFail = text
+			continue
+		}
+		okCount++
+		if ent.State == "home" {
+			homeCount++
+			names = append(names, hassDisplayName(ent, id))
+		}
+	}
+	if okCount == 0 {
+		return lastFail
+	}
+	lines := []string{germanHassHomeCount(homeCount)}
+	lines = append(lines, names...)
+	return strings.Join(lines, "\n")
+}
+
+// formatHassTemp renders "<state><unit>" for a numeric reading, or
+// germanHassNoValue when the state is not a number (unavailable/unknown).
+func formatHassTemp(ent *HassEntity) string {
+	if _, err := strconv.ParseFloat(strings.TrimSpace(ent.State), 64); err != nil {
+		return germanHassNoValue
+	}
+	return ent.State + ent.Unit
+}
+
+// hassDisplayName returns the entity friendly name, falling back to its id.
+func hassDisplayName(ent *HassEntity, id string) string {
+	if ent.FriendlyName != "" {
+		return ent.FriendlyName
+	}
+	return id
+}
+
+// withHassLabel prefixes text with "<label>: " when label is non-empty.
+func withHassLabel(label, text string) string {
+	if label == "" {
+		return text
+	}
+	return label + ": " + text
 }
 
 // renderImageElement renders an image element from v2 properties.

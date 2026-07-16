@@ -23,8 +23,9 @@ import (
 )
 
 // HA fetch outcomes surfaced to the content layer. They are distinct so the
-// caller (B5b fillHassContent) can map 404 to "Unbekannt: <id>" while transport
-// errors and other non-200s map to the generic "Nicht verfügbar".
+// caller (B5b fillHassContent) can map 404 to the entity-unknown placeholder
+// while transport errors and other non-200s map to the generic unavailable
+// placeholder (both worded in German from locale.go, AC-HA7).
 var (
 	// ErrHassNotConfigured means no base URL and/or token is set.
 	ErrHassNotConfigured = errors.New("hass not configured")

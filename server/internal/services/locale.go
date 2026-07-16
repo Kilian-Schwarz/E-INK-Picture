@@ -1,6 +1,9 @@
 package services
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // German localization tables for the panel renderer. These are the single
 // source of truth for German weekday, month and weather-condition text: the
@@ -64,3 +67,75 @@ var germanWMODesc = map[int]string{
 
 // germanWMOUnknown is the German fallback for an unmapped WMO code.
 const germanWMOUnknown = "Unbekannt"
+
+// --- Home-Assistant widget text (specs/B5-home-assistant.md, sub-task B5b) ---
+//
+// locale.go is the single source of the German HA state and error strings:
+// fillHassContent (preview.go) references these tables/constants/helpers and
+// defines no HA string literals of its own (AC-HA7).
+
+// germanHassAlarm maps an alarm_control_panel state to its German label. An
+// unmapped state falls back to the raw state string (see germanAlarmText).
+var germanHassAlarm = map[string]string{
+	"disarmed":            "Unscharf",
+	"armed_home":          "Scharf (Anwesend)",
+	"armed_away":          "Scharf (Abwesend)",
+	"armed_night":         "Scharf (Nacht)",
+	"armed_vacation":      "Scharf (Urlaub)",
+	"armed_custom_bypass": "Scharf (Benutzerdefiniert)",
+	"arming":              "Wird scharf…",
+	"pending":             "Wird scharf…",
+	"disarming":           "Wird unscharf…",
+	"triggered":           "Ausgelöst",
+}
+
+// Presence text for person.*/device_tracker.* states. Any state other than
+// home/not_home (a zone name) passes through unchanged (see germanPresenceText).
+const (
+	germanHassHome       = "Zuhause"
+	germanHassAway       = "Abwesend"
+	germanHassNobodyHome = "Niemand zuhause"
+)
+
+// HA placeholder/error text surfaced in the widget content.
+// germanHassUnknownPrefix reuses germanWMOUnknown ("Unbekannt") so the "unknown"
+// wording has a single source; germanHassNoValue marks a non-numeric reading.
+const (
+	germanHassNotConfigured = "HA nicht konfiguriert"
+	germanHassUnavailable   = "Nicht verfügbar"
+	germanHassNoEntity      = "Keine Entity"
+	germanHassNoValue       = "—"
+	germanHassUnknownPrefix = germanWMOUnknown + ": "
+)
+
+// germanAlarmText returns the German label for an alarm_control_panel state,
+// falling back to the raw state string for an unmapped value (e.g. a
+// non-standard integration), so the caller never renders empty nor panics.
+func germanAlarmText(state string) string {
+	if t, ok := germanHassAlarm[state]; ok {
+		return t
+	}
+	return state
+}
+
+// germanPresenceText maps a presence state to German: home→Zuhause,
+// not_home→Abwesend; any other value (a zone name) passes through unchanged.
+func germanPresenceText(state string) string {
+	switch state {
+	case "home":
+		return germanHassHome
+	case "not_home":
+		return germanHassAway
+	default:
+		return state
+	}
+}
+
+// germanHassHomeCount renders the multi-entity presence summary line:
+// "<n> zuhause" for n>0, germanHassNobodyHome for n<=0.
+func germanHassHomeCount(n int) string {
+	if n <= 0 {
+		return germanHassNobodyHome
+	}
+	return strconv.Itoa(n) + " zuhause"
+}

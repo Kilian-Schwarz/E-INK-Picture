@@ -136,6 +136,10 @@ func newApplication(cfg *config.Config) (*application, error) {
 		return nil, err
 	}
 	hassSvc := services.NewHassService(hassMgr)
+	// Wire the HA fetch layer into the preview renderer so fillHassContent
+	// (widget_hass) can serve live state through the shared WidgetTextContent
+	// dispatch (specs/B5-home-assistant.md, sub-task B5b).
+	previewSvc.SetHassService(hassSvc)
 
 	// Create handlers
 	designH := handlers.NewDesignHandler(designSvc, previewSvc)
