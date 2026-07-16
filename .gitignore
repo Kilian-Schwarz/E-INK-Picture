@@ -30,6 +30,9 @@ client/certs/*.crt
 # Claude local config
 CLAUDE.local.md
 
+# Secrets (never tracked)
+secrets.local.md
+
 # Data (user content, not tracked)
 data/settings.json
 data/designs/*.json
@@ -40,6 +43,8 @@ data/fonts/*
 data/weather_styles/*
 data/media_meta.json
 data/cache/*
+data/auth.json
+data/hass.json
 !data/**/.gitkeep
 
 # Server local data (created by go run)
