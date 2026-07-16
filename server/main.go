@@ -148,7 +148,7 @@ func newApplication(cfg *config.Config) (*application, error) {
 	previewH := handlers.NewPreviewHandler(previewSvc, designSvc)
 	displayH := handlers.NewDisplayHandler(cfg.EInkClientURL)
 	settingsH := handlers.NewSettingsHandler(settingsSvc)
-	widgetH := handlers.NewWidgetHandler(weatherSvc, previewSvc)
+	widgetH := handlers.NewWidgetHandler(previewSvc)
 	authH := handlers.NewAuthHandler(authMgr, sessions, limiter, cfg.CookieSecure)
 	setupH := handlers.NewSetupHandler(authMgr, settingsSvc, designSvc, imageSvc)
 	hassH := handlers.NewHassHandler(hassSvc, hassMgr)
@@ -252,13 +252,9 @@ func newApplication(cfg *config.Config) (*application, error) {
 	mux.HandleFunc("GET /api/refresh_status", settingsH.RefreshStatus)
 	mux.HandleFunc("POST /api/client_heartbeat", settingsH.ClientHeartbeat)
 
-	// Widget API endpoints
-	mux.HandleFunc("GET /api/widgets/weather", widgetH.Weather)
-	mux.HandleFunc("GET /api/widgets/forecast", widgetH.Forecast)
-	mux.HandleFunc("GET /api/widgets/calendar", widgetH.Calendar)
-	mux.HandleFunc("GET /api/widgets/news", widgetH.News)
-	mux.HandleFunc("GET /api/widgets/system", widgetH.System)
-	mux.HandleFunc("GET /api/widgets/custom", widgetH.Custom)
+	// Widget API endpoints. Layout metadata (dropdown + placeholder chips) is
+	// UI-only and stays a plain GET; the per-widget content E-path was removed
+	// in B4c in favor of the shared POST /api/widget_content dispatch below.
 	mux.HandleFunc("GET /api/widget_layouts/{type}", widgetH.Layouts)
 
 	// Shared widget content: same authenticated read + CSRF/same-origin

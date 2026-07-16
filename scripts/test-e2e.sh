@@ -184,8 +184,8 @@ check "GET /images_all" $?
 
 # Widget APIs
 echo "[Widget APIs]"
-curl -sf "$SERVER/api/widgets/system" >/dev/null 2>&1
-check "GET /api/widgets/system" $?
+curl -sf "$SERVER/api/widget_layouts/widget_system" >/dev/null 2>&1
+check "GET /api/widget_layouts/widget_system" $?
 
 # Static files
 echo "[Static]"

@@ -117,7 +117,7 @@ func TestGuardFullStackClassification(t *testing.T) {
 		{"GET", "/designs"},
 		{"POST", "/update_settings"},
 		{"DELETE", "/api/media/images/x.png"},
-		{"GET", "/api/widgets/system"},
+		{"GET", "/api/widget_layouts/widget_system"},
 	}
 	for _, c := range sessionRoutes {
 		w := do(app, c.method, c.path, nil, nil)
@@ -144,7 +144,7 @@ func TestGuardFullStackClassification(t *testing.T) {
 		{"GET", "/designs", "", http.StatusOK},
 		{"POST", "/update_settings", `{"refresh_interval":1800}`, http.StatusOK},
 		{"DELETE", "/api/media/images/x.png", "", http.StatusNotFound},
-		{"GET", "/api/widgets/system", "", http.StatusOK},
+		{"GET", "/api/widget_layouts/widget_system", "", http.StatusOK},
 		{"GET", "/designer", "", http.StatusOK},
 	}
 	for _, c := range expected {

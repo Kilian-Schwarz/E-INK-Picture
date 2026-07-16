@@ -129,9 +129,9 @@ func postContent(t *testing.T, mux *http.ServeMux, typ string, props map[string]
 
 func TestWidgetContentEndpointMatchesDispatcher(t *testing.T) {
 	svc := newContentTestService(t)
-	// weather is nil: Content only uses the PreviewService dispatch, never the
-	// legacy WeatherService field.
-	h := NewWidgetHandler(nil, svc)
+	// Content routes everything through the PreviewService dispatch; the legacy
+	// WeatherService field and its E-path handlers were removed in B4c.
+	h := NewWidgetHandler(svc)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/widget_content", h.Content)
 
@@ -250,7 +250,7 @@ func TestWidgetContentEndpointMatchesDispatcher(t *testing.T) {
 
 func TestWidgetContentUnsupportedType(t *testing.T) {
 	svc := newContentTestService(t)
-	h := NewWidgetHandler(nil, svc)
+	h := NewWidgetHandler(svc)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/widget_content", h.Content)
 

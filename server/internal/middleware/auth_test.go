@@ -85,7 +85,7 @@ func TestGuardDenyByDefault(t *testing.T) {
 		{"GET", "/designs"},
 		{"POST", "/update_settings"},
 		{"DELETE", "/api/media/images/x.png"},
-		{"GET", "/api/widgets/system"},
+		{"GET", "/api/widget_layouts/widget_system"},
 		{"POST", "/api/auth/logout"},
 		{"GET", "/api/does_not_exist"}, // unregistered: guard rejects before any router match
 		{"POST", "/upload_image"},

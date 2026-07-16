@@ -79,7 +79,7 @@ func assertContentEquality(t *testing.T, svc *services.PreviewService, mux *http
 }
 
 func newContentMux(svc *services.PreviewService) *http.ServeMux {
-	h := NewWidgetHandler(nil, svc)
+	h := NewWidgetHandler(svc)
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/widget_content", h.Content)
 	return mux
