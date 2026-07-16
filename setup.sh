@@ -26,9 +26,9 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 # ----- Constants -----
-GO_VERSION="1.24.1"
+GO_VERSION="1.25.12"
 REQUIRED_GO_MAJOR=1
-REQUIRED_GO_MINOR=24
+REQUIRED_GO_MINOR=25
 
 WAVESHARE_EPD_REPO="https://github.com/waveshareteam/e-Paper.git"
 WAVESHARE_EPD_PIN="500fa7c6f57b786102cccb866682f8cc43e08996"

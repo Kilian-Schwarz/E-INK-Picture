@@ -1,4 +1,4 @@
-FROM golang:1.24-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 # Optional: custom CA certs for SSL-inspecting proxies
 # Place .pem files in server/certs/ before building
