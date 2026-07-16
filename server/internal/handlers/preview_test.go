@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"e-ink-picture/server/internal/auth"
+	"e-ink-picture/server/internal/middleware"
 	"e-ink-picture/server/internal/models"
 	"e-ink-picture/server/internal/services"
 )
@@ -258,6 +260,198 @@ func TestPreviewCanceledContext503(t *testing.T) {
 		if rec.Code != http.StatusServiceUnavailable {
 			t.Errorf("status = %d, want 503", rec.Code)
 		}
+	})
+}
+
+// TestPreviewEndpointAuthCSRFStatusCodes locks the B7/AC3 endpoint
+// status-code contract (specs/B7-repro-protocol.md §1, specs/B7-designer-preview.md
+// AC3). The status codes are produced by the auth+CSRF Guard sitting in front of
+// the router, so the regression test wires the REAL PreviewHandler behind the
+// REAL Guard — exactly the composition from main.go (Guard(mux)).
+//
+// The distinction the frontend relies on:
+//   - a cross-origin mutating request must be 403 (NOT 401), because auth.js
+//     only redirects on 401; a 403 has to reach toolbar.js's cross-origin
+//     branch instead of being funnelled into the saved-design fallback.
+//   - a missing/expired session must be 401 so the client redirect fires.
+//   - the happy path must still return a decodable image/png PNG.
+//
+// Hermetic: httptest only, no network/panel; deterministic font-free shapes.
+func TestPreviewEndpointAuthCSRFStatusCodes(t *testing.T) {
+	handler, _ := setupPreviewTestServices(t)
+
+	vis := true
+
+	// A saved, font-free design for the GET /preview happy path.
+	savedDesign := &models.DesignV2{
+		Name:    "ac3-preview",
+		Version: 2,
+		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
+		Elements: []models.Element{{
+			ID: "s1", Type: "shape", X: 40, Y: 40, Width: 200, Height: 120,
+			ZIndex: 0, Visible: &vis, Properties: map[string]any{"fill": "#000000"},
+		}},
+	}
+	if err := handler.designSvc.Save("ac3-preview", savedDesign); err != nil {
+		t.Fatalf("save design: %v", err)
+	}
+
+	// A font-free live design for POST /api/preview_live.
+	liveBody, err := json.Marshal(models.DesignV2{
+		Name:    "ac3-live",
+		Version: 2,
+		Canvas:  models.CanvasConfig{Width: 800, Height: 480, Background: "#FFFFFF"},
+		Elements: []models.Element{{
+			ID: "s1", Type: "shape", X: 10, Y: 10, Width: 100, Height: 100,
+			ZIndex: 0, Visible: &vis, Properties: map[string]any{"fill": "#000000"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Auth active (password set) so the guard actually enforces.
+	mgr, err := auth.NewManager(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewManager: %v", err)
+	}
+	if err := mgr.SetPassword("test-password"); err != nil {
+		t.Fatalf("SetPassword: %v", err)
+	}
+
+	const host = "pi.local:5000"
+
+	// newGuard wraps the real preview routes with the real Guard for a given
+	// session store and client-token config — mirrors main.go's Guard(mux).
+	newGuard := func(store *auth.Store, clientToken string) http.Handler {
+		mux := http.NewServeMux()
+		mux.HandleFunc("GET /preview", handler.Preview)
+		mux.HandleFunc("POST /api/preview_live", handler.PreviewLive)
+		return middleware.Guard(middleware.GuardConfig{
+			Manager:     mgr,
+			Sessions:    store,
+			ClientToken: clientToken,
+		})(mux)
+	}
+
+	do := func(h http.Handler, method, target string, body []byte, mutate func(*http.Request)) *httptest.ResponseRecorder {
+		var rdr io.Reader
+		if body != nil {
+			rdr = bytes.NewReader(body)
+		}
+		req := httptest.NewRequest(method, target, rdr)
+		req.Host = host
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if mutate != nil {
+			mutate(req)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	assertPNG := func(t *testing.T, rec *httptest.ResponseRecorder) {
+		t.Helper()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "image/png" {
+			t.Errorf("Content-Type = %q, want image/png", ct)
+		}
+		if _, err := png.Decode(bytes.NewReader(rec.Body.Bytes())); err != nil {
+			t.Errorf("body is not a valid PNG: %v", err)
+		}
+	}
+
+	store := auth.NewStore()
+	token, err := store.Create()
+	if err != nil {
+		t.Fatalf("store.Create: %v", err)
+	}
+	cookie := &http.Cookie{Name: middleware.SessionCookieName, Value: token}
+	srv := newGuard(store, "")
+
+	t.Run("preview_live valid session same-origin -> 200 PNG", func(t *testing.T) {
+		rec := do(srv, "POST", "/api/preview_live", liveBody, func(r *http.Request) {
+			r.AddCookie(cookie)
+			r.Header.Set("Origin", "http://"+host)
+		})
+		assertPNG(t, rec)
+	})
+
+	t.Run("preview_live valid session FOREIGN origin -> 403 not 401", func(t *testing.T) {
+		rec := do(srv, "POST", "/api/preview_live", liveBody, func(r *http.Request) {
+			r.AddCookie(cookie)
+			r.Header.Set("Origin", "http://evil.example")
+		})
+		if rec.Code == http.StatusUnauthorized {
+			t.Fatalf("status = 401, want 403 — a cross-origin rejection MUST be 403 so it reaches toolbar.js's cross-origin branch, not auth.js's 401 redirect")
+		}
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("status = %d, want 403", rec.Code)
+		}
+	})
+
+	t.Run("preview_live no session -> 401", func(t *testing.T) {
+		rec := do(srv, "POST", "/api/preview_live", liveBody, func(r *http.Request) {
+			r.Header.Set("Origin", "http://"+host)
+		})
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401 (missing session)", rec.Code)
+		}
+	})
+
+	t.Run("preview_live expired session -> 401", func(t *testing.T) {
+		expStore := auth.NewStore()
+		var mu sync.Mutex
+		now := time.Now()
+		expStore.SetClock(func() time.Time {
+			mu.Lock()
+			defer mu.Unlock()
+			return now
+		})
+		expTok, err := expStore.Create()
+		if err != nil {
+			t.Fatalf("store.Create: %v", err)
+		}
+		expCookie := &http.Cookie{Name: middleware.SessionCookieName, Value: expTok}
+		mu.Lock()
+		now = now.Add(auth.SessionTTL + time.Minute)
+		mu.Unlock()
+
+		expSrv := newGuard(expStore, "")
+		rec := do(expSrv, "POST", "/api/preview_live", liveBody, func(r *http.Request) {
+			r.AddCookie(expCookie)
+			r.Header.Set("Origin", "http://"+host)
+		})
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401 (expired session)", rec.Code)
+		}
+	})
+
+	t.Run("GET /preview valid session -> 200 PNG", func(t *testing.T) {
+		rec := do(srv, "GET", "/preview?name=ac3-preview", nil, func(r *http.Request) {
+			r.AddCookie(cookie)
+		})
+		assertPNG(t, rec)
+	})
+
+	t.Run("GET /preview no session/token -> 401", func(t *testing.T) {
+		rec := do(srv, "GET", "/preview?name=ac3-preview", nil, nil)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401 (no session, no token)", rec.Code)
+		}
+	})
+
+	t.Run("GET /preview X-Client-Token -> 200 PNG", func(t *testing.T) {
+		const clientTok = "ac3-client-token"
+		tokSrv := newGuard(auth.NewStore(), clientTok)
+		rec := do(tokSrv, "GET", "/preview?name=ac3-preview", nil, func(r *http.Request) {
+			r.Header.Set(middleware.ClientTokenHeader, clientTok)
+		})
+		assertPNG(t, rec)
 	})
 }
 
