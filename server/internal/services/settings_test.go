@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -733,4 +734,167 @@ func TestSettingsService_FreshInstallPersistsConfiguredDefault(t *testing.T) {
 			t.Errorf("expected persisted %q, got %q", models.DisplayWaveshare73E, got)
 		}
 	})
+}
+
+// --- B3 (specs/B3-immediate-refresh-longpoll.md): long-poll WaitForRefresh ---
+
+// idleSettings writes a settings.json where no refresh is currently due: a
+// recent client refresh (interval far from elapsing) and no trigger. A
+// WaitForRefresh on such state must park instead of returning immediately.
+func idleSettings(t *testing.T, dir string) {
+	t.Helper()
+	writeSettingsFile(t, dir, models.Settings{
+		DisplayType:       models.DisplayWaveshare75V2,
+		RefreshInterval:   3600,
+		RenderQuality:     models.RenderQualityFast,
+		LastClientRefresh: time.Now().Add(-10 * time.Second).UTC().Format(time.RFC3339),
+	})
+}
+
+// AC6: a parked WaitForRefresh woken by a concurrent TriggerRefresh returns
+// should_refresh=true, reason="manual" in well under 250ms (wall-clock delta,
+// not the full maxWait).
+func TestSettingsService_WaitForRefresh_WokenByTrigger(t *testing.T) {
+	dir := t.TempDir()
+	idleSettings(t, dir)
+	svc := NewSettingsService(dir, models.DisplayWaveshare75V2)
+
+	type result struct {
+		status *models.RefreshStatus
+		err    error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		s, err := svc.WaitForRefresh(context.Background(), 5*time.Second)
+		resCh <- result{s, err}
+	}()
+
+	// Let the waiter reach its select before triggering.
+	time.Sleep(20 * time.Millisecond)
+
+	start := time.Now()
+	if _, err := svc.TriggerRefresh(); err != nil {
+		t.Fatalf("TriggerRefresh: %v", err)
+	}
+
+	select {
+	case r := <-resCh:
+		elapsed := time.Since(start)
+		if r.err != nil {
+			t.Fatalf("WaitForRefresh: %v", r.err)
+		}
+		if !r.status.ShouldRefresh {
+			t.Error("expected should_refresh=true after trigger")
+		}
+		if r.status.Reason != models.RefreshReasonManual {
+			t.Errorf("reason = %q, want %q", r.status.Reason, models.RefreshReasonManual)
+		}
+		if elapsed > 250*time.Millisecond {
+			t.Errorf("wake latency %v exceeds 250ms", elapsed)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("WaitForRefresh did not return after trigger")
+	}
+}
+
+// AC7: no trigger and no elapsed interval with a small maxWait returns
+// should_refresh=false after >= maxWait and well under maxWait+250ms.
+func TestSettingsService_WaitForRefresh_TimesOutFalse(t *testing.T) {
+	dir := t.TempDir()
+	idleSettings(t, dir)
+	svc := NewSettingsService(dir, models.DisplayWaveshare75V2)
+
+	const maxWait = 50 * time.Millisecond
+	start := time.Now()
+	status, err := svc.WaitForRefresh(context.Background(), maxWait)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("WaitForRefresh: %v", err)
+	}
+	if status.ShouldRefresh {
+		t.Error("expected should_refresh=false on timeout")
+	}
+	if elapsed < maxWait {
+		t.Errorf("returned after %v, want >= %v", elapsed, maxWait)
+	}
+	if elapsed > maxWait+250*time.Millisecond {
+		t.Errorf("returned after %v, want < %v", elapsed, maxWait+250*time.Millisecond)
+	}
+}
+
+// AC8: a ctx canceled before parking makes WaitForRefresh return promptly with
+// no panic and no error — cancellation is not a server error.
+func TestSettingsService_WaitForRefresh_CanceledContext(t *testing.T) {
+	dir := t.TempDir()
+	idleSettings(t, dir)
+	svc := NewSettingsService(dir, models.DisplayWaveshare75V2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	status, err := svc.WaitForRefresh(ctx, 5*time.Second)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("canceled ctx must not be a server error, got: %v", err)
+	}
+	if status == nil {
+		t.Fatal("expected non-nil status on canceled ctx")
+	}
+	if status.ShouldRefresh {
+		t.Error("expected should_refresh=false on canceled ctx")
+	}
+	if elapsed > 250*time.Millisecond {
+		t.Errorf("canceled ctx returned after %v, want prompt (<250ms)", elapsed)
+	}
+}
+
+// AC9: parked long-polls never consume renderSem capacity. N waits park while a
+// concurrent Render runs; ActiveRenders stays 0, the render completes, and a
+// trigger wakes every waiter. Structural backstop: SettingsService holds no
+// PreviewService reference, so the wait path cannot reach renderSem at all.
+func TestSettingsService_WaitForRefresh_DoesNotTouchRenderSem(t *testing.T) {
+	previewSvc, tmpDir := setupGoldenServices(t, models.DisplayWaveshare75V2, models.RenderQualityFast)
+	svc := previewSvc.settings
+
+	// Overwrite settings so nothing is due yet and the waits park.
+	idleSettings(t, tmpDir)
+
+	const n = 3
+	resCh := make(chan *models.RefreshStatus, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			s, _ := svc.WaitForRefresh(context.Background(), 5*time.Second)
+			resCh <- s
+		}()
+	}
+
+	// Let the waiters park.
+	time.Sleep(30 * time.Millisecond)
+	if got := previewSvc.ActiveRenders(); got != 0 {
+		t.Fatalf("ActiveRenders = %d while long-polls parked, want 0", got)
+	}
+
+	// A concurrent render must proceed and complete normally.
+	if _, err := previewSvc.Render(context.Background(), buildShapeDesign(800, 480), false); err != nil {
+		t.Fatalf("concurrent Render failed: %v", err)
+	}
+	if got := previewSvc.ActiveRenders(); got != 0 {
+		t.Errorf("ActiveRenders = %d after render, want 0", got)
+	}
+
+	// One trigger wakes all parked waiters.
+	if _, err := svc.TriggerRefresh(); err != nil {
+		t.Fatalf("TriggerRefresh: %v", err)
+	}
+	for i := 0; i < n; i++ {
+		select {
+		case s := <-resCh:
+			if s == nil || !s.ShouldRefresh {
+				t.Errorf("parked wait %d: expected should_refresh=true after trigger", i)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("parked wait %d did not wake after trigger", i)
+		}
+	}
 }

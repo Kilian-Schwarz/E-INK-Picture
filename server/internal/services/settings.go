@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,16 @@ type SettingsService struct {
 	mu                 sync.RWMutex
 	// now is the clock used by GetRefreshStatus; injectable for tests.
 	now func() time.Time
+
+	// notifyMu guards notifyCh only. It is deliberately NOT s.mu: a parked
+	// WaitForRefresh must hold no lock across its select, and TriggerRefresh
+	// broadcasts while already holding s.mu, so the two mutexes must stay
+	// independent to avoid lock-ordering hazards.
+	notifyMu sync.Mutex
+	// notifyCh is a closed-channel broadcast: waiters capture the current
+	// reference and select on it; TriggerRefresh closes it and installs a
+	// fresh channel to wake every parked waiter at once.
+	notifyCh chan struct{}
 }
 
 // NewSettingsService creates a new SettingsService. defaultDisplayType is used
@@ -37,7 +48,12 @@ func NewSettingsService(dataDir string, defaultDisplayType models.DisplayType) *
 			"fallback", string(models.DisplayWaveshare73E))
 		defaultDisplayType = models.DisplayWaveshare73E
 	}
-	return &SettingsService{dataDir: dataDir, defaultDisplayType: defaultDisplayType, now: time.Now}
+	return &SettingsService{
+		dataDir:            dataDir,
+		defaultDisplayType: defaultDisplayType,
+		now:                time.Now,
+		notifyCh:           make(chan struct{}),
+	}
 }
 
 // parseHHMM parses a wall-clock time in strict "HH:MM" (24h) format and
@@ -309,7 +325,62 @@ func (s *SettingsService) TriggerRefresh() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return ts, os.WriteFile(s.filePath(), out, 0644)
+	if err := os.WriteFile(s.filePath(), out, 0644); err != nil {
+		return "", err
+	}
+	// Broadcast only after the trigger is durably on disk: a woken waiter
+	// re-reads settings.json via GetRefreshStatus and must see this trigger.
+	s.broadcastRefresh()
+	return ts, nil
+}
+
+// currentNotify returns the live notify channel. Held only for the read, never
+// across a select, so a parked WaitForRefresh holds no lock.
+func (s *SettingsService) currentNotify() <-chan struct{} {
+	s.notifyMu.Lock()
+	defer s.notifyMu.Unlock()
+	return s.notifyCh
+}
+
+// broadcastRefresh wakes every parked WaitForRefresh: closing the current
+// channel releases all waiters selecting on it, and a fresh channel arms the
+// next round.
+func (s *SettingsService) broadcastRefresh() {
+	s.notifyMu.Lock()
+	defer s.notifyMu.Unlock()
+	close(s.notifyCh)
+	s.notifyCh = make(chan struct{})
+}
+
+// WaitForRefresh long-polls the refresh decision: it returns immediately when a
+// refresh is already due, otherwise it parks until a trigger fires, maxWait
+// elapses, or ctx is done — then re-evaluates and returns. It never blocks on a
+// render and holds no lock while parked. A canceled ctx is not an error: the
+// caller (the HTTP handler) still answers should_refresh=false with 200.
+func (s *SettingsService) WaitForRefresh(ctx context.Context, maxWait time.Duration) (*models.RefreshStatus, error) {
+	// Capture the notify channel BEFORE checking status so a trigger firing
+	// between the check and the park still wakes us (lost-wakeup safe).
+	notify := s.currentNotify()
+
+	status, err := s.GetRefreshStatus()
+	if err != nil {
+		return nil, err
+	}
+	if status.ShouldRefresh {
+		return status, nil
+	}
+
+	select {
+	case <-notify:
+		// A trigger fired: re-read the freshly persisted state.
+		return s.GetRefreshStatus()
+	case <-time.After(maxWait):
+		return s.GetRefreshStatus()
+	case <-ctx.Done():
+		// Client disconnect or server shutdown: report the current status
+		// (normally should_refresh=false), never ctx.Err().
+		return s.GetRefreshStatus()
+	}
 }
 
 // RecordClientRefresh records when the client last refreshed the display.

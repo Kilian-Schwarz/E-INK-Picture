@@ -4,10 +4,19 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"e-ink-picture/server/internal/models"
 	"e-ink-picture/server/internal/services"
 )
+
+// serverHoldTimeout caps how long RefreshStatus keeps a long-poll open before
+// answering should_refresh=false. It MUST stay strictly below
+// http.Server.WriteTimeout (30s, server/main.go:318): the response has to be
+// flushed before WriteTimeout kills the connection, otherwise the client reads
+// a truncated body instead of a clean should_refresh=false. Keep this in sync
+// if WriteTimeout ever changes.
+const serverHoldTimeout = 25 * time.Second
 
 // SettingsHandler handles display settings endpoints.
 type SettingsHandler struct {
@@ -152,9 +161,13 @@ func (h *SettingsHandler) TriggerRefresh(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// RefreshStatus returns whether the client should refresh.
+// RefreshStatus long-polls the refresh decision: it holds the request open up
+// to serverHoldTimeout and returns the moment a trigger fires, so a manual
+// refresh reaches the panel in ~2s instead of one full client poll interval.
+// On timeout or client disconnect it answers should_refresh=false with 200 —
+// never a 5xx and never a truncated response.
 func (h *SettingsHandler) RefreshStatus(w http.ResponseWriter, r *http.Request) {
-	status, err := h.settings.GetRefreshStatus()
+	status, err := h.settings.WaitForRefresh(r.Context(), serverHoldTimeout)
 	if err != nil {
 		slog.Error("failed to get refresh status", "error", err)
 		jsonError(w, "failed to get refresh status", http.StatusInternalServerError)

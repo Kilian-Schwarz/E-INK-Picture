@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,16 @@ import (
 	"e-ink-picture/server/internal/models"
 	"e-ink-picture/server/internal/services"
 )
+
+// doneContext returns an already-canceled context. RefreshStatus long-polls
+// (B3): on a done context it takes the client-disconnect path and answers
+// immediately, so should_refresh=false assertions in handler tests don't wait
+// out serverHoldTimeout. A due refresh returns at the pre-park check anyway.
+func doneContext() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}
 
 func newTestSettingsHandler(t *testing.T) *SettingsHandler {
 	t.Helper()
@@ -234,7 +245,7 @@ func writeHandlerSettings(t *testing.T, dir string, s models.Settings) {
 // map plus the raw body (for field-absence assertions).
 func getRefreshStatusRaw(t *testing.T, h *SettingsHandler) (map[string]any, string) {
 	t.Helper()
-	req := httptest.NewRequest("GET", "/api/refresh_status", nil)
+	req := httptest.NewRequest("GET", "/api/refresh_status", nil).WithContext(doneContext())
 	w := httptest.NewRecorder()
 	h.RefreshStatus(w, req)
 	if w.Code != http.StatusOK {

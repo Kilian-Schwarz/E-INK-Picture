@@ -364,7 +364,9 @@ func TestSettingsAndRefreshWorkflow(t *testing.T) {
 	}
 
 	// 2. Check refresh status — should be false (just refreshed)
-	req = httptest.NewRequest("GET", "/api/refresh_status", nil)
+	// doneContext: RefreshStatus long-polls (B3); a canceled context returns
+	// immediately instead of holding for serverHoldTimeout.
+	req = httptest.NewRequest("GET", "/api/refresh_status", nil).WithContext(doneContext())
 	rec = httptest.NewRecorder()
 	settingsH.RefreshStatus(rec, req)
 	if rec.Code != http.StatusOK {
@@ -385,7 +387,9 @@ func TestSettingsAndRefreshWorkflow(t *testing.T) {
 	}
 
 	// 4. Check refresh status — should be true
-	req = httptest.NewRequest("GET", "/api/refresh_status", nil)
+	// doneContext: RefreshStatus long-polls (B3); a canceled context returns
+	// immediately instead of holding for serverHoldTimeout.
+	req = httptest.NewRequest("GET", "/api/refresh_status", nil).WithContext(doneContext())
 	rec = httptest.NewRecorder()
 	settingsH.RefreshStatus(rec, req)
 	json.NewDecoder(rec.Body).Decode(&status)
@@ -403,7 +407,9 @@ func TestSettingsAndRefreshWorkflow(t *testing.T) {
 	}
 
 	// 6. Check refresh status — should be false again
-	req = httptest.NewRequest("GET", "/api/refresh_status", nil)
+	// doneContext: RefreshStatus long-polls (B3); a canceled context returns
+	// immediately instead of holding for serverHoldTimeout.
+	req = httptest.NewRequest("GET", "/api/refresh_status", nil).WithContext(doneContext())
 	rec = httptest.NewRecorder()
 	settingsH.RefreshStatus(rec, req)
 	json.NewDecoder(rec.Body).Decode(&status)
