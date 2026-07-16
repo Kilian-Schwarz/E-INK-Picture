@@ -47,10 +47,33 @@ type HourlyData struct {
 }
 
 // LocationResult represents a single Nominatim search result.
+//
+// DisplayName, Lat and Lon are the original three fields and are a hard
+// backward-compat invariant: the setup wizard (setup-wizard.js) reads exactly
+// r.display_name, r.lat and r.lon — they must never be removed or renamed.
+// The remaining fields are the B1a enrichment (from addressdetails) used by
+// the designer autocomplete (B1b) to disambiguate look-alike places.
 type LocationResult struct {
 	DisplayName string `json:"display_name"`
 	Lat         string `json:"lat"`
 	Lon         string `json:"lon"`
+	// Name is the concise place name (Nominatim top-level name, else the first
+	// segment of display_name) for the dropdown's primary label line.
+	Name string `json:"name"`
+	// Type is the Nominatim place type (addresstype, else type), e.g. "city",
+	// "village" or "postcode".
+	Type string `json:"type"`
+	// Postcode is address.postcode (may be empty).
+	Postcode string `json:"postcode"`
+	// City is the first present of address.city|town|village|municipality|hamlet.
+	City string `json:"city"`
+	// Region is the first present of address.state|county.
+	Region string `json:"region"`
+	// Country is address.country.
+	Country string `json:"country"`
+	// Label is a clean, ready-to-show disambiguation string (name, region,
+	// country — postcode prefixed when the hit is a postcode).
+	Label string `json:"label"`
 }
 
 type weatherCacheEntry struct {
@@ -90,13 +113,15 @@ type persistedWeatherEntry struct {
 }
 
 type WeatherService struct {
-	apiKey    string
-	location  string
-	stylesDir string
-	cacheFile string
-	mu        sync.RWMutex
-	cache     map[string]*weatherCacheEntry
-	client    *http.Client
+	apiKey        string
+	location      string
+	stylesDir     string
+	cacheFile     string
+	mu            sync.RWMutex
+	cache         map[string]*weatherCacheEntry
+	client        *http.Client
+	geoLimiter    *minIntervalLimiter
+	locationCache *locationSearchCache
 }
 
 func NewWeatherService(apiKey, location, dataDir string) *WeatherService {
@@ -108,7 +133,9 @@ func NewWeatherService(apiKey, location, dataDir string) *WeatherService {
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		cache: make(map[string]*weatherCacheEntry),
+		cache:         make(map[string]*weatherCacheEntry),
+		geoLimiter:    newMinIntervalLimiter(nominatimMinInterval),
+		locationCache: newLocationSearchCache(locationCacheTTL, maxLocationCacheEntries),
 	}
 	s.loadPersistedCache()
 	return s
@@ -440,60 +467,181 @@ func (s *WeatherService) ListStyles() ([]string, error) {
 	return styles, nil
 }
 
-// SearchLocation proxies a location query to Nominatim and returns up to 10 results.
-// Matches the Python location_search function exactly.
+// SearchLocation resolves a location query via Nominatim and returns up to 10
+// enriched results. It is policy-compliant by construction:
+//   - repeat queries are served from an in-memory TTL cache (no outgoing call);
+//   - a min-interval limiter caps outgoing requests at one per second — a
+//     denied caller degrades to cached-or-empty instead of hitting Nominatim;
+//   - the request carries an identifying User-Agent and the enrichment params
+//     (addressdetails, limit, accept-language).
+//
+// Fail-open throughout: a transport error, non-200 or parse failure yields the
+// cached results if any, otherwise an empty slice — never an error to the
+// caller and never a panic. Nominatim's importance ordering is preserved.
 func (s *WeatherService) SearchLocation(query string) ([]LocationResult, error) {
-	if query == "" {
+	key := normalizeLocationQuery(query)
+	if key == "" {
 		return []LocationResult{}, nil
 	}
 
-	apiURL := fmt.Sprintf("https://nominatim.openstreetmap.org/search?format=json&q=%s", url.QueryEscape(query))
-
-	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
-	if err != nil {
-		return nil, err
+	// Cache first: repeats never reach Nominatim or consume a limiter slot.
+	if cached, ok := s.locationCache.get(key); ok {
+		return cached, nil
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	// Rate-limit: if the slot is taken, degrade gracefully (fail-open) rather
+	// than risk a policy violation. A distinct query in the same 1s window is
+	// dropped to an empty result — the client debounce (B1b) makes this rare.
+	if !s.geoLimiter.allow() {
+		return []LocationResult{}, nil
+	}
+
+	results, ok := s.fetchNominatim(query)
+	if !ok {
+		return []LocationResult{}, nil
+	}
+
+	s.locationCache.put(key, results)
+	return results, nil
+}
+
+// nominatimSearchURL builds the Nominatim /search URL with the enrichment
+// parameters. addressdetails=1 yields the structured address object, limit=10
+// caps results server-side, accept-language=de asks for German labels.
+func nominatimSearchURL(query string) string {
+	params := url.Values{}
+	params.Set("format", "json")
+	params.Set("addressdetails", "1")
+	params.Set("limit", "10")
+	params.Set("accept-language", "de")
+	params.Set("q", query)
+	return "https://nominatim.openstreetmap.org/search?" + params.Encode()
+}
+
+// fetchNominatim performs one outgoing Nominatim request and maps the response
+// to enriched results. The bool is false on any failure (fail-open); the
+// caller then returns an empty slice.
+func (s *WeatherService) fetchNominatim(query string) ([]LocationResult, bool) {
+	req, err := http.NewRequest(http.MethodGet, nominatimSearchURL(query), nil)
+	if err != nil {
+		return nil, false
+	}
+	req.Header.Set("User-Agent", nominatimUserAgent)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return []LocationResult{}, nil
+		return nil, false
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return []LocationResult{}, nil
+		return nil, false
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return []LocationResult{}, nil
+		return nil, false
 	}
 
 	var raw []map[string]any
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return []LocationResult{}, nil
+		return nil, false
 	}
 
-	var results []LocationResult
+	results := make([]LocationResult, 0, len(raw))
 	for i, item := range raw {
 		if i >= 10 {
 			break
 		}
-		displayName, _ := item["display_name"].(string)
-		lat, _ := item["lat"].(string)
-		lon, _ := item["lon"].(string)
-		results = append(results, LocationResult{
-			DisplayName: displayName,
-			Lat:         lat,
-			Lon:         lon,
-		})
+		results = append(results, enrichLocationResult(item))
+	}
+	return results, true
+}
+
+// enrichLocationResult maps one raw Nominatim result into a LocationResult.
+// The three backward-compat fields (display_name, lat, lon) are copied
+// verbatim; the rest are derived from the addressdetails address object with a
+// documented priority order for the ambiguous city/region keys.
+func enrichLocationResult(item map[string]any) LocationResult {
+	displayName, _ := item["display_name"].(string)
+	lat, _ := item["lat"].(string)
+	lon, _ := item["lon"].(string)
+
+	address, _ := item["address"].(map[string]any)
+	city := firstNonEmptyString(address, "city", "town", "village", "municipality", "hamlet")
+	region := firstNonEmptyString(address, "state", "county")
+	country := firstNonEmptyString(address, "country")
+	postcode := firstNonEmptyString(address, "postcode")
+
+	// Prefer the semantic place type (addresstype: city/village/postcode) over
+	// the raw class type (which is "administrative" for cities).
+	typ := firstNonEmptyString(item, "addresstype", "type")
+
+	// Name: Nominatim's top-level name when present, else the most specific
+	// (first) segment of display_name.
+	name, _ := item["name"].(string)
+	if name == "" {
+		name = firstDisplayNameSegment(displayName)
 	}
 
-	if results == nil {
-		results = []LocationResult{}
+	return LocationResult{
+		DisplayName: displayName,
+		Lat:         lat,
+		Lon:         lon,
+		Name:        name,
+		Type:        typ,
+		Postcode:    postcode,
+		City:        city,
+		Region:      region,
+		Country:     country,
+		Label:       buildLocationLabel(name, city, region, country, postcode, typ),
 	}
-	return results, nil
+}
+
+// firstNonEmptyString returns the first non-empty string value among keys in m.
+func firstNonEmptyString(m map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := m[k].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// firstDisplayNameSegment returns the leading comma-separated segment of a
+// Nominatim display_name (the most specific part, e.g. "Hannover" or "30159").
+func firstDisplayNameSegment(displayName string) string {
+	if i := strings.IndexByte(displayName, ','); i >= 0 {
+		return strings.TrimSpace(displayName[:i])
+	}
+	return strings.TrimSpace(displayName)
+}
+
+// buildLocationLabel assembles a clean disambiguation string of the form
+// "name, city, region, country" (postcode-type hits lead with the postcode).
+// Empty and duplicate parts are dropped, so "Hannover" (city == name) does not
+// repeat while "30159, Hannover, Niedersachsen, Deutschland" keeps both.
+func buildLocationLabel(name, city, region, country, postcode, typ string) string {
+	parts := make([]string, 0, 5)
+	appendPart := func(v string) {
+		if v == "" {
+			return
+		}
+		for _, p := range parts {
+			if p == v {
+				return
+			}
+		}
+		parts = append(parts, v)
+	}
+	if typ == "postcode" {
+		appendPart(postcode)
+	}
+	appendPart(name)
+	appendPart(city)
+	appendPart(region)
+	appendPart(country)
+	return strings.Join(parts, ", ")
 }
 
 // weatherDayIcons maps a WMO weather code to its daytime icon asset. Condition
