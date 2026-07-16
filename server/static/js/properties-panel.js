@@ -5,6 +5,14 @@ var PropertiesPanel = {
     displayColors: ['#000000', '#FFFFFF'],
     _layoutCache: {},
 
+    // Location search (weather/forecast widgets, B1b). Politeness state lives on
+    // the instance so debounce/rate-limit survive panel re-renders.
+    _locTimer: null,
+    _locBusy: false,
+    _locLastAt: 0,
+    _locReqSeq: 0,
+    _locOutsideBound: false,
+
     init(colors) {
         if (colors) this.displayColors = colors;
         this.setupInputListeners();
@@ -556,29 +564,30 @@ var PropertiesPanel = {
         // Widget-specific properties
         var propDefs = this.getWidgetPropertyDefs(type);
         var keys = Object.keys(propDefs);
+
+        // Weather + forecast get a primary "Ort oder PLZ" location search on top;
+        // their raw lat/lon inputs are demoted into an "Erweitert" section (B1b).
+        var isLocationWidget = (type === 'widget_weather' || type === 'widget_forecast');
+        if (isLocationWidget) {
+            html += this.renderLocationSearchHTML();
+            var advBody = '';
+            ['latitude', 'longitude'].forEach(function(k) {
+                var d = propDefs[k];
+                if (!d) return;
+                var v = props[k] !== undefined ? props[k] : d.default;
+                advBody += self.renderPropDef(k, d, v);
+            });
+            html += '<details class="location-advanced">' +
+                '<summary>Erweitert / manuelle Koordinaten</summary>' +
+                '<div class="location-advanced-body">' + advBody + '</div></details>';
+        }
+
         for (var i = 0; i < keys.length; i++) {
             var key = keys[i];
+            if (isLocationWidget && (key === 'latitude' || key === 'longitude')) continue;
             var def = propDefs[key];
             var val = props[key] !== undefined ? props[key] : def.default;
-
-            if (def.type === 'text') {
-                html += '<div class="property-group"><label>' + def.label + '</label>' +
-                    '<input type="text" class="prop-input widget-prop" data-key="' + key + '" value="' + (val || '') + '"></div>';
-            } else if (def.type === 'number') {
-                html += '<div class="property-group"><label>' + def.label + '</label>' +
-                    '<input type="number" class="prop-input widget-prop" data-key="' + key + '" value="' + (val || 0) + '" min="' + (def.min || 0) + '" max="' + (def.max || 999) + '"></div>';
-            } else if (def.type === 'select') {
-                var options = '';
-                for (var j = 0; j < def.options.length; j++) {
-                    var o = def.options[j];
-                    options += '<option value="' + o + '"' + (val === o ? ' selected' : '') + '>' + o + '</option>';
-                }
-                html += '<div class="property-group"><label>' + def.label + '</label>' +
-                    '<select class="prop-input widget-prop" data-key="' + key + '">' + options + '</select></div>';
-            } else if (def.type === 'checkbox') {
-                html += '<div class="property-group"><label class="checkbox-label">' +
-                    '<input type="checkbox" class="widget-prop" data-key="' + key + '"' + (val ? ' checked' : '') + '> ' + def.label + '</label></div>';
-            }
+            html += this.renderPropDef(key, def, val);
         }
 
         // Color for widgets
@@ -661,17 +670,16 @@ var PropertiesPanel = {
         var urlProps = ['icalUrl', 'feedUrl', 'url'];
         container.querySelectorAll('.widget-prop').forEach(function(input) {
             input.addEventListener('change', function() {
-                var data = obj.get('elementData') || {};
-                data.properties = data.properties || {};
                 var propKey = input.dataset.key;
+                var value;
                 if (input.type === 'checkbox') {
-                    data.properties[propKey] = input.checked;
+                    value = input.checked;
                 } else if (input.type === 'number') {
-                    data.properties[propKey] = parseFloat(input.value);
+                    value = parseFloat(input.value);
                 } else {
-                    data.properties[propKey] = input.value;
+                    value = input.value;
                 }
-                obj.set('elementData', data);
+                self.writeWidgetProp(obj, propKey, value);
                 // Invalidate cache when URL properties change
                 if (urlProps.indexOf(propKey) >= 0) {
                     WidgetPreview.invalidateCache(type);
@@ -681,6 +689,301 @@ var PropertiesPanel = {
                 HistoryManager.saveState();
             });
         });
+
+        // Location autocomplete for weather/forecast (B1b) — selection reuses the
+        // same writeWidgetProp path as the manual fields above (no fork).
+        if (isLocationWidget) {
+            this.setupLocationSearch(container, type, obj);
+        }
+    },
+
+    // Single source of truth for writing a widget property into elementData.
+    // Both the manual .widget-prop change handler and the location-search
+    // selection go through here so the two never drift apart.
+    writeWidgetProp(obj, key, value) {
+        var data = obj.get('elementData') || {};
+        data.properties = data.properties || {};
+        data.properties[key] = value;
+        obj.set('elementData', data);
+    },
+
+    // Renders a single widget property group to HTML (extracted so the location
+    // widgets can pull latitude/longitude into their "Erweitert" section while
+    // keeping identical markup for every other prop).
+    renderPropDef(key, def, val) {
+        if (def.type === 'text') {
+            return '<div class="property-group"><label>' + def.label + '</label>' +
+                '<input type="text" class="prop-input widget-prop" data-key="' + key + '" value="' + (val || '') + '"></div>';
+        } else if (def.type === 'number') {
+            return '<div class="property-group"><label>' + def.label + '</label>' +
+                '<input type="number" class="prop-input widget-prop" data-key="' + key + '" value="' + (val || 0) + '" min="' + (def.min || 0) + '" max="' + (def.max || 999) + '"></div>';
+        } else if (def.type === 'select') {
+            var options = '';
+            for (var j = 0; j < def.options.length; j++) {
+                var o = def.options[j];
+                options += '<option value="' + o + '"' + (val === o ? ' selected' : '') + '>' + o + '</option>';
+            }
+            return '<div class="property-group"><label>' + def.label + '</label>' +
+                '<select class="prop-input widget-prop" data-key="' + key + '">' + options + '</select></div>';
+        } else if (def.type === 'checkbox') {
+            return '<div class="property-group"><label class="checkbox-label">' +
+                '<input type="checkbox" class="widget-prop" data-key="' + key + '"' + (val ? ' checked' : '') + '> ' + def.label + '</label></div>';
+        }
+        return '';
+    },
+
+    // Static markup for the "Ort oder PLZ" combobox. The suggestion list is an
+    // in-flow <ul> (not absolutely positioned) so it can never be clipped by the
+    // mobile bottom-sheet's overflow:hidden — it scrolls with the panel body.
+    renderLocationSearchHTML() {
+        return '<div class="property-group location-search-group">' +
+            '<label for="location-search-input">Ort oder PLZ</label>' +
+            '<input type="text" id="location-search-input" class="prop-input location-search-input" ' +
+            'placeholder="Ort oder PLZ suchen&hellip;" inputmode="search" autocomplete="off" ' +
+            'autocapitalize="off" spellcheck="false" ' +
+            'role="combobox" aria-autocomplete="list" aria-expanded="false" ' +
+            'aria-controls="location-search-listbox" aria-activedescendant="">' +
+            '<ul id="location-search-listbox" class="location-search-results" role="listbox" ' +
+            'aria-label="Standortvorschl&auml;ge" hidden></ul>' +
+            '</div>';
+    },
+
+    // Coordinates travel as strings trimmed to 4 decimals (same convention the
+    // setup wizard uses). GetPropString on the server accepts string or number.
+    _trimCoord(value) {
+        var n = parseFloat(value);
+        return isFinite(n) ? n.toFixed(4) : String(value || '');
+    },
+
+    // Primary dropdown line: the concise place name.
+    locationPrimary(r) {
+        if (r.name) return r.name;
+        if (r.display_name) return r.display_name.split(',')[0].trim();
+        return r.label || '';
+    },
+
+    // Secondary dropdown line: region/country (+ PLZ) for disambiguation
+    // (Hannover, Niedersachsen, Deutschland vs. Hanover, ..., USA).
+    locationSecondary(r, primary) {
+        var seen = {};
+        if (primary) seen[primary.toLowerCase()] = true;
+        var parts = [];
+        function add(v) {
+            if (!v) return;
+            var k = String(v).toLowerCase();
+            if (seen[k]) return;
+            seen[k] = true;
+            parts.push(v);
+        }
+        add(r.city);
+        add(r.region);
+        add(r.country);
+        var line = parts.join(', ');
+        if (r.type !== 'postcode' && r.postcode) {
+            line = line ? (r.postcode + ' · ' + line) : r.postcode;
+        }
+        if (!line && r.label && r.label !== primary) line = r.label;
+        return line;
+    },
+
+    // Wires the "Ort oder PLZ" combobox: debounced fetch, client-side politeness
+    // (>= 1s spacing, never two in flight), keyboard + touch selection, ARIA and
+    // clean empty/no-results/error states.
+    setupLocationSearch(container, type, obj) {
+        var self = this;
+        var input = container.querySelector('#location-search-input');
+        var box = container.querySelector('#location-search-listbox');
+        if (!input || !box) return;
+        var latInput = container.querySelector('.widget-prop[data-key="latitude"]');
+        var lonInput = container.querySelector('.widget-prop[data-key="longitude"]');
+
+        var DEBOUNCE_MS = 400;
+        var MIN_LEN = 2;
+        var results = [];
+        var activeIndex = -1;
+
+        // Prefill with the currently resolved location (informational — shows the
+        // user what the widget is set to without opening "Erweitert").
+        var props = (obj.get('elementData') || {}).properties || {};
+        if (props.locationName) input.value = props.locationName;
+
+        function closeList() {
+            box.hidden = true;
+            box.textContent = '';
+            results = [];
+            activeIndex = -1;
+            input.setAttribute('aria-expanded', 'false');
+            input.removeAttribute('aria-activedescendant');
+        }
+
+        function showStatus(text) {
+            box.textContent = '';
+            var li = document.createElement('li');
+            li.className = 'location-search-status';
+            li.setAttribute('role', 'presentation');
+            li.textContent = text;
+            box.appendChild(li);
+            box.hidden = false;
+            results = [];
+            activeIndex = -1;
+            input.setAttribute('aria-expanded', 'true');
+            input.removeAttribute('aria-activedescendant');
+        }
+
+        function setActive(idx) {
+            var items = box.querySelectorAll('.location-search-result');
+            if (!items.length) return;
+            if (idx < 0) idx = items.length - 1;
+            if (idx >= items.length) idx = 0;
+            for (var i = 0; i < items.length; i++) {
+                var on = (i === idx);
+                items[i].classList.toggle('is-active', on);
+                items[i].setAttribute('aria-selected', on ? 'true' : 'false');
+            }
+            activeIndex = idx;
+            var active = items[idx];
+            input.setAttribute('aria-activedescendant', active.id);
+            var top = active.offsetTop;
+            var bottom = top + active.offsetHeight;
+            if (top < box.scrollTop) box.scrollTop = top;
+            else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight;
+        }
+
+        function renderResults(list) {
+            results = list;
+            box.textContent = '';
+            activeIndex = -1;
+            if (!list.length) {
+                showStatus('Keine Treffer');
+                return;
+            }
+            list.forEach(function(r, i) {
+                var li = document.createElement('li');
+                li.className = 'location-search-result';
+                li.id = 'location-search-opt-' + i;
+                li.setAttribute('role', 'option');
+                li.setAttribute('aria-selected', 'false');
+                var primary = self.locationPrimary(r);
+                var pEl = document.createElement('div');
+                pEl.className = 'location-result-primary';
+                pEl.textContent = primary; // textContent: Nominatim free text, never innerHTML
+                li.appendChild(pEl);
+                var secondary = self.locationSecondary(r, primary);
+                if (secondary) {
+                    var sEl = document.createElement('div');
+                    sEl.className = 'location-result-secondary';
+                    sEl.textContent = secondary; // textContent
+                    li.appendChild(sEl);
+                }
+                li.addEventListener('click', function() { selectResult(r); });
+                li.addEventListener('pointermove', function() {
+                    if (activeIndex !== i) setActive(i);
+                });
+                box.appendChild(li);
+            });
+            box.hidden = false;
+            input.setAttribute('aria-expanded', 'true');
+            input.removeAttribute('aria-activedescendant');
+        }
+
+        function selectResult(r) {
+            var lat = self._trimCoord(r.lat);
+            var lon = self._trimCoord(r.lon);
+            var locName = (r.label && String(r.label).trim()) || r.display_name || self.locationPrimary(r) || '';
+            // Same write path as the manual fields — one source, then update once.
+            self.writeWidgetProp(obj, 'latitude', lat);
+            self.writeWidgetProp(obj, 'longitude', lon);
+            self.writeWidgetProp(obj, 'locationName', locName);
+            if (latInput) latInput.value = lat;
+            if (lonInput) lonInput.value = lon;
+            input.value = locName;
+            closeList();
+            WidgetPreview.updatePreview(obj); // discrete action -> instant re-render
+            HistoryManager.saveState();       // single undo step
+        }
+
+        async function doFetch(query) {
+            var reqId = self._locReqSeq;
+            self._locBusy = true;
+            self._locLastAt = Date.now();
+            showStatus('Suche…');
+            try {
+                var resp = await fetch('/location_search?q=' + encodeURIComponent(query));
+                if (reqId !== self._locReqSeq || !input.isConnected) return;
+                // Expired session: auth.js already navigates to /login. Clear the
+                // spinner so nothing broken is left behind, then bail.
+                if (resp.status === 401) { closeList(); return; }
+                if (!resp.ok) throw new Error('location search failed: ' + resp.status);
+                var data = await resp.json();
+                if (reqId !== self._locReqSeq || !input.isConnected) return;
+                renderResults(Array.isArray(data) ? data : []);
+            } catch (e) {
+                if (reqId === self._locReqSeq && input.isConnected) {
+                    showStatus('Standortsuche gerade nicht verfügbar');
+                }
+            } finally {
+                self._locBusy = false;
+            }
+        }
+
+        // Enforce >= 1 req/s and never two in flight; reschedule instead of
+        // dropping so the last keystroke is always searched.
+        function maybeSearch(query) {
+            if (!input.isConnected) return;
+            if (input.value.trim() !== query) return; // superseded
+            var wait = 1000 - (Date.now() - (self._locLastAt || 0));
+            if (self._locBusy || wait > 0) {
+                clearTimeout(self._locTimer);
+                self._locTimer = setTimeout(function() { maybeSearch(query); }, self._locBusy ? 300 : wait);
+                return;
+            }
+            doFetch(query);
+        }
+
+        input.addEventListener('input', function() {
+            var query = input.value.trim();
+            clearTimeout(self._locTimer);
+            self._locReqSeq++; // invalidate any in-flight/pending render
+            if (query.length < MIN_LEN) { closeList(); return; }
+            self._locTimer = setTimeout(function() { maybeSearch(query); }, DEBOUNCE_MS);
+        });
+
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'ArrowDown') {
+                if (box.hidden || !box.querySelector('.location-search-result')) return;
+                e.preventDefault();
+                setActive(activeIndex + 1);
+            } else if (e.key === 'ArrowUp') {
+                if (box.hidden || !box.querySelector('.location-search-result')) return;
+                e.preventDefault();
+                setActive(activeIndex - 1);
+            } else if (e.key === 'Enter') {
+                if (!box.hidden && activeIndex >= 0 && results[activeIndex]) {
+                    e.preventDefault();
+                    selectResult(results[activeIndex]);
+                }
+            } else if (e.key === 'Escape') {
+                if (!box.hidden) { e.preventDefault(); closeList(); }
+            }
+        });
+
+        // Close on interaction outside the search group. Bound once and id-based
+        // so it keeps working across panel re-renders without stacking listeners.
+        if (!self._locOutsideBound) {
+            self._locOutsideBound = true;
+            document.addEventListener('pointerdown', function(e) {
+                var b = document.getElementById('location-search-listbox');
+                if (!b || b.hidden) return;
+                if (e.target.closest && e.target.closest('.location-search-group')) return;
+                var inp = document.getElementById('location-search-input');
+                b.hidden = true;
+                b.textContent = '';
+                if (inp) {
+                    inp.setAttribute('aria-expanded', 'false');
+                    inp.removeAttribute('aria-activedescendant');
+                }
+            });
+        }
     },
 
     async loadAndPopulateLayouts(type, currentLayout, obj) {
