@@ -163,6 +163,66 @@ func TestGuardSessionExpiryOnNextRequest(t *testing.T) {
 	}
 }
 
+// TestGuardHassConfigRoutes is AC-SEC10: the HA admin config routes are neither
+// public nor client routes, so once a password is set they require a session,
+// the mutating POST additionally passes the CSRF/same-origin check, and the
+// client token alone never unlocks them.
+func TestGuardHassConfigRoutes(t *testing.T) {
+	h, _, store := newGuardEnv(t, true)
+	cookie := newSession(t, store)
+
+	// No session → 401 for both methods.
+	if w := doGuard(h, "GET", "/api/hass/config", nil); w.Code != http.StatusUnauthorized {
+		t.Errorf("GET /api/hass/config without session = %d, want 401", w.Code)
+	}
+	if w := doGuard(h, "POST", "/api/hass/config", nil); w.Code != http.StatusUnauthorized {
+		t.Errorf("POST /api/hass/config without session = %d, want 401", w.Code)
+	}
+
+	// Client token alone must NOT unlock these (they are not client routes).
+	if w := doGuard(h, "POST", "/api/hass/config", func(r *http.Request) {
+		r.Header.Set(ClientTokenHeader, testClientToken)
+	}); w.Code != http.StatusUnauthorized {
+		t.Errorf("POST /api/hass/config with client token = %d, want 401", w.Code)
+	}
+
+	// Session + foreign Origin → 403 (CSRF).
+	if w := doGuard(h, "POST", "/api/hass/config", func(r *http.Request) {
+		r.AddCookie(cookie)
+		r.Header.Set("Origin", "http://evil.example")
+	}); w.Code != http.StatusForbidden {
+		t.Errorf("POST /api/hass/config with foreign Origin = %d, want 403", w.Code)
+	}
+
+	// Session + same-origin → 200.
+	if w := doGuard(h, "POST", "/api/hass/config", func(r *http.Request) {
+		r.AddCookie(cookie)
+		r.Header.Set("Origin", "http://pi.local:5000")
+	}); w.Code != http.StatusOK {
+		t.Errorf("POST /api/hass/config with same-origin = %d, want 200", w.Code)
+	}
+
+	// Session GET (non-mutating) → 200 without an Origin header.
+	if w := doGuard(h, "GET", "/api/hass/config", func(r *http.Request) {
+		r.AddCookie(cookie)
+	}); w.Code != http.StatusOK {
+		t.Errorf("GET /api/hass/config with session = %d, want 200", w.Code)
+	}
+}
+
+// TestHassRoutesNotClientOrPublic asserts the HA routes are absent from both
+// allowlists (deny-by-default, AC-SEC10).
+func TestHassRoutesNotClientOrPublic(t *testing.T) {
+	for _, key := range []string{"GET /api/hass/config", "POST /api/hass/config"} {
+		if publicRoutes[key] {
+			t.Errorf("%q must not be a public route", key)
+		}
+		if clientRoutes[key] {
+			t.Errorf("%q must not be a client route", key)
+		}
+	}
+}
+
 func TestGuardClientToken(t *testing.T) {
 	h, _, store := newGuardEnv(t, true)
 	clientRoutes := []struct{ method, path string }{

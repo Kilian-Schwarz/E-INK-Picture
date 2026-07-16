@@ -25,7 +25,13 @@ type Config struct {
 	ClientToken string
 	// CookieSecure (EINK_COOKIE_SECURE) forces the Secure attribute on the
 	// session cookie for operation behind a TLS-terminating proxy.
-	CookieSecure         bool
+	CookieSecure bool
+	// HassURL (EINK_HASS_URL) and HassToken (EINK_HASS_TOKEN) bootstrap the
+	// Home-Assistant connection on startup when data/hass.json does not exist
+	// yet; they are ignored (with a warning) once a config is present. The
+	// token value is never logged.
+	HassURL              string
+	HassToken            string
 	MaxConcurrentRenders int
 }
 
@@ -50,6 +56,8 @@ func Load() *Config {
 		AdminPassword:        os.Getenv("EINK_ADMIN_PASSWORD"),
 		ClientToken:          os.Getenv("EINK_CLIENT_TOKEN"),
 		CookieSecure:         ParseBoolEnv("EINK_COOKIE_SECURE", os.Getenv("EINK_COOKIE_SECURE")),
+		HassURL:              os.Getenv("EINK_HASS_URL"),
+		HassToken:            os.Getenv("EINK_HASS_TOKEN"),
 		MaxConcurrentRenders: maxRenders,
 	}
 }

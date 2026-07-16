@@ -17,6 +17,7 @@ import (
 	"e-ink-picture/server/internal/auth"
 	"e-ink-picture/server/internal/config"
 	"e-ink-picture/server/internal/handlers"
+	"e-ink-picture/server/internal/hass"
 	"e-ink-picture/server/internal/middleware"
 	"e-ink-picture/server/internal/models"
 	"e-ink-picture/server/internal/services"
@@ -123,6 +124,19 @@ func newApplication(cfg *config.Config) (*application, error) {
 	sessions := auth.NewStore()
 	limiter := auth.NewRateLimiter()
 
+	// Home-Assistant connection (specs/B5-home-assistant.md): base URL +
+	// long-lived token in data/hass.json (mode 0600, atomic). The token is a
+	// secret — never logged, never returned to the UI. Bootstrap mirrors the
+	// admin-password bootstrap: an existing file always wins.
+	hassMgr, err := hass.NewManager(cfg.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("init hass manager: %w", err)
+	}
+	if err := hassMgr.Bootstrap(cfg.HassURL, cfg.HassToken); err != nil {
+		return nil, err
+	}
+	hassSvc := services.NewHassService(hassMgr)
+
 	// Create handlers
 	designH := handlers.NewDesignHandler(designSvc, previewSvc)
 	mediaH := handlers.NewMediaHandler(imageSvc)
@@ -133,6 +147,7 @@ func newApplication(cfg *config.Config) (*application, error) {
 	widgetH := handlers.NewWidgetHandler(weatherSvc, previewSvc)
 	authH := handlers.NewAuthHandler(authMgr, sessions, limiter, cfg.CookieSecure)
 	setupH := handlers.NewSetupHandler(authMgr, settingsSvc, designSvc, imageSvc)
+	hassH := handlers.NewHassHandler(hassSvc, hassMgr)
 
 	// Setup router
 	mux := http.NewServeMux()
@@ -245,6 +260,13 @@ func newApplication(cfg *config.Config) (*application, error) {
 	// Shared widget content: same authenticated read + CSRF/same-origin
 	// semantics as POST /api/preview_live (not public, mutating POST).
 	mux.HandleFunc("POST /api/widget_content", widgetH.Content)
+
+	// Home-Assistant admin config (specs/B5-home-assistant.md). NOT in
+	// publicRoutes or clientRoutes: both require a session once a password is
+	// set; the mutating POST additionally passes the CSRF/same-origin check
+	// like POST /api/preview_live. GET never returns the token.
+	mux.HandleFunc("GET /api/hass/config", hassH.GetConfig)
+	mux.HandleFunc("POST /api/hass/config", hassH.SetConfig)
 
 	// Health
 	mux.HandleFunc("GET /health", handlers.HealthCheck(version))
