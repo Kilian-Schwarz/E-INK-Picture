@@ -5,65 +5,56 @@ var WidgetPreview = {
     _dataRefreshInterval: null,
     _dataCache: {},
     _CACHE_TTL: 60000,
+    // Debounce for property-edit driven content re-fetches so typing (e.g. the
+    // custom-template input) does not POST /api/widget_content per keystroke.
+    _UPDATE_DEBOUNCE_MS: 350,
 
-    // German two-letter weekday abbreviations. Indexed by Date.getDay()
-    // (0 = Sunday) for the offline fallback, and keyed by the full German
-    // weekday name the server sends so compact_row matches the Go panel render.
-    _germanWeekdayShortByIndex: ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'],
-    _germanWeekdayShortByName: {
-        'Sonntag': 'So', 'Montag': 'Mo', 'Dienstag': 'Di', 'Mittwoch': 'Mi',
-        'Donnerstag': 'Do', 'Freitag': 'Fr', 'Samstag': 'Sa'
-    },
-
-    // Fetch live widget data from server API
+    // Fetch the widget's text content from the server.
+    //
+    // Data widgets (weather, forecast, calendar, news, system, custom) resolve
+    // their content via POST /api/widget_content with the FULL properties map.
+    // The server returns the exact string the E-Ink panel draws, so the canvas
+    // renders it verbatim — canvas == panel by construction. clock and timer
+    // stay client-live (they tick per second/minute; a static server render
+    // would freeze) and never hit the server.
     async fetchWidgetData(type, props) {
         props = props || {};
+
+        if (type === 'widget_clock') return { time: new Date() };
+        if (type === 'widget_timer') return { targetDate: props.targetDate };
+
         var cacheKey = type + JSON.stringify(props);
         var cached = this._dataCache[cacheKey];
         if (cached && Date.now() - cached.time < this._CACHE_TTL) {
             return cached.data;
         }
 
-        var url;
-        switch (type) {
-            case 'widget_weather':
-                url = '/api/widgets/weather?lat=' + (props.latitude || '52.52') + '&lon=' + (props.longitude || '13.41');
-                break;
-            case 'widget_forecast':
-                url = '/api/widgets/forecast?lat=' + (props.latitude || '52.52') + '&lon=' + (props.longitude || '13.41') + '&days=' + (props.days || 3);
-                break;
-            case 'widget_calendar':
-                if (!props.icalUrl) return null;
-                url = '/api/widgets/calendar?url=' + encodeURIComponent(props.icalUrl) + '&days=' + (props.daysAhead || 7);
-                break;
-            case 'widget_news':
-                if (!props.feedUrl) return null;
-                url = '/api/widgets/news?url=' + encodeURIComponent(props.feedUrl) + '&max=' + (props.maxItems || 5);
-                break;
-            case 'widget_system':
-                url = '/api/widgets/system';
-                break;
-            case 'widget_clock':
-                return { time: new Date() };
-            case 'widget_timer':
-                return { targetDate: props.targetDate };
-            default:
-                return null;
-        }
-
         try {
-            var res = await fetch(url);
+            var res = await fetch('/api/widget_content', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: type, properties: props }),
+            });
+            // 400 (unsupported type) / network error → null → neutral
+            // placeholder in getPreviewContent, never a crash.
             if (!res.ok) return null;
             var data = await res.json();
             this._dataCache[cacheKey] = { data: data, time: Date.now() };
             return data;
         } catch (e) {
-            console.warn('Widget data fetch failed:', type, e);
+            console.warn('Widget content fetch failed:', type, e);
             return null;
         }
     },
 
-    // Get preview content based on layout and live data
+    // Get preview content based on layout and live data.
+    //
+    // clock/timer format client-live. The six data widgets render the server's
+    // {content} verbatim (canvas == panel). liveData.content is authoritative;
+    // it is set as canvas text via Fabric (label.set('text', ...)) which draws
+    // to the 2D context — no innerHTML, so free text is never HTML-injected.
+    // The type-label placeholder only shows on a rare fetch failure (the server
+    // otherwise always returns a content string, even "No data").
     getPreviewContent(type, props, liveData) {
         props = props || {};
         var layout = props.layout || this.getDefaultLayout(type);
@@ -71,23 +62,24 @@ var WidgetPreview = {
         switch (type) {
             case 'widget_clock':
                 return this.buildClockContent(layout, props);
-            case 'widget_weather':
-                return this.buildWeatherContent(layout, props, liveData);
-            case 'widget_forecast':
-                return this.buildForecastContent(layout, props, liveData);
-            case 'widget_calendar':
-                return this.buildCalendarContent(layout, props, liveData);
-            case 'widget_news':
-                return this.buildNewsContent(layout, props, liveData);
             case 'widget_timer':
                 return this.buildTimerContent(layout, props);
+            case 'widget_weather':
+            case 'widget_forecast':
+            case 'widget_calendar':
+            case 'widget_news':
             case 'widget_system':
-                return this.buildSystemContent(layout, props, liveData);
             case 'widget_custom':
-                return props.prefix ? props.prefix + '42' + (props.suffix || '') : 'API: 42';
+                return (liveData && typeof liveData.content === 'string')
+                    ? liveData.content
+                    : this._widgetTypeLabel(type);
             default:
-                return type.replace('widget_', '').toUpperCase();
+                return this._widgetTypeLabel(type);
         }
+    },
+
+    _widgetTypeLabel(type) {
+        return type.replace('widget_', '').toUpperCase();
     },
 
     getDefaultLayout(type) {
@@ -139,107 +131,6 @@ var WidgetPreview = {
         }
     },
 
-    // --- Weather ---
-    buildWeatherContent(layout, props, data) {
-        // API returns snake_case JSON fields
-        var temp = data ? (data.current_temp || data.CurrentTemp) : null;
-        if (temp === null && temp !== 0) {
-            return '22\u00B0C Sunny';
-        }
-        temp = Math.round(temp);
-        var desc = (data.current_desc || data.CurrentDesc || '');
-        var icon = (data.current_icon || data.CurrentIcon || '');
-        var daily = data.daily || data.Daily || [];
-        var tempMin = '--', tempMax = '--';
-        if (daily.length > 0) {
-            tempMin = Math.round(daily[0].min || daily[0].Min || 0);
-            tempMax = Math.round(daily[0].max || daily[0].Max || 0);
-        }
-        if (layout === 'custom') {
-            var template = props.customTemplate || '%temperature%\u00B0C %description%';
-            return template
-                .replace(/%temperature%/g, temp)
-                .replace(/%description%/g, desc)
-                .replace(/%icon%/g, icon)
-                .replace(/%temp_min%/g, tempMin)
-                .replace(/%temp_max%/g, tempMax)
-                .replace(/%feels_like%/g, temp)
-                .replace(/%humidity%/g, '--')
-                .replace(/%wind_speed%/g, '--');
-        }
-        switch (layout) {
-            case 'standard':
-                return temp + '\u00B0C\n' + desc;
-            case 'detailed':
-                return temp + '\u00B0C ' + desc + '\nHumidity: --%\nWind: -- km/h';
-            case 'minimal':
-                return temp + '\u00B0';
-            default: // compact
-                return temp + '\u00B0C ' + desc;
-        }
-    },
-
-    // --- Forecast ---
-    buildForecastContent(layout, props, data) {
-        var daily = (data && data.daily) ? data.daily : null;
-        if (!daily || daily.length === 0) {
-            var daysCount = props.days || 3;
-            var fallbackLines = [];
-            var dayNames = this._germanWeekdayShortByIndex;
-            var today = new Date().getDay();
-            for (var i = 0; i < daysCount; i++) {
-                var dn = dayNames[(today + i) % 7];
-                fallbackLines.push(dn + ': 12-20\u00B0C');
-            }
-            return fallbackLines.join('\n');
-        }
-        var lines = [];
-        for (var i = 0; i < daily.length; i++) {
-            var day = daily[i];
-            // API uses lowercase field names
-            var weekday = day.weekday || day.Weekday || '';
-            var min = Math.round(day.min || day.Min || 0);
-            var max = Math.round(day.max || day.Max || 0);
-            var desc = day.desc || day.Desc || '';
-            switch (layout) {
-                case 'compact_row':
-                    lines.push((this._germanWeekdayShortByName[weekday] || weekday.substring(0, 2)) + ' ' + min + '/' + max + '\u00B0');
-                    break;
-                case 'detailed_list':
-                    lines.push(weekday + ': ' + min + '\u00B0/' + max + '\u00B0 ' + desc);
-                    break;
-                case 'custom': {
-                    var template = props.customTemplate || '%day_name%: %temp_min%-%temp_max%\u00B0C';
-                    lines.push(template
-                        .replace(/%day_name%/g, weekday)
-                        .replace(/%temp_min%/g, min)
-                        .replace(/%temp_max%/g, max)
-                        .replace(/%description%/g, desc));
-                    break;
-                }
-                default: // vertical
-                    lines.push(weekday + ': ' + min + '-' + max + '\u00B0C ' + desc);
-            }
-        }
-        return lines.join('\n');
-    },
-
-    // --- Calendar ---
-    buildCalendarContent(layout, props, data) {
-        if (!data || !data.content) {
-            return (props.title || 'Events') + '\n10:00 - Meeting\n14:30 - Review';
-        }
-        return data.content;
-    },
-
-    // --- News ---
-    buildNewsContent(layout, props, data) {
-        if (!data || !data.content) {
-            return (props.title || 'News') + '\n- Headline 1\n- Headline 2';
-        }
-        return data.content;
-    },
-
     // --- Timer ---
     buildTimerContent(layout, props) {
         var target = props.targetDate || '2026-12-25T00:00:00';
@@ -287,17 +178,6 @@ var WidgetPreview = {
         }
         if (label && layout !== 'label_above') display = label + ': ' + display;
         return display;
-    },
-
-    // --- System ---
-    buildSystemContent(layout, props, data) {
-        if (!data || !data.content) {
-            return 'Load: 0.5 0.3 0.2\nMem: 27MB / 512MB\nTemp: 45\u00B0C';
-        }
-        if (layout === 'horizontal') {
-            return data.content.replace(/\n/g, ' | ');
-        }
-        return data.content;
     },
 
     // --- Placeholder helpers ---
@@ -376,6 +256,24 @@ var WidgetPreview = {
         }
 
         CanvasManager.getCanvas().renderAll();
+    },
+
+    // Debounced updatePreview for property-panel edits. A prop change now
+    // triggers a POST /api/widget_content, so rapid edits (e.g. typing the
+    // custom template) are coalesced into a single trailing-edge fetch per
+    // widget. The timer lives on the fabric object so concurrent widgets do not
+    // cancel each other. Non-typed, discrete edits (color/align/layout) keep
+    // calling updatePreview directly for instant feedback.
+    updatePreviewDebounced(fabricObj) {
+        if (!fabricObj) return;
+        var self = this;
+        if (fabricObj._widgetPreviewDebounce) {
+            clearTimeout(fabricObj._widgetPreviewDebounce);
+        }
+        fabricObj._widgetPreviewDebounce = setTimeout(function() {
+            fabricObj._widgetPreviewDebounce = null;
+            self.updatePreview(fabricObj);
+        }, this._UPDATE_DEBOUNCE_MS);
     },
 
     // Start live clock updates on canvas

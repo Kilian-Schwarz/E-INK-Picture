@@ -613,7 +613,8 @@ var PropertiesPanel = {
                 data.properties = data.properties || {};
                 data.properties.customTemplate = templateInput.value;
                 obj.set('elementData', data);
-                WidgetPreview.updatePreview(obj);
+                // Debounced: fires POST /api/widget_content, coalesce keystrokes.
+                WidgetPreview.updatePreviewDebounced(obj);
                 HistoryManager.saveState();
             });
         }
@@ -675,7 +676,8 @@ var PropertiesPanel = {
                 if (urlProps.indexOf(propKey) >= 0) {
                     WidgetPreview.invalidateCache(type);
                 }
-                WidgetPreview.updatePreview(obj);
+                // Debounced: fires POST /api/widget_content, coalesce edits.
+                WidgetPreview.updatePreviewDebounced(obj);
                 HistoryManager.saveState();
             });
         });
