@@ -118,6 +118,7 @@ const ElementFactory = {
             widget_timer: { w: 250, h: 60 },
             widget_custom: { w: 200, h: 60 },
             widget_system: { w: 300, h: 100 },
+            widget_hass: { w: 220, h: 80 },
         };
 
         var size = defaultSizes[type] || { w: 200, h: 100 };
@@ -255,6 +256,18 @@ const ElementFactory = {
                 layout: 'vertical',
                 showLabels: true,
                 fontSize: 12,
+                color: '#000000',
+                textAlign: 'left'
+            },
+            // Home Assistant widget: NO token / NO base-URL prop. The HA
+            // connection (base_url + token) is admin config stored server-side
+            // (data/hass.json), never in the design JSON. hassMode selects the
+            // display mode; entityId + label are safe, non-secret strings.
+            widget_hass: {
+                hassMode: 'temperature',
+                entityId: '',
+                label: '',
+                fontSize: 18,
                 color: '#000000',
                 textAlign: 'left'
             },

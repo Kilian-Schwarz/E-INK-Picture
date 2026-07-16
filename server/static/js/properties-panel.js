@@ -817,6 +817,15 @@ var PropertiesPanel = {
                 showLabels: { label: 'Show Labels', type: 'checkbox', default: true },
                 fontSize: { label: 'Font Size', type: 'number', default: 12, min: 8, max: 200 },
             },
+            // Home Assistant widget: NO token / NO base-URL field. The HA
+            // connection secret is admin config (Settings > Home Assistant),
+            // stored server-side and never exposed as a widget property.
+            widget_hass: {
+                hassMode: { label: 'Mode', type: 'select', options: ['temperature', 'alarm', 'presence'], default: 'temperature' },
+                entityId: { label: 'Entity ID(s)', type: 'text', default: '' },
+                label: { label: 'Label', type: 'text', default: '' },
+                fontSize: { label: 'Font Size', type: 'number', default: 18, min: 8, max: 200 },
+            },
         };
         return defs[type] || {};
     },

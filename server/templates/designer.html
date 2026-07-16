@@ -121,6 +121,10 @@
                         <span class="widget-icon">Sys</span>
                         <span>System</span>
                     </div>
+                    <div class="widget-item" data-type="widget_hass">
+                        <span class="widget-icon">HA</span>
+                        <span>Home Assistant</span>
+                    </div>
                 </div>
             </div>
             <div class="panel-section" id="layers-section">
@@ -269,6 +273,18 @@
                 <div class="property-group">
                     <label>Client Status</label>
                     <div id="client-status" class="status-info">Checking...</div>
+                </div>
+                <!-- Home Assistant connection (admin config for widget_hass).
+                     The token is WRITE-ONLY: it is sent to the server but never
+                     read back, so this field is never pre-filled. -->
+                <div class="property-group">
+                    <label>Home Assistant</label>
+                    <div id="hass-config-status" class="status-info">Checking...</div>
+                    <label style="margin-top:8px;">Base URL</label>
+                    <input type="text" id="hass-base-url" class="prop-input" placeholder="http://10.33.0.5:8123" autocomplete="off">
+                    <label style="margin-top:8px;">Long-Lived Token</label>
+                    <input type="password" id="hass-token" class="prop-input" placeholder="write-only — required to (re)connect" autocomplete="off">
+                    <button id="hass-save-btn" class="btn-primary" style="margin-top:8px;">Save Home Assistant</button>
                 </div>
             </div>
         </div>

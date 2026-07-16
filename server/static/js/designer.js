@@ -481,6 +481,101 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
+    // Home Assistant connection config (admin-only; drives widget_hass).
+    //
+    // The token is WRITE-ONLY: GET /api/hass/config returns {configured,
+    // base_url, token_set} but NEVER the token value, so the token input is
+    // never pre-filled from the server. Status and base URL are placed via
+    // textContent / input.value (string context), never innerHTML.
+    //
+    // Because the server stores base_url + token together (POST /api/hass/config
+    // persists both verbatim), a token is required on every save — leaving it
+    // blank when a token already exists would wipe the stored token, so the save
+    // handler guards against an empty token instead.
+    async function loadHassConfig() {
+        var statusEl = document.getElementById('hass-config-status');
+        var baseUrlInput = document.getElementById('hass-base-url');
+        var tokenInput = document.getElementById('hass-token');
+        if (!statusEl || !baseUrlInput) return;
+        try {
+            var res = await fetch('/api/hass/config');
+            if (!res.ok) throw new Error('bad status');
+            var data = await res.json();
+            baseUrlInput.value = data.base_url || '';
+            // Never write the token back into the DOM; only reflect its presence.
+            if (tokenInput) tokenInput.value = '';
+            var configured = !!data.configured;
+            var tokenSet = !!data.token_set;
+            if (configured) {
+                statusEl.textContent = 'Connected (base URL + token set)';
+                statusEl.className = 'status-info status-ok';
+            } else if (tokenSet) {
+                statusEl.textContent = 'Token set — base URL missing';
+                statusEl.className = 'status-info status-warning';
+            } else if (data.base_url) {
+                statusEl.textContent = 'Base URL set — token missing';
+                statusEl.className = 'status-info status-warning';
+            } else {
+                statusEl.textContent = 'Not configured';
+                statusEl.className = 'status-info status-warning';
+            }
+        } catch (e) {
+            statusEl.textContent = 'Status unavailable';
+            statusEl.className = 'status-info';
+        }
+    }
+
+    var hassSaveBtn = document.getElementById('hass-save-btn');
+    if (hassSaveBtn) {
+        // Reload the current config whenever the settings modal opens so the
+        // status line and base URL reflect the server (token stays blank).
+        var settingsBtnForHass = document.getElementById('settings-btn');
+        if (settingsBtnForHass) {
+            settingsBtnForHass.addEventListener('click', loadHassConfig);
+        }
+        loadHassConfig();
+
+        hassSaveBtn.addEventListener('click', async function() {
+            var baseUrlInput = document.getElementById('hass-base-url');
+            var tokenInput = document.getElementById('hass-token');
+            var baseUrl = baseUrlInput ? baseUrlInput.value.trim() : '';
+            var token = tokenInput ? tokenInput.value : '';
+            if (!baseUrl) {
+                showNotification('Base URL is required', 'warning');
+                return;
+            }
+            if (!token) {
+                // Empty token would clear the stored one — require re-entry.
+                showNotification('Long-lived token is required to save', 'warning');
+                return;
+            }
+            hassSaveBtn.disabled = true;
+            try {
+                var res = await fetch('/api/hass/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ base_url: baseUrl, token: token }),
+                });
+                if (res.ok) {
+                    showNotification('Home Assistant connection saved', 'success');
+                    // Never keep the token in the DOM after saving.
+                    if (tokenInput) tokenInput.value = '';
+                    await loadHassConfig();
+                    // Re-fetch live content so any widget_hass on the canvas
+                    // picks up the new connection immediately.
+                    WidgetPreview.invalidateCache('widget_hass');
+                    WidgetPreview.refreshAllWidgets();
+                } else {
+                    showNotification('Invalid Home Assistant configuration', 'error');
+                }
+            } catch (e) {
+                showNotification('Failed to save Home Assistant connection', 'error');
+            } finally {
+                hassSaveBtn.disabled = false;
+            }
+        });
+    }
+
     // Client status polling
     async function updateClientStatus() {
         try {

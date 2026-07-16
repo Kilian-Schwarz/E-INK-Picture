@@ -70,6 +70,13 @@ var WidgetPreview = {
             case 'widget_news':
             case 'widget_system':
             case 'widget_custom':
+            case 'widget_hass':
+                // widget_hass is a data widget: its content (incl. HA free text
+                // like friendly_name/zone/state) is rendered verbatim from the
+                // server via POST /api/widget_content. It flows into the Fabric
+                // textbox via label.set('text', ...) (see updatePreview) — canvas
+                // glyph rendering, never innerHTML, so HA free text can never be
+                // HTML-injected (AC-SEC11).
                 return (liveData && typeof liveData.content === 'string')
                     ? liveData.content
                     : this._widgetTypeLabel(type);
@@ -215,6 +222,7 @@ var WidgetPreview = {
             widget_timer: 24,
             widget_custom: 24,
             widget_system: 12,
+            widget_hass: 18,
         };
         return defaults[type] || 14;
     },
