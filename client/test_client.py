@@ -1446,6 +1446,7 @@ class TestFetchDisplayConfig(unittest.TestCase):
 class TestMainLoop(unittest.TestCase):
     """Test main loop behavior."""
 
+    @patch("client.process_refresh_cycle", return_value=False)
     @patch("client.send_heartbeat")
     @patch("client.display_image", return_value=True)
     @patch("client.fetch_preview")
@@ -1456,7 +1457,7 @@ class TestMainLoop(unittest.TestCase):
     @patch("client.time")
     def test_initial_update(self, mock_time, mock_signal, mock_config,
                             mock_load, mock_fetch_config, mock_fetch_preview,
-                            mock_display, mock_heartbeat):
+                            mock_display, mock_heartbeat, mock_cycle):
         """Main loop performs initial display update on startup."""
         mock_config.DISPLAY_DRIVER = "epd7in3e"
         mock_config.SERVER_URL = "http://localhost:5000"
@@ -1465,7 +1466,10 @@ class TestMainLoop(unittest.TestCase):
         test_img = Image.new("RGB", (800, 480), (255, 255, 255))
         mock_fetch_preview.return_value = test_img
 
-        # Make the loop exit after initial update
+        # process_refresh_cycle is stubbed to "poll failed" so the loop takes
+        # the bounded backoff path; fake_sleep then breaks out after the
+        # initial update. (B3: the loop polls immediately, so the poll must be
+        # mocked here to keep the test off the real network.)
         call_count = [0]
         def fake_sleep(seconds):
             call_count[0] += 1
@@ -1486,6 +1490,7 @@ class TestMainLoop(unittest.TestCase):
         mock_display.assert_called()
         mock_heartbeat.assert_called()
 
+    @patch("client.process_refresh_cycle", return_value=False)
     @patch("client.send_heartbeat")
     @patch("client.display_image", return_value=True)
     @patch("client.fetch_preview", return_value=None)
@@ -1496,12 +1501,14 @@ class TestMainLoop(unittest.TestCase):
     @patch("client.time")
     def test_no_image_on_startup(self, mock_time, mock_signal, mock_config,
                                   mock_load, mock_fetch_config, mock_fetch_preview,
-                                  mock_display, mock_heartbeat):
+                                  mock_display, mock_heartbeat, mock_cycle):
         """Main loop handles missing image gracefully."""
         mock_config.DISPLAY_DRIVER = "epd7in3e"
         mock_config.SERVER_URL = "http://localhost:5000"
         mock_config.POLL_INTERVAL = 30
 
+        # Stub the poll to "failed" so the loop backs off; fake_sleep then
+        # breaks out (B3: the loop polls immediately, keep it off the network).
         call_count = [0]
         def fake_sleep(seconds):
             call_count[0] += 1
@@ -1711,12 +1718,22 @@ class TestClientTokenAuth(unittest.TestCase):
         mock_requests.post.return_value = self._mock_response(status_code=401)
         mock_requests.ConnectionError = real_requests.ConnectionError
 
-        # Exit after two full poll rounds (POLL_INTERVAL=2 -> 2 sleeps/round).
+        # Deterministic initial-retry path: no hardware, no pending recovery,
+        # first frame still pending (so the loop reaches the poll each round).
+        for attr, value in (("epd", None), ("_hw_recovery_pending", False),
+                            ("_consecutive_hw_failures", 0),
+                            ("_initial_display_done", False)):
+            self.addCleanup(setattr, self.client, attr, getattr(self.client, attr))
+            setattr(self.client, attr, value)
+
+        # B3 loop: poll first, then a bounded backoff on the (401 -> {}) poll.
+        # POLL_INTERVAL=2 -> 2 backoff sleeps/round; break on the 3rd sleep so
+        # exactly two refresh_status polls happen (round 1 + round 2).
         call_count = [0]
 
         def fake_sleep(seconds):
             call_count[0] += 1
-            if call_count[0] >= 5:
+            if call_count[0] >= 3:
                 raise KeyboardInterrupt()
 
         mock_time.sleep.side_effect = fake_sleep
@@ -1759,6 +1776,267 @@ class TestClientTokenAuth(unittest.TestCase):
 
         for record in logs.records:
             self.assertNotIn(secret, record.getMessage())
+
+
+class TestLongPollManualRefresh(ContentSkipSandbox, unittest.TestCase):
+    """B3 AC19: a manual refresh status triggers exactly one non-skipped write."""
+
+    def test_manual_status_single_refresh_never_skipped(self):
+        """AC19: should_refresh=true + reason="manual" writes exactly once and
+        is never content-skipped, even when the bytes are identical to the last
+        frame, and threads reason="manual" through process_refresh_cycle ->
+        handle_refresh."""
+        # Cycle 1 records the hash, so identical content WOULD be skipped for an
+        # interval-driven refresh (the B6 content skip).
+        self.client.process_refresh_cycle()
+        self.assertEqual(self.epd.display_calls, 1)
+
+        # Cycle 2: identical bytes, but the server now reports a manual trigger.
+        self.server.reason = "manual"
+        with patch.object(
+            self.client, "handle_refresh", wraps=self.client.handle_refresh
+        ) as spy:
+            self.client.process_refresh_cycle()
+
+        # Exactly one refresh, with reason threaded positionally as
+        # handle_refresh(display_config, reason).
+        spy.assert_called_once()
+        self.assertEqual(spy.call_args.args[1], "manual")
+        # Wrote again instead of skipping (manual is never content-skipped).
+        self.assertEqual(self.epd.display_calls, 2)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "refreshed"])
+
+
+class TestLongPollLoop(unittest.TestCase):
+    """B3 AC15/AC20: immediate re-poll on success, bounded backoff on failure."""
+
+    def setUp(self):
+        import client
+        self.client = client
+        # Deterministic startup: no hardware, no pending recovery, clean
+        # counters (the loop's poll is mocked, so nothing touches the panel).
+        for attr, value in (("epd", None), ("_hw_recovery_pending", False),
+                            ("_consecutive_hw_failures", 0),
+                            ("_initial_display_done", False)):
+            self.addCleanup(setattr, client, attr, getattr(client, attr))
+            setattr(client, attr, value)
+
+    @patch("client.cleanup")
+    @patch("client.process_refresh_cycle")
+    @patch("client.fetch_preview", return_value=None)
+    @patch("client.fetch_display_config", return_value={})
+    @patch("client.load_display_driver")
+    @patch("client.config")
+    @patch("client.signal")
+    @patch("client.time")
+    def test_poll_failure_triggers_bounded_backoff(self, mock_time, mock_signal,
+                                                   mock_config, mock_load,
+                                                   mock_fetch_config,
+                                                   mock_fetch_preview, mock_cycle,
+                                                   mock_cleanup):
+        """AC20: a failed poll (network error / timeout / non-2xx) makes the
+        loop back off POLL_INTERVAL one-second sleeps instead of busy-looping."""
+        mock_config.DISPLAY_DRIVER = "epd7in3e"
+        mock_config.SERVER_URL = "http://localhost:5000"
+        mock_config.POLL_INTERVAL = 3
+
+        cycles = [0]
+
+        def failing_cycle():
+            cycles[0] += 1
+            if cycles[0] >= 3:
+                raise KeyboardInterrupt()
+            return False  # poll failed -> back off, do NOT re-poll tightly
+
+        mock_cycle.side_effect = failing_cycle
+
+        with self.assertRaises(KeyboardInterrupt):
+            self.client.main()
+
+        # Two completed cycles, each followed by 3 one-second backoff sleeps
+        # (== 6 sleeps): the loop paced itself instead of spinning.
+        self.assertEqual(mock_cycle.call_count, 3)
+        self.assertEqual(mock_time.sleep.call_count, 6)
+        for call in mock_time.sleep.call_args_list:
+            self.assertEqual(call.args, (1,))
+
+    @patch("client.cleanup")
+    @patch("client.process_refresh_cycle")
+    @patch("client.fetch_preview", return_value=None)
+    @patch("client.fetch_display_config", return_value={})
+    @patch("client.load_display_driver")
+    @patch("client.config")
+    @patch("client.signal")
+    @patch("client.time")
+    def test_successful_poll_repolls_without_backoff(self, mock_time, mock_signal,
+                                                     mock_config, mock_load,
+                                                     mock_fetch_config,
+                                                     mock_fetch_preview, mock_cycle,
+                                                     mock_cleanup):
+        """AC15: a successful poll re-polls immediately - no happy-path sleep
+        (the server's long-poll hold provides the pacing)."""
+        mock_config.DISPLAY_DRIVER = "epd7in3e"
+        mock_config.SERVER_URL = "http://localhost:5000"
+        mock_config.POLL_INTERVAL = 30
+
+        cycles = [0]
+
+        def ok_cycle():
+            cycles[0] += 1
+            if cycles[0] >= 4:
+                raise KeyboardInterrupt()
+            return True  # poll ok -> immediate re-poll, no backoff sleep
+
+        mock_cycle.side_effect = ok_cycle
+
+        with self.assertRaises(KeyboardInterrupt):
+            self.client.main()
+
+        self.assertEqual(mock_cycle.call_count, 4)
+        mock_time.sleep.assert_not_called()
+
+
+class TestProgressGating(ContentSkipSandbox, unittest.TestCase):
+    """B3 round 2: process_refresh_cycle() gates the immediate re-poll on
+    forward progress (a heartbeat). should_refresh=true is answered by the
+    server immediately (the ~25s hold only covers should_refresh=false), so a
+    due-but-stuck cycle that re-polled at once would busy-loop; it must back off.
+    """
+
+    def test_manual_success_signals_immediate_repoll(self):
+        """A successful manual refresh made progress -> re-poll immediately
+        (preserves the B3 latency win for the happy manual path)."""
+        # Prime the panel so identical bytes would otherwise be skippable.
+        self.assertTrue(self.client.process_refresh_cycle())
+        self.server.reason = "manual"
+        # Manual write succeeds -> heartbeat "refreshed" -> immediate re-poll.
+        self.assertTrue(self.client.process_refresh_cycle())
+        self.assertEqual(self.epd.display_calls, 2)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "refreshed"])
+
+    def test_manual_write_failure_signals_backoff(self):
+        """Round 2 case 2: a manual refresh whose panel write FAILS makes no
+        progress (no heartbeat) -> back off. Without this the hw-failure counter
+        would race to SystemExit in a tight 0ms loop (systemd restart storm)."""
+        self.client.process_refresh_cycle()  # cycle 1 writes, records hash
+        self.server.reason = "manual"
+        with patch.object(self.epd, "display", side_effect=Exception("SPI error")):
+            repoll = self.client.process_refresh_cycle()
+        self.assertFalse(repoll)  # no progress -> caller must back off
+        # The failed cycle sent no heartbeat and bumped the counter once only.
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed"])
+        self.assertEqual(self.client._consecutive_hw_failures, 1)
+
+    def test_content_skip_signals_immediate_repoll(self):
+        """The content-skip path sends a "skipped" heartbeat -> progress ->
+        immediate re-poll (the skip path must stay fast); the server hold then
+        paces the following poll."""
+        self.client.process_refresh_cycle()  # cycle 1 writes
+        repoll = self.client.process_refresh_cycle()  # cycle 2 identical -> skip
+        self.assertTrue(repoll)
+        self.assertEqual(self.heartbeat_statuses(), ["refreshed", "skipped"])
+
+    def test_no_refresh_due_signals_immediate_repoll(self):
+        """should_refresh=false means the server already held ~25s -> re-poll
+        immediately (nothing due, no heartbeat needed, no busy-loop)."""
+        self.server.should_refresh = False
+        self.assertTrue(self.client.process_refresh_cycle())
+        self.assertEqual(self.heartbeat_statuses(), [])
+
+    def test_initial_retry_no_image_signals_backoff(self):
+        """Fresh boot, refresh_status is 2xx but /preview is unreachable: no
+        image -> no heartbeat -> back off (the unbounded-spin case, unit level)."""
+        import requests as real_requests
+        client = self.client
+        client._initial_display_done = False
+        real_get = self.server.get
+
+        def flaky_get(path, timeout=None):
+            if path == "/preview":
+                raise real_requests.ConnectionError("server still booting")
+            return real_get(path, timeout=timeout)
+
+        client._server_get.side_effect = flaky_get
+        repoll = client.process_refresh_cycle()
+
+        self.assertFalse(repoll)  # no progress -> back off, do not spin
+        self.assertEqual(self.epd.display_calls, 0)
+        self.assertEqual(self.heartbeat_statuses(), [])
+
+
+class TestLongPollNoProgressBackoff(unittest.TestCase):
+    """B3 round 2 regression: the REAL loop (process_refresh_cycle NOT stubbed)
+    must pace a due refresh that makes no forward progress, never busy-loop."""
+
+    def setUp(self):
+        import client
+        self.client = client
+        for attr, value in (("epd", None), ("_hw_recovery_pending", False),
+                            ("_consecutive_hw_failures", 0),
+                            ("_initial_display_done", False)):
+            self.addCleanup(setattr, client, attr, getattr(client, attr))
+            setattr(client, attr, value)
+
+    @patch("client.cleanup")
+    @patch("client.send_heartbeat")
+    @patch("client.fetch_preview", return_value=None)
+    @patch("client.fetch_display_config", return_value={})
+    @patch("client.get_refresh_status")
+    @patch("client.load_display_driver")
+    @patch("client.config")
+    @patch("client.signal")
+    @patch("client.time")
+    def test_fresh_boot_no_image_does_not_busyloop(self, mock_time, mock_signal,
+                                                   mock_config, mock_load,
+                                                   mock_status, mock_fetch_config,
+                                                   mock_fetch_preview,
+                                                   mock_heartbeat, mock_cleanup):
+        """Fresh boot: the server reports should_refresh=true (answered at once,
+        no hold) but no image is available yet (fetch_preview -> None). Here
+        process_refresh_cycle runs FOR REAL, so dropping the no-progress backoff
+        turns this into a 0ms spin: time.sleep never fires and the safety cap
+        trips. With the fix the loop backs off POLL_INTERVAL between polls ->
+        bounded polls, no spin, no heartbeat."""
+        mock_config.DISPLAY_DRIVER = "epd7in3e"
+        mock_config.SERVER_URL = "http://localhost:5000"
+        mock_config.POLL_INTERVAL = 3
+
+        status_calls = [0]
+
+        def status_side_effect(*args, **kwargs):
+            status_calls[0] += 1
+            # Safety net: a no-progress spin (fix removed) calls this unboundedly
+            # with zero sleeps -> fail loudly instead of hanging the suite.
+            if status_calls[0] > 50:
+                raise AssertionError(
+                    "busy-loop: re-polled without backoff on a no-progress cycle"
+                )
+            return {"should_refresh": True, "reason": "interval"}
+
+        mock_status.side_effect = status_side_effect
+
+        sleeps = [0]
+
+        def fake_sleep(seconds):
+            sleeps[0] += 1
+            if sleeps[0] >= 6:
+                raise KeyboardInterrupt()
+
+        mock_time.sleep.side_effect = fake_sleep
+        mock_time.strftime = time.strftime
+        mock_time.gmtime = time.gmtime
+
+        with self.assertRaises(KeyboardInterrupt):
+            self.client.main()
+
+        # No image was ever available -> no heartbeat -> no forward progress.
+        mock_heartbeat.assert_not_called()
+        # Paced: 6 one-second sleeps over 2 backoff rounds (POLL_INTERVAL=3),
+        # so only ~2 status polls happened - bounded, not a 0ms spin.
+        self.assertLessEqual(status_calls[0], 3)
+        self.assertEqual(mock_time.sleep.call_count, 6)
+        for call in mock_time.sleep.call_args_list:
+            self.assertEqual(call.args, (1,))
 
 
 if __name__ == "__main__":

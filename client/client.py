@@ -8,7 +8,7 @@ import signal
 import sys
 import time
 from io import BytesIO
-from typing import Optional
+from typing import Optional, Tuple, Union
 
 import requests
 from PIL import Image
@@ -72,8 +72,15 @@ def _track_auth_state(resp: requests.Response) -> None:
         _auth_error_logged = False
 
 
-def _server_get(path: str, timeout: int) -> requests.Response:
-    """GET a server endpoint with auth headers and 401 state tracking."""
+def _server_get(
+    path: str, timeout: Union[float, Tuple[float, float]]
+) -> requests.Response:
+    """GET a server endpoint with auth headers and 401 state tracking.
+
+    timeout accepts a scalar or a (connect, read) tuple - the long-polling
+    status request uses the tuple form to keep a short connect timeout while
+    allowing a long read.
+    """
     resp = requests.get(
         f"{config.SERVER_URL}{path}", headers=_auth_headers(), timeout=timeout
     )
@@ -306,9 +313,17 @@ def display_image(img: Image.Image, display_config: dict) -> bool:
 
 
 def get_refresh_status() -> dict:
-    """Fetch /api/refresh_status; empty dict on any error."""
+    """Long-poll /api/refresh_status; empty dict on any error.
+
+    The server holds this request open (up to ~25s) and answers the moment a
+    manual trigger fires, so the read timeout must exceed the server hold
+    (config.LONGPOLL_TIMEOUT, default 30s > 25s). A short 5s connect timeout
+    still fails fast when the server is unreachable.
+    """
     try:
-        resp = _server_get("/api/refresh_status", timeout=5)
+        resp = _server_get(
+            "/api/refresh_status", timeout=(5, config.LONGPOLL_TIMEOUT)
+        )
         if resp.ok:
             data = resp.json()
             if isinstance(data, dict):
@@ -390,8 +405,16 @@ def send_heartbeat(status: str = "refreshed") -> None:
         pass
 
 
-def handle_refresh(display_config: dict, reason: Optional[str]) -> None:
+def handle_refresh(display_config: dict, reason: Optional[str]) -> bool:
     """Fetch the current preview and update the panel, honoring the content skip.
+
+    Returns True when the cycle made forward progress - a heartbeat was sent
+    ("refreshed" after a panel write, "skipped" on a content skip). The
+    heartbeat advances the server's LastClientRefresh, so the next poll blocks
+    on the server hold or reports no work. Returns False when NO heartbeat was
+    sent (hardware failure, unreachable preview, failed write): the caller must
+    pace the next poll, otherwise the server keeps returning should_refresh=true
+    and the loop busy-spins.
 
     Skip path: no epd.init/display/sleep (panel stays in deep sleep), the
     last-sent artifact is left untouched, heartbeat is sent with "skipped".
@@ -407,26 +430,39 @@ def handle_refresh(display_config: dict, reason: Optional[str]) -> None:
         load_display_driver(driver_name)
         if epd is None and _hw_recovery_pending:
             _register_hw_failure()
-            return
+            return False
     img = fetch_preview()
     if img is None:
         logger.warning("Failed to fetch preview for refresh")
-        return
+        return False
     content_hash = _last_fetch_hash
     if _should_skip_panel_write(content_hash, reason):
         logger.info("skipping panel refresh (content unchanged)")
         send_heartbeat("skipped")
-        return
+        return True
     if display_image(img, display_config):
         _initial_display_done = True
         _record_panel_write(content_hash)
         send_heartbeat("refreshed")
-    else:
-        _register_hw_failure()
+        return True
+    _register_hw_failure()
+    return False
 
 
-def process_refresh_cycle() -> None:
-    """One poll cycle: ask the server and refresh the panel if needed.
+def process_refresh_cycle() -> bool:
+    """One long-poll cycle: ask the server and refresh the panel if needed.
+
+    Returns True when the caller may re-poll immediately: a 2xx status poll
+    that either had nothing due (should_refresh=false - the server already held
+    the request open ~25s) or made forward progress (handle_refresh sent a
+    heartbeat). Returns False when the caller must apply the bounded reconnect
+    backoff: the poll failed (network error / timeout / non-2xx), OR a refresh
+    was due but the cycle made NO progress (no heartbeat). The latter is
+    critical: should_refresh=true is answered by the server immediately (the
+    ~25s hold only covers should_refresh=false), so a due-but-stuck cycle that
+    re-polls at once would busy-loop until a heartbeat advances the server's
+    LastClientRefresh - backing off restores the pre-B3 pacing for those cases
+    (fresh boot with no image yet, a failed manual write, a hardware failure).
 
     Initial retry (E5.4): until the first successful display run since
     process start, every cycle behaves like the startup path - unconditional
@@ -435,16 +471,26 @@ def process_refresh_cycle() -> None:
     listens. From the first success on, exactly today's semantics apply.
     """
     status = get_refresh_status()
+    # get_refresh_status() returns {} on any error and a populated dict
+    # (always carrying should_refresh) on a real 2xx response: an empty dict
+    # therefore means "no usable poll response -> reconnect backoff".
+    poll_ok = bool(status)
     if not _initial_display_done:
         logger.info("initial display update pending - retrying unconditionally")
         display_config = fetch_display_config()
-        handle_refresh(display_config, None)
-        return
+        # The initial retry always attempts a write, so it is always "due":
+        # re-poll immediately only if it actually made progress (a heartbeat),
+        # otherwise back off so a fresh boot with no image yet does not spin.
+        made_progress = handle_refresh(display_config, None)
+        return poll_ok and made_progress
     if not status.get("should_refresh", False):
-        return
+        return poll_ok
     logger.info("Server says: refresh needed")
     display_config = fetch_display_config()
-    handle_refresh(display_config, status.get("reason"))
+    # A due refresh may re-poll immediately only when it made progress;
+    # otherwise pace the next poll so a stuck refresh does not busy-loop.
+    made_progress = handle_refresh(display_config, status.get("reason"))
+    return poll_ok and made_progress
 
 
 def cleanup() -> None:
@@ -501,20 +547,33 @@ def main() -> None:
             else:
                 logger.warning("No image on startup - will retry on next poll")
 
-        # Main poll loop
+        # Main long-poll loop: the server holds GET /api/refresh_status open
+        # and answers the moment a manual trigger fires (or after its bounded
+        # hold), so a genuinely-actioned poll is followed by an immediate
+        # re-poll - the server hold, not a client sleep, provides the pacing.
+        # This is what makes a manual "Refresh Display" reach the panel in ~2s.
+        #
+        # POLL_INTERVAL is no longer a happy-path delay: it is only the bounded
+        # backoff used when the poll fails OR a due refresh made no forward
+        # progress (no heartbeat). Without that second case the loop would spin,
+        # because should_refresh=true is answered immediately (no 25s hold).
         poll_interval = config.POLL_INTERVAL
-        logger.info("Entering poll loop (every %ds)", poll_interval)
+        logger.info("Entering long-poll loop (reconnect backoff %ds)", poll_interval)
 
         while running:
-            for _ in range(poll_interval):
-                if not running:
-                    break
-                time.sleep(1)
+            repoll_now = process_refresh_cycle()
 
             if not running:
                 break
 
-            process_refresh_cycle()
+            if not repoll_now:
+                # Failed poll, or a due refresh that made no progress: back off
+                # POLL_INTERVAL seconds (checked once per second for a
+                # responsive shutdown) instead of hammering the server.
+                for _ in range(poll_interval):
+                    if not running:
+                        break
+                    time.sleep(1)
     finally:
         cleanup()
         logger.info("Client stopped")

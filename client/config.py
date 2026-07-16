@@ -5,6 +5,11 @@ SERVER_URL = os.getenv("EINK_SERVER_URL", "http://localhost:5000")
 DISPLAY_DRIVER = os.getenv("EINK_DISPLAY_DRIVER", "epd7in3e")
 REFRESH_INTERVAL = int(os.getenv("EINK_REFRESH_INTERVAL", "3600"))
 POLL_INTERVAL = int(os.getenv("EINK_POLL_INTERVAL", "30"))
+# Read timeout (seconds) for the long-polling /api/refresh_status request.
+# Must be strictly greater than the server hold (25s) so the server always
+# responds before the client's read times out; otherwise the client keeps
+# reconnecting needlessly (no missed trigger, just churn).
+LONGPOLL_TIMEOUT = int(os.getenv("EINK_LONGPOLL_TIMEOUT", "30"))
 DEPLOYMENT_MODE = os.getenv("EINK_DEPLOYMENT_MODE", "local")
 LOG_LEVEL = os.getenv("EINK_LOG_LEVEL", "INFO")
 LAST_SENT_PATH = os.getenv("EINK_LAST_SENT_PATH", "/tmp/eink_last_sent.png")
