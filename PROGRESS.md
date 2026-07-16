@@ -3,6 +3,35 @@
 Manager-geführtes Log für den Weg zu v1.0. Nach jedem Task aktualisiert.
 Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel-Foto | L5 Review.
 
+## ⭐ COMPACT-CHECKPOINT (2026-07-16) — verbindlicher Stand nach /compact hier weiterlesen
+
+**`main` @ `7750b5b`, lokal, NICHT gepusht (~20 Commits vor origin/main — Push nur auf Kilians Ansage). ✅ ALLE 7 B-EPICS (B1–B7) CODE-COMPLETE.**
+
+**Gemerged auf main** (alle Verifizierer≠Implementierer, je L1+ Gates grün; Merges = squash-to-main durch general-purpose-Agent, Manager committet nie selbst):
+- **B7** sichtbare Vorschau-Fehler (onerror + fabric-undefined-Banner + 403-Mapping) — `0041e0c`/`1e46964`
+- **B3** Refresh sofort (Server-Long-Poll `WaitForRefresh` + Client blocking-poll/no-progress-backoff) — `c346d16`+`95f6ddb`
+- **.gitignore-Härtung** (auth.json/hass.json/secrets.local.md) — `4545e8a`
+- **B4a/b/c** Widget-Vereinheitlichung: Dispatcher+`/api/widget_content`, Canvas-Passthrough, dead-E-Pfad gelöscht — `8e4c418`/`498e883`/`808e217`
+- **B5a/b/c** Home Assistant: Config+gehärteter Safe-Fetch (Security-APPROVE), fillHassContent (Temp/Alarm/Präsenz, deutsch via locale.go), Widget-UI (Token write-only, XSS-safe) — `3929ed9`/`d8a883a`/`377ca2b`
+- **B1a** Standortsuche-Backend (enrich + policy-konformer UA + Rate-Limit/Cache) — `9e31258`
+- **B2** Rundungs-/Stroke-Parität (Radius-Scale-Fix + zentrierter Stroke-Ring + Canvas-Absorption; Goldens neu baselined) — `4dfd115`
+- **B1b** Frontend-Autocomplete (Ort/PLZ-Suche weather+forecast, mobil): Debounce+≥1req/s-Politeness+Stale-Token, textContent-XSS-safe, ARIA-Combobox, ein Schreibpfad (1 Render/1 Undo), In-Flow-Dropdown. **L5 APPROVE + L1 28/28 (mutation-proofed)** — `7750b5b`
+- **B6** verifiziert erledigt (Content-Skip, kein Code) — nur L3-Skip-Nachweis offen
+
+**VERBLEIBEND (kein/kaum Code, meist gated):**
+1. **Pi-Sammel-L3** (nur `hardware-validator`, Pi `ksch@10.33.0.106`; data/ vorher sichern; max 1 Refresh/min; epd.sleep): B3 <2s Button→Panel (AC22), B6 Skip-Zählung (statisches Bild → 0 Panel-Writes), **B5-live** (HA-Widget echte Daten — braucht Token in secrets.local.md + Entity-IDs + Alarm-Backend), B2 Panel-Foto vs Designer, B1 mobiler Live-Check (echter <768px-Viewport war in-Browser nicht erreichbar, s. B7-Repro-Caveat).
+2. **Go-1.25-Deps-Runde** (Kilian-Entscheid: „vor Release, eigene Runde"): go 1.24→1.25 + `x/image`@v0.43.0 + `x/crypto`@v0.52.0 + `x/text`; Dockerfile-Base + CI + Pi-Cross-Builds (armv6/7/arm64); nur erreichbares CVE = x/image SFNT-OOM. Dann CI-grün + L3-Render.
+3. **Release** v0.9.0-RC → Tag NUR mit Kilians ausdrücklicher Freigabe (release.yml).
+4. **Housekeeping:** ~13 stale Worktrees unter `.claude/worktrees/` entfernen (alle gemerged/leer, inkl. `agent-a4ff0532f52735306` + Branch `feat/b1b-location-ui`; `git worktree remove` + Branches löschen); Doku-Sweep (PROGRESS/specs erwähnen alten `/api/widgets/*` historisch).
+
+**OFFENE KILIAN-ASKS:** (a) **B5-L3:** Token → `secrets.local.md` (gitignored) ODER OK dass hardware-validator ihn nutzt; exakte Entity-IDs (Temp/Alarm/Präsenz); Alarm-Backend `alarm_control_panel.*` vs `alarmo`. (b) **Release-Freigabe** wenn bereit.
+
+**GOTCHA Worktree-Isolation:** Worktrees basieren auf altem Session-HEAD (`3ecf4ce`) → jeder Worktree-Agent zuerst im Worktree `git merge --ff-only main` + `git checkout -B <branch>`; geteilten Checkout NIE anfassen.
+
+**Fertige Specs unter `specs/`:** B1-location-search, B2-rounding-parity, B3-immediate-refresh-longpoll, B4-unify, B5-home-assistant, B7-designer-preview (+ B7-repro-protocol). B7b (fabric+Fonts lokal via go:embed für echten Offline-Pi) = empfohlener, noch NICHT geschriebener Folge-Spec.
+
+---
+
 ## Finishing-Runde v1.0 — Bug-/Feature-Backlog B1–B7 (2026-07-16, Manager)
 
 **Ist-Stand verifiziert** (read-only Workflow `wf_6f2fa7c5-1d0`, 4 Agents, 0 Fehler): Alle §1-Behauptungen gegen `main` **bestätigt**. HEAD = `3ecf4ce` (= origin/main, tree clean) — der Header unten nennt noch `27f2643`, ist also 2 Docs-Commits veraltet (1d87c52 README + 3ecf4ce E6.3). E1–E6 gemergt (Belege: auth/, negcache.go, memlimit.go, widgets/*.go, quantize.go, calibration.go, ci.yml+release.yml). E2.5a-Fix in setup.sh vorhanden, **native L3 weiter AUSSTEHEND**. Deps aktuell: client `requests>=2.31.0,<3` / `Pillow>=10.0.0,<13` / `lgpio>=0.2`; go.mod `go 1.24.0`, `x/crypto v0.43.0`, `x/image v0.36.0`, `x/text v0.34.0` — 17 Dependabot-Vulns offen. Alle 6 HW-/Kilian-Gates offen; `git tag -l` leer.
