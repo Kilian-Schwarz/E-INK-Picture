@@ -299,14 +299,14 @@ func (s *PreviewService) Render(ctx context.Context, design *models.DesignV2, ra
 
 		if rot == 0 {
 			// Direct path: draw straight into the supersampled canvas
-			s.drawElement(img, elem.Type, props, x, y, w, h, px, py, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+			s.drawElement(img, elem.Type, props, x, y, w, h, px, py, face, fontSize, bold, italic, strike, align, vAlign, textColor, scale)
 		} else if w > 0 && h > 0 {
 			// Rotated path: draw into a transparent offscreen buffer at origin
 			// (0,0), then composite it into the supersampled canvas with an
 			// affine rotation around the top-left anchor (x, y). This happens
 			// BEFORE downscale/quantization, so anti-aliased edges get dithered.
 			offscreen := image.NewRGBA(image.Rect(0, 0, w, h))
-			s.drawElement(offscreen, elem.Type, props, 0, 0, w, h, px, py, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+			s.drawElement(offscreen, elem.Type, props, 0, 0, w, h, px, py, face, fontSize, bold, italic, strike, align, vAlign, textColor, scale)
 
 			cos, sin := rotationCoeffs(rot)
 			aff := f64.Aff3{cos, -sin, float64(x), sin, cos, float64(y)}
@@ -381,18 +381,20 @@ func (s *PreviewService) WidgetTextContent(elemType string, props map[string]any
 
 // drawElement draws a single element of the given type into dst with its
 // top-left anchor at (x, y). w and h are the scaled, unrotated element
-// dimensions; px and py the scaled widget padding.
+// dimensions; px and py the scaled widget padding. scale is the supersample
+// factor so scalar geometry (corner radii, stroke width) can be scaled to the
+// same coordinate space as x/y/w/h.
 //
 // Text content comes exclusively from WidgetTextContent (the shared dispatch),
 // so the panel and the /api/widget_content endpoint can never fork. image and
 // shape have no text content and are drawn directly.
-func (s *PreviewService) drawElement(dst *image.RGBA, elemType string, props map[string]any, x, y, w, h, px, py int, face font.Face, fontSize int, bold, italic, strike bool, align, vAlign string, textColor color.RGBA) {
+func (s *PreviewService) drawElement(dst *image.RGBA, elemType string, props map[string]any, x, y, w, h, px, py int, face font.Face, fontSize int, bold, italic, strike bool, align, vAlign string, textColor color.RGBA, scale float64) {
 	switch elemType {
 	case "image":
 		s.renderImageElement(dst, x, y, w, h, props)
 		return
 	case "shape":
-		s.renderShapeElement(dst, x, y, w, h, props, textColor)
+		s.renderShapeElement(dst, x, y, w, h, props, textColor, scale)
 		return
 	}
 
@@ -1104,43 +1106,50 @@ func (s *PreviewService) renderImageElement(img *image.RGBA, x, y, w, h int, pro
 	s.renderImageRGBA(img, x, y, w, h, sd)
 }
 
-// renderShapeElement renders a shape element with fill, stroke, and rounded corners.
-func (s *PreviewService) renderShapeElement(img *image.RGBA, x, y, w, h int, props map[string]any, defaultColor color.RGBA) {
-	// Read fill color: try "fill" (v2 frontend), then "fillColor" (legacy)
+// renderShapeElement renders a shape element with fill, stroke, and rounded
+// corners, matching Fabric's geometry (B2): corner radii and stroke width are
+// scaled by the supersample factor so they live in the same coordinate space
+// as x/y/w/h, corners are elliptical with independent per-axis clamps, and the
+// stroke is a centered ring band straddling the path edge.
+func (s *PreviewService) renderShapeElement(img *image.RGBA, x, y, w, h int, props map[string]any, defaultColor color.RGBA, scale float64) {
+	// Read fill color: try "fill" (v2 frontend), then "fillColor" (legacy).
+	// An explicit "transparent" fill leaves the interior as background (ring),
+	// which differs from an unset fill (falls back to defaultColor).
 	fillStr := GetPropString(props, "fill", "")
 	if fillStr == "" {
 		fillStr = GetPropString(props, "fillColor", "")
 	}
-	hasFill := fillStr != "" && fillStr != "transparent"
-
 	var fillColor color.RGBA
-	if hasFill {
+	hasFill := false
+	switch {
+	case fillStr == "transparent":
+		hasFill = false
+	case fillStr != "":
 		fillColor = parseHexColor(fillStr)
-	} else {
+		hasFill = true
+	default:
 		fillColor = defaultColor
 		hasFill = true
 	}
 
+	// Scale corner radii and stroke width by the supersample factor so they
+	// match the already-scaled x/y/w/h (D0). ry falls back to rx when unset.
+	rx := int(float64(GetPropInt(props, "rx", 0)) * scale)
+	ry := int(float64(GetPropInt(props, "ry", GetPropInt(props, "rx", 0))) * scale)
+	sw := int(float64(GetPropInt(props, "strokeWidth", 0)) * scale)
+
 	strokeStr := GetPropString(props, "stroke", "")
-	sw := GetPropInt(props, "strokeWidth", 0)
 	hasStroke := strokeStr != "" && strokeStr != "transparent" && sw > 0
 
-	rx := GetPropInt(props, "rx", 0)
-
+	// Fill the full rounded path first, then paint the centered stroke ring on
+	// top. The stroke overpaints the outer sw/2 of the fill and adds sw/2
+	// outside, so opaque fill + stroke matches Fabric's centered stroke while a
+	// transparent fill + stroke renders as a clean ring (interior untouched).
+	if hasFill {
+		drawRoundedRectFilled(img, x, y, w, h, rx, ry, fillColor)
+	}
 	if hasStroke {
-		sc := parseHexColor(strokeStr)
-		// Draw outer shape with stroke color
-		drawRoundedRectFilled(img, x, y, w, h, rx, sc)
-		// Draw inner shape with fill color
-		innerRx := rx - sw
-		if innerRx < 0 {
-			innerRx = 0
-		}
-		if hasFill {
-			drawRoundedRectFilled(img, x+sw, y+sw, w-2*sw, h-2*sw, innerRx, fillColor)
-		}
-	} else if hasFill {
-		drawRoundedRectFilled(img, x, y, w, h, rx, fillColor)
+		drawRoundedRectStroke(img, x, y, w, h, rx, ry, sw, parseHexColor(strokeStr))
 	}
 }
 
@@ -1684,62 +1693,170 @@ func (s *PreviewService) drawFilledRectRGBA(img *image.RGBA, x, y, w, h int, c c
 	draw.Draw(img, rect, image.NewUniform(c), image.Point{}, draw.Src)
 }
 
-// drawRoundedRectFilled draws a filled rectangle with rounded corners.
-func drawRoundedRectFilled(img *image.RGBA, x, y, w, h, r int, c color.RGBA) {
+// clampCornerRadii clamps rx to w/2 and ry to h/2 independently (Fabric's
+// per-axis clamp), flooring negatives to 0. A wide-flat box with a large
+// radius becomes a pill/ellipse rather than collapsing to a single circle.
+func clampCornerRadii(w, h, rx, ry int) (int, int) {
+	if rx < 0 {
+		rx = 0
+	}
+	if ry < 0 {
+		ry = 0
+	}
+	if rx > w/2 {
+		rx = w / 2
+	}
+	if ry > h/2 {
+		ry = h / 2
+	}
+	return rx, ry
+}
+
+// setPixelRGBA sets a pixel only if it lies within img's bounds.
+func setPixelRGBA(img *image.RGBA, bounds image.Rectangle, ix, iy int, c color.RGBA) {
+	if ix >= bounds.Min.X && ix < bounds.Max.X && iy >= bounds.Min.Y && iy < bounds.Max.Y {
+		img.SetRGBA(ix, iy, c)
+	}
+}
+
+// insideRoundedRect reports whether the center of pixel (px, py) lies inside
+// the rounded rectangle at (x, y) of size (w, h) with elliptical corner radii
+// (rx, ry). Radii are clamped per-axis. The elliptical corner test uses the
+// same pixel-center convention as drawRoundedRectFilled so fill and stroke
+// share one boundary definition.
+func insideRoundedRect(px, py, x, y, w, h, rx, ry int) bool {
+	if w <= 0 || h <= 0 {
+		return false
+	}
+	if px < x || px >= x+w || py < y || py >= y+h {
+		return false
+	}
+	rx, ry = clampCornerRadii(w, h, rx, ry)
+	if rx <= 0 || ry <= 0 {
+		return true
+	}
+
+	cx := float64(px) + 0.5
+	cy := float64(py) + 0.5
+
+	// Nearest corner-ellipse center on each axis; the straight bands (center
+	// column/row) are trivially inside.
+	var ex, ey float64
+	switch {
+	case cx < float64(x+rx):
+		ex = float64(x + rx)
+	case cx > float64(x+w-rx):
+		ex = float64(x + w - rx)
+	default:
+		return true
+	}
+	switch {
+	case cy < float64(y+ry):
+		ey = float64(y + ry)
+	case cy > float64(y+h-ry):
+		ey = float64(y + h - ry)
+	default:
+		return true
+	}
+
+	dx := (cx - ex) / float64(rx)
+	dy := (cy - ey) / float64(ry)
+	return dx*dx+dy*dy <= 1.0
+}
+
+// drawRoundedRectFilled draws a filled rectangle with elliptical rounded
+// corners. rx and ry are clamped independently (see clampCornerRadii); rx<=0
+// or ry<=0 degenerates to a plain filled rectangle (the byte-identical fast
+// path for non-rounded shapes).
+func drawRoundedRectFilled(img *image.RGBA, x, y, w, h, rx, ry int, c color.RGBA) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	if r <= 0 {
+	rx, ry = clampCornerRadii(w, h, rx, ry)
+	if rx <= 0 || ry <= 0 {
 		rect := image.Rect(x, y, x+w, y+h).Intersect(img.Bounds())
 		draw.Draw(img, rect, image.NewUniform(c), image.Point{}, draw.Src)
 		return
-	}
-	if r > w/2 {
-		r = w / 2
-	}
-	if r > h/2 {
-		r = h / 2
 	}
 
 	uni := image.NewUniform(c)
 	bounds := img.Bounds()
 
-	// Center horizontal strip
-	draw.Draw(img, image.Rect(x+r, y, x+w-r, y+h).Intersect(bounds), uni, image.Point{}, draw.Src)
+	// Center horizontal strip (full height between the corner columns)
+	draw.Draw(img, image.Rect(x+rx, y, x+w-rx, y+h).Intersect(bounds), uni, image.Point{}, draw.Src)
 	// Left vertical strip (between corners)
-	draw.Draw(img, image.Rect(x, y+r, x+r, y+h-r).Intersect(bounds), uni, image.Point{}, draw.Src)
+	draw.Draw(img, image.Rect(x, y+ry, x+rx, y+h-ry).Intersect(bounds), uni, image.Point{}, draw.Src)
 	// Right vertical strip (between corners)
-	draw.Draw(img, image.Rect(x+w-r, y+r, x+w, y+h-r).Intersect(bounds), uni, image.Point{}, draw.Src)
+	draw.Draw(img, image.Rect(x+w-rx, y+ry, x+w, y+h-ry).Intersect(bounds), uni, image.Point{}, draw.Src)
 
-	// Draw four corner arcs
-	rr := float64(r)
-	for py := 0; py < r; py++ {
-		for px := 0; px < r; px++ {
-			dx := float64(r-1-px) + 0.5
-			dy := float64(r-1-py) + 0.5
-			if dx*dx+dy*dy <= rr*rr {
-				// Top-left
-				ix, iy := x+px, y+py
-				if ix >= bounds.Min.X && ix < bounds.Max.X && iy >= bounds.Min.Y && iy < bounds.Max.Y {
-					img.SetRGBA(ix, iy, c)
-				}
-				// Top-right
-				ix = x + w - 1 - px
-				if ix >= bounds.Min.X && ix < bounds.Max.X && iy >= bounds.Min.Y && iy < bounds.Max.Y {
-					img.SetRGBA(ix, iy, c)
-				}
-				// Bottom-left
-				ix = x + px
-				iy = y + h - 1 - py
-				if ix >= bounds.Min.X && ix < bounds.Max.X && iy >= bounds.Min.Y && iy < bounds.Max.Y {
-					img.SetRGBA(ix, iy, c)
-				}
-				// Bottom-right
-				ix = x + w - 1 - px
-				if ix >= bounds.Min.X && ix < bounds.Max.X && iy >= bounds.Min.Y && iy < bounds.Max.Y {
-					img.SetRGBA(ix, iy, c)
-				}
+	// Four elliptical corner arcs. dx/dy are normalized to the corner radii so
+	// the unit-circle test (dx²+dy² <= 1) describes an ellipse in pixel space.
+	frx, fry := float64(rx), float64(ry)
+	for py := 0; py < ry; py++ {
+		for px := 0; px < rx; px++ {
+			dx := (float64(rx-1-px) + 0.5) / frx
+			dy := (float64(ry-1-py) + 0.5) / fry
+			if dx*dx+dy*dy <= 1.0 {
+				setPixelRGBA(img, bounds, x+px, y+py, c)         // top-left
+				setPixelRGBA(img, bounds, x+w-1-px, y+py, c)     // top-right
+				setPixelRGBA(img, bounds, x+px, y+h-1-py, c)     // bottom-left
+				setPixelRGBA(img, bounds, x+w-1-px, y+h-1-py, c) // bottom-right
 			}
 		}
 	}
+}
+
+// drawRoundedRectStroke paints a centered stroke ring of width sw straddling
+// the path edge of the rounded rectangle at (x, y, w, h, rx, ry): the band
+// covers sw/2 outside and sw/2 inside the edge, matching Fabric's centered
+// stroke (strokeUniform). It fills only the band (outer rounded rect minus
+// inner rounded rect), so a transparent-fill shape renders as a true ring.
+func drawRoundedRectStroke(img *image.RGBA, x, y, w, h, rx, ry, sw int, c color.RGBA) {
+	if w <= 0 || h <= 0 || sw <= 0 {
+		return
+	}
+	rx, ry = clampCornerRadii(w, h, rx, ry)
+
+	// Split the stroke width across the edge. For even sw (always the case at
+	// render_quality=high, scale 2.0) this is exactly sw/2 each side.
+	outerOff := sw / 2
+	innerOff := sw - outerOff
+
+	ox, oy := x-outerOff, y-outerOff
+	ow, oh := w+2*outerOff, h+2*outerOff
+	orx, ory := rx+outerOff, ry+outerOff
+
+	inx, iny := x+innerOff, y+innerOff
+	iw, ih := w-2*innerOff, h-2*innerOff
+	irx, iry := rx-innerOff, ry-innerOff
+	if irx < 0 {
+		irx = 0
+	}
+	if iry < 0 {
+		iry = 0
+	}
+
+	bounds := img.Bounds()
+	startX, endX := clampRange(ox, ox+ow, bounds.Min.X, bounds.Max.X)
+	startY, endY := clampRange(oy, oy+oh, bounds.Min.Y, bounds.Max.Y)
+
+	for py := startY; py < endY; py++ {
+		for px := startX; px < endX; px++ {
+			if insideRoundedRect(px, py, ox, oy, ow, oh, orx, ory) &&
+				!insideRoundedRect(px, py, inx, iny, iw, ih, irx, iry) {
+				img.SetRGBA(px, py, c)
+			}
+		}
+	}
+}
+
+// clampRange clamps the half-open interval [lo, hi) to [min, max).
+func clampRange(lo, hi, min, max int) (int, int) {
+	if lo < min {
+		lo = min
+	}
+	if hi > max {
+		hi = max
+	}
+	return lo, hi
 }

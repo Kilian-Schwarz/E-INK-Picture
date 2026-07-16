@@ -1,0 +1,77 @@
+{
+  "name": "golden-rounding",
+  "version": 2,
+  "canvas": { "width": 800, "height": 480, "background": "#FFFFFF" },
+  "elements": [
+    {
+      "id": "r_rx0", "type": "shape",
+      "x": 20, "y": 20, "width": 120, "height": 90, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FF0000", "rx": 0 }
+    },
+    {
+      "id": "r_rx8", "type": "shape",
+      "x": 155, "y": 20, "width": 120, "height": 90, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FF0000", "rx": 8 }
+    },
+    {
+      "id": "r_rx16", "type": "shape",
+      "x": 290, "y": 20, "width": 120, "height": 90, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FF0000", "rx": 16 }
+    },
+    {
+      "id": "r_rx24", "type": "shape",
+      "x": 425, "y": 20, "width": 120, "height": 90, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FF0000", "rx": 24 }
+    },
+    {
+      "id": "r_rx40", "type": "shape",
+      "x": 560, "y": 20, "width": 120, "height": 90, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FF0000", "rx": 40 }
+    },
+    {
+      "id": "r_pill", "type": "shape",
+      "x": 20, "y": 140, "width": 200, "height": 60, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#0000FF", "rx": 100 }
+    },
+    {
+      "id": "r_ellipse", "type": "shape",
+      "x": 250, "y": 140, "width": 140, "height": 70, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#00FF00", "rx": 40, "ry": 15 }
+    },
+    {
+      "id": "r_thin_stroke", "type": "shape",
+      "x": 420, "y": 140, "width": 120, "height": 70, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FFFF00", "stroke": "#000000", "strokeWidth": 2, "rx": 12 }
+    },
+    {
+      "id": "r_thick_stroke", "type": "shape",
+      "x": 570, "y": 140, "width": 150, "height": 70, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#FFFFFF", "stroke": "#FF0000", "strokeWidth": 10, "rx": 16 }
+    },
+    {
+      "id": "r_ring", "type": "shape",
+      "x": 20, "y": 240, "width": 160, "height": 90, "zIndex": 1, "visible": true,
+      "properties": { "fill": "transparent", "stroke": "#0000FF", "strokeWidth": 8, "rx": 24 }
+    },
+    {
+      "id": "r_ry0", "type": "shape",
+      "x": 210, "y": 240, "width": 140, "height": 80, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#000000", "rx": 30, "ry": 0 }
+    },
+    {
+      "id": "r_rx0only", "type": "shape",
+      "x": 370, "y": 240, "width": 140, "height": 80, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#00FF00", "rx": 0, "ry": 30 }
+    },
+    {
+      "id": "r_stroke_geom", "type": "shape",
+      "x": 530, "y": 240, "width": 180, "height": 90, "zIndex": 1, "visible": true,
+      "properties": { "fill": "#00FF00", "stroke": "#000000", "strokeWidth": 12, "rx": 20 }
+    },
+    {
+      "id": "r_caption", "type": "text",
+      "x": 20, "y": 360, "width": 760, "height": 60, "zIndex": 2, "visible": true,
+      "properties": { "text": "Rounding parity: rx 0/8/16/24/40, pill, ellipse, thin+thick stroke, ring", "fontSize": 24, "color": "#000000", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    }
+  ]
+}

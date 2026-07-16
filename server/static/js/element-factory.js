@@ -99,6 +99,11 @@ const ElementFactory = {
             strokeWidth: options.strokeWidth !== undefined ? options.strokeWidth : 1,
             rx: options.rx || 0,
             ry: options.ry || 0,
+            // Keep the stroke width scale-independent (B2): Fabric renders a
+            // centered stroke and, with strokeUniform, does not multiply it by
+            // the object scale. The exported strokeWidth then matches the
+            // panel's single-scalar stroke model.
+            strokeUniform: true,
         });
         shape.set('elementId', id);
         shape.set('elementType', 'shape');

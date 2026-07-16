@@ -30,7 +30,7 @@ import (
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
 
 // goldenDesigns are the deterministic test designs under testdata/designs/.
-var goldenDesigns = []string{"basic", "gradient", "rotation", "calibration"}
+var goldenDesigns = []string{"basic", "gradient", "rotation", "calibration", "rounding"}
 
 // goldenDisplays are the display profiles covered by the golden harness.
 var goldenDisplays = []models.DisplayType{
@@ -298,7 +298,7 @@ func TestPaletteExactness(t *testing.T) {
 		models.RenderQualityHigh,
 	}
 
-	ditherDesigns := []string{"gradient", "rotation", "calibration"}
+	ditherDesigns := []string{"gradient", "rotation", "calibration", "rounding"}
 
 	for _, designName := range ditherDesigns {
 		for _, displayType := range goldenDisplays {

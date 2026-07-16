@@ -184,6 +184,28 @@ const CanvasManager = {
                     }
                 }
 
+                // For shapes: absorb scale into width/height AND rx/ry so the
+                // corner radius lives in the same coordinate space as the box
+                // (B2 D1). Non-uniform scaling legitimately produces rx !== ry
+                // (elliptical corners) — the Go panel renderer handles that.
+                // strokeWidth is left untouched because shapes use
+                // strokeUniform:true (element-factory) so it never scales.
+                if (type === 'shape' && obj.type === 'rect') {
+                    var sSx = obj.scaleX || 1;
+                    var sSy = obj.scaleY || 1;
+                    if (sSx !== 1 || sSy !== 1) {
+                        obj.set({
+                            width: Math.round(obj.width * sSx),
+                            height: Math.round(obj.height * sSy),
+                            rx: Math.round((obj.rx || 0) * sSx),
+                            ry: Math.round((obj.ry || 0) * sSy),
+                            scaleX: 1,
+                            scaleY: 1,
+                        });
+                        obj.setCoords();
+                    }
+                }
+
                 // For images: handle aspect ratio lock
                 if (type === 'image' && obj.type === 'image') {
                     var data = obj.get('elementData') || {};
