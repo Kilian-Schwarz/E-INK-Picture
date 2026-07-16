@@ -37,8 +37,35 @@ function showNotification(message, type) {
     }, 3000);
 }
 
+// B7/[1]: persistent, self-styled banner for a fatal init failure. Kept
+// dependency-free (inline styles, no CSS class) so it renders even when the
+// designer never boots — e.g. fabric.js could not load from the CDN.
+function showDesignerInitError(message) {
+    var banner = document.getElementById('designer-init-error');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'designer-init-error';
+        banner.setAttribute('role', 'alert');
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;' +
+            'background:#c0392b;color:#fff;padding:14px 20px;font-size:14px;' +
+            'line-height:1.4;text-align:center;font-family:system-ui,sans-serif;' +
+            'box-shadow:0 2px 8px rgba(0,0,0,0.35);';
+        document.body.insertBefore(banner, document.body.firstChild);
+    }
+    banner.textContent = message;
+}
+
 // Initialize everything when DOM is ready
 document.addEventListener('DOMContentLoaded', async function() {
+    // B7/[1]: fabric.js is loaded from a CDN (designer.html). On an offline /
+    // LAN-only Pi it may fail to load, and CanvasManager.init() would then throw
+    // a ReferenceError before anything is wired up — a dead page with an inert
+    // Preview button. Detect that up front and name the real cause instead.
+    if (typeof fabric === 'undefined') {
+        showDesignerInitError('Designer nicht initialisiert — Canvas-Bibliothek konnte nicht geladen werden (offline/kein CDN).');
+        return;
+    }
+
     // Initialize theme
     ThemeManager.init();
 

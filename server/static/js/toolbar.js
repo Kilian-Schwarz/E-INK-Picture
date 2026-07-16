@@ -151,6 +151,21 @@ var Toolbar = {
         if (tabPanel) tabPanel.addEventListener('click', function() { self.selectPreviewMode('panel'); });
         if (tabRaw) tabRaw.addEventListener('click', function() { self.selectPreviewMode('raw'); });
 
+        // B7/AC1: never leave a blank <img>. If the preview image (or the
+        // saved-design fallback URL) fails to decode — a 404/JSON body fed into
+        // <img>, or any non-image/* response — surface a named error instead of
+        // a silent blank. This handler ONLY sets status text: it never assigns a
+        // new src (no reload loops), and it ignores the empty-src reset in
+        // preview(), so it cannot false-fire on the successful object-URL load
+        // and never touches the object-URL revoke or session logic.
+        var previewImg = document.getElementById('preview-image');
+        if (previewImg) {
+            previewImg.addEventListener('error', function() {
+                if (!previewImg.getAttribute('src')) return; // cleared src, not a real load failure
+                self.setPreviewStatus('Preview konnte nicht geladen werden');
+            });
+        }
+
         // Additional observers next to the generic close handlers in
         // designer.js: revoke cached object URLs when the modal closes.
         var modal = document.getElementById('preview-modal');
@@ -200,7 +215,11 @@ var Toolbar = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(this._previewDesign),
             });
-            if (!resp.ok) throw new Error('Preview failed: ' + resp.status);
+            if (!resp.ok) {
+                var httpErr = new Error('Preview failed: ' + resp.status);
+                httpErr.status = resp.status; // let the catch distinguish 403 (cross-origin)
+                throw httpErr;
+            }
             var blob = await resp.blob();
             var objectUrl = URL.createObjectURL(blob);
             if (session !== this._previewSession) {
@@ -214,9 +233,18 @@ var Toolbar = {
             this.setPreviewStatus('');
         } catch (e) {
             if (session !== this._previewSession) return;
-            if (isInitial) {
+            if (e && e.status === 403) {
+                // B7/[3]: cross-origin/CSRF rejection (reverse proxy where
+                // Origin != Host). auth.js only redirects on 401, so a 403 lands
+                // here — it is NOT a stale-design situation. Name it exactly
+                // instead of funnelling it into the saved-design fallback.
+                console.error('Preview rejected (cross-origin):', e);
+                this.setPreviewStatus('Vorschau abgelehnt (cross-origin)');
+            } else if (isInitial) {
                 // Initial open failed: fall back to the saved design
-                // (quantized like the panel default; deliberately not cached)
+                // (quantized like the panel default; deliberately not cached).
+                // A non-image fallback response (non-2xx / non-image body) fails
+                // to decode in <img> and is caught by the AC1 onerror handler.
                 console.error('Live preview failed, falling back to saved:', e);
                 var designName = document.getElementById('design-select') ? document.getElementById('design-select').value : '';
                 var fallbackUrl = designName ? '/preview?name=' + encodeURIComponent(designName) : '/preview';
