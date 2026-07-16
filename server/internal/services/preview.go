@@ -328,53 +328,67 @@ func (s *PreviewService) Render(ctx context.Context, design *models.DesignV2, ra
 	return buf.Bytes(), nil
 }
 
+// WidgetTextContent returns the text content for a text/widget element type
+// using the same fill*Content logic drawElement draws. It is the single,
+// exported dispatch entry point shared by the panel renderer (drawElement) and
+// the /api/widget_content endpoint, so both derive content from one source.
+// ok is false for element types without server-side text content (image,
+// shape, unknown), letting callers distinguish an empty content string from a
+// type that has no text content at all.
+func (s *PreviewService) WidgetTextContent(elemType string, props map[string]any) (content string, ok bool) {
+	switch elemType {
+	case "text", "i-text", "textbox":
+		return s.fillTextContent(props), true
+	case "widget_clock":
+		return s.fillClockContent(props), true
+	case "widget_weather":
+		return s.fillWeatherContent(props), true
+	case "widget_forecast":
+		return s.fillForecastContent(props), true
+	case "widget_calendar":
+		return s.fillCalendarContent(props), true
+	case "widget_news":
+		return s.fillNewsContent(props), true
+	case "widget_timer":
+		return s.fillTimerContent(props), true
+	case "widget_custom":
+		return s.fillCustomContent(props), true
+	case "widget_system":
+		return s.fillSystemContent(props), true
+	default:
+		return "", false
+	}
+}
+
 // drawElement draws a single element of the given type into dst with its
 // top-left anchor at (x, y). w and h are the scaled, unrotated element
 // dimensions; px and py the scaled widget padding.
+//
+// Text content comes exclusively from WidgetTextContent (the shared dispatch),
+// so the panel and the /api/widget_content endpoint can never fork. image and
+// shape have no text content and are drawn directly.
 func (s *PreviewService) drawElement(dst *image.RGBA, elemType string, props map[string]any, x, y, w, h, px, py int, face font.Face, fontSize int, bold, italic, strike bool, align, vAlign string, textColor color.RGBA) {
 	switch elemType {
-	case "text", "i-text", "textbox":
-		content := s.fillTextContent(props)
-		s.renderTextV(dst, x, y, w, h, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
 	case "image":
 		s.renderImageElement(dst, x, y, w, h, props)
-
+		return
 	case "shape":
 		s.renderShapeElement(dst, x, y, w, h, props, textColor)
-
-	case "widget_clock":
-		content := s.fillClockContent(props)
-		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-	case "widget_weather":
-		content := s.fillWeatherContent(props)
-		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-	case "widget_forecast":
-		content := s.fillForecastContent(props)
-		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-	case "widget_calendar":
-		content := s.fillCalendarContent(props)
-		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-	case "widget_news":
-		content := s.fillNewsContent(props)
-		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-	case "widget_timer":
-		content := s.fillTimerContent(props)
-		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-	case "widget_custom":
-		content := s.fillCustomContent(props)
-		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
-
-	case "widget_system":
-		content := s.fillSystemContent(props)
-		s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+		return
 	}
+
+	content, ok := s.WidgetTextContent(elemType, props)
+	if !ok {
+		return
+	}
+
+	// Plain text elements draw flush to the element box; widget_* elements
+	// inset by the widget padding (px, py) to match the designer.
+	if elemType == "text" || elemType == "i-text" || elemType == "textbox" {
+		s.renderTextV(dst, x, y, w, h, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
+		return
+	}
+	s.renderTextV(dst, x+px, y+py, w-2*px, h-2*py, content, face, fontSize, bold, italic, strike, align, vAlign, textColor)
 }
 
 // --- Rotation helpers ---

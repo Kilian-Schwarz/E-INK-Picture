@@ -130,7 +130,7 @@ func newApplication(cfg *config.Config) (*application, error) {
 	previewH := handlers.NewPreviewHandler(previewSvc, designSvc)
 	displayH := handlers.NewDisplayHandler(cfg.EInkClientURL)
 	settingsH := handlers.NewSettingsHandler(settingsSvc)
-	widgetH := handlers.NewWidgetHandler(weatherSvc)
+	widgetH := handlers.NewWidgetHandler(weatherSvc, previewSvc)
 	authH := handlers.NewAuthHandler(authMgr, sessions, limiter, cfg.CookieSecure)
 	setupH := handlers.NewSetupHandler(authMgr, settingsSvc, designSvc, imageSvc)
 
@@ -241,6 +241,10 @@ func newApplication(cfg *config.Config) (*application, error) {
 	mux.HandleFunc("GET /api/widgets/system", widgetH.System)
 	mux.HandleFunc("GET /api/widgets/custom", widgetH.Custom)
 	mux.HandleFunc("GET /api/widget_layouts/{type}", widgetH.Layouts)
+
+	// Shared widget content: same authenticated read + CSRF/same-origin
+	// semantics as POST /api/preview_live (not public, mutating POST).
+	mux.HandleFunc("POST /api/widget_content", widgetH.Content)
 
 	// Health
 	mux.HandleFunc("GET /health", handlers.HealthCheck(version))
