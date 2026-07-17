@@ -5,7 +5,7 @@ Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel
 
 ## ⭐ COMPACT-CHECKPOINT (2026-07-16) — verbindlicher Stand nach /compact hier weiterlesen
 
-**`main` @ `e033671`, lokal, NICHT gepusht (~23 Commits vor origin/main — Push nur auf Kilians Ansage). ✅ ALLE 7 B-EPICS (B1–B7) CODE-COMPLETE + Go-1.25-Deps-Runde gemergt.**
+**`main` @ `1a033a4`, lokal, NICHT gepusht (~24 Commits vor origin/main — Push nur auf Kilians Ansage). ✅ ALLE 7 B-EPICS + Go-1.25-Deps-Runde + Pi-L3-Welle GRÜN. Offen nur: Release-Freigabe.**
 
 **Gemerged auf main** (alle Verifizierer≠Implementierer, je L1+ Gates grün; Merges = squash-to-main durch general-purpose-Agent, Manager committet nie selbst):
 - **B7** sichtbare Vorschau-Fehler (onerror + fabric-undefined-Banner + 403-Mapping) — `0041e0c`/`1e46964`
@@ -20,14 +20,24 @@ Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel
 - **Pi-L3-Sammel-Spec** `specs/B-L3-hardware-wave.md` (ein Deploy, alle Rest-Gates, Token-via-UI, Budget Docker/native-Split) — `67a2638`
 - **Go-1.25-Deps-Runde** (Workflow, 3-Linsen-Verify: build/CVE mit reproduzierter Erreichbarkeit + render byte-identisch + devops-config APPROVE): go 1.24.0→**1.25.0**, `x/crypto` v0.43.0→**v0.54.0**, `x/image` v0.36.0→**v0.44.0**, `x/text`→v0.40.0; Dockerfile `1.25-alpine`; setup.sh GO_VERSION 1.25.12; CI/release via go-version-file. **govulncheck: 1 reachable → 0** (GO-2026-4962 SFNT-OOM behoben) — `e033671`
 
-**VERBLEIBEND (kein/kaum Code, meist gated):**
-1. **Pi-Sammel-L3** nach `specs/B-L3-hardware-wave.md` (nur `hardware-validator`; Pi-Modell/Panel/IP selbst verifizieren — `.106` war zwischenzeitlich offline; data/ sichern; max 1 Refresh/min; epd.sleep): B3 <2s, B6 Skip=0, **B5-live** (Token via **Web-UI** durch Kilian, Agent sieht ihn nie; Entity-IDs+Alarm-Backend zur Testzeit via UI), B2 `eink_last_sent.png` vs `/preview` (keine Kamera→L4 offen), B1-Render. **Enthält auch den Deps-L3-Rest:** Docker/ARM-Cross-Build grün + L3-Render mit go1.25, sowie **Pillow/requests-Client-Bump** (bewusst aus der Deps-Runde rausgehalten, braucht Image-Pipeline-Retest auf HW).
-2. **Release** v0.9.0-RC → Tag NUR mit Kilians ausdrücklicher Freigabe (release.yml).
-3. **Housekeeping:** ~15 stale Worktrees unter `.claude/worktrees/` entfernen (alle gemerged/leer, inkl. `agent-a4ff0532f52735306`+Branch `feat/b1b-location-ui`, `wf_c1893ce4-e8b-*`+Branch `deps/go-1.25-round`; `git worktree remove` + Branches/prune); Doku-Sweep (PROGRESS/specs erwähnen alten `/api/widgets/*` historisch).
+**✅ Pi-L3-Welle GRÜN (2026-07-17, `hardware-validator`, Pi 3B aarch64, Deploy von main via rsync + Swap-Docker-Build):**
+- **B3** 3 Trigger Δ=1.059/1.058/1.020 s (<2 s), Long-Poll kehrt vor 25-s-Idle zurück — PASS
+- **B6** 6 Skip-Zyklen, 0 Panel-Writes, `eink_last_sent.png` mtime unverändert — PASS
+- **B5-live** Temp „Draußen: 28.3°C" + Presence „Kilian ist: Zuhause" (echte HA-Werte, von Kilian bestätigt); alarm-Modus nicht live konfiguriert (code-covered) — PASS
+- **B2** Panel vs `/preview` 0.000000 % Pixel-Diff, Palette exakt 6 Spectra, Radius live = nominal R — PASS (**L4 Panel-Foto offen: keine Kamera**)
+- **B1** Wetter+Forecast render korrekt — PASS
+- **Token-Sicherheit** 0 Log-Leaks, hass.json 0600, Token nur dort; App-Passwort nur zur Session genutzt, nie geloggt — PASS
+- **Ressourcen** Client 37.7 MB / Server 20.2 MB (VmHWM-Peak 74.9 MB transient, notiert) — PASS
+- **ARM/go1.25** Image baut+läuft nativ auf dem Pi (Deps-L3-ARM auch off-Pi validiert: arm64+armv7 Cross-Compile grün)
+- Artefakte: `artifacts/b-l3-wave/*.png`
 
-**⚠️ DEPLOY-INCIDENT (2026-07-16):** Phase-1-Deploy von `main` auf den Pi: Code-Sync (server 137/client 9/scripts 4) lief, aber der **go1.25-ARM-Docker-Build AUF dem Pi** hat den Host in OOM/Kernel-Hang gefahren → **Pi komplett offline** (ARP `(incomplete)` beide IF, „Host is down"). `data/` war vom Sync ausgeschlossen → intakt. Zwei hardware-validator-Runs sind am Build gestallt (600s-Watchdog). **Lesson/Fix:** NIE auf dem Pi bauen — **Cross-Build** (Apple-Silicon `docker buildx --platform linux/arm64|arm/v7`) → `docker save` → `docker load` + `docker compose up -d` auf dem Pi (kein Build, kein OOM). Braucht Pi-Ziel-Arch (`uname -m`). **Wartet auf physischen Power-Cycle durch Kilian.**
+**VERBLEIBEND:**
+1. **Release** v0.9.0-RC → Tag NUR mit Kilians ausdrücklicher Freigabe (release.yml; braucht Push von main). **← einziger offener Punkt.**
+2. **Optional/Backlog:** L4 Panel-Foto (keine Kamera am Pi), alarm-Modus HA live (code-covered), **Pillow/requests-Client-Bump** (Deps-Rest, braucht HW-Retest), 6 konservativ behaltene Zwischen-Worktrees (b3-client/b4a/b4b/b5a/b5c/b5b — Inhalt in main, nur nicht beweisbar), Doku-Sweep alter `/api/widgets/*`.
 
-**OFFENE KILIAN-ASKS:** (a) **B5-L3:** Token per **Web-UI** eintragen (entschieden — Agent handhabt ihn nie; Fallback-Datei `…/001 - Wohnung/homeassistant/secrets.local.md` außerhalb Repo); Entity-IDs (Temp/Alarm/Präsenz) + Alarm-Backend `alarm_control_panel.*` vs `alarmo` zur Testzeit via UI. (b) **Release-Freigabe** wenn bereit. (c) **Pi PHYSISCH neustarten** (offline nach Deploy-Incident, s. o.) + Ziel-Arch nennen.
+**⚠️ DEPLOY-INCIDENT (2026-07-16):** Phase-1-Deploy von `main` auf den Pi: Code-Sync (server 137/client 9/scripts 4) lief, aber der **go1.25-ARM-Docker-Build AUF dem Pi** hat den Host in OOM/Kernel-Hang gefahren → **Pi komplett offline** (ARP `(incomplete)` beide IF, „Host is down"). `data/` war vom Sync ausgeschlossen → intakt. Zwei hardware-validator-Runs sind am Build gestallt (600s-Watchdog). **Lesson/Fix:** NIE auf dem Pi bauen — **Cross-Build** (Apple-Silicon `docker buildx --platform linux/arm64|arm/v7`) → `docker save` → `docker load` + `docker compose up -d` auf dem Pi (kein Build, kein OOM). Braucht Pi-Ziel-Arch (`uname -m`). **✅ RESOLVED (2026-07-17):** Kilian hat den Pi power-cycelt (aarch64); Redeploy von main via rsync + **2 GB Temp-Swap** + detached Docker-Build (~19 min, kein OOM) erfolgreich; Client separat rebuildet (~59 min, Waveshare-clone-Bottleneck). Lehre bleibt: Swap ODER Cross-Build, nie ungeschützt auf dem Pi bauen.
+
+**OFFENE KILIAN-ASKS:** (b) **Release-Freigabe** wenn bereit — **einziger offener Punkt.** [(a) B5-Token via Web-UI + (c) Pi-Neustart: erledigt.]
 
 **GOTCHA Worktree-Isolation:** Worktrees basieren auf altem Session-HEAD (`3ecf4ce`) → jeder Worktree-Agent zuerst im Worktree `git merge --ff-only main` + `git checkout -B <branch>`; geteilten Checkout NIE anfassen.
 
