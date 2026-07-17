@@ -5,7 +5,7 @@ Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel
 
 ## ⭐ COMPACT-CHECKPOINT (2026-07-16) — verbindlicher Stand nach /compact hier weiterlesen
 
-**`main` @ `1a033a4`, lokal, NICHT gepusht (~24 Commits vor origin/main — Push nur auf Kilians Ansage). ✅ ALLE 7 B-EPICS + Go-1.25-Deps-Runde + Pi-L3-Welle GRÜN. Offen nur: Release-Freigabe.**
+**`main` @ `8589fc4`, GEPUSHT nach origin; Tag **`v0.9.0-RC`** (annotated, → `8589fc4`) gepusht 2026-07-17 → `release.yml` läuft. ✅ ALLE 7 B-EPICS + Go-1.25-Deps-Runde + Pi-L3-Welle GRÜN + RELEASE v0.9.0-RC RAUS. Finishing-Runde abgeschlossen.**
 
 **Gemerged auf main** (alle Verifizierer≠Implementierer, je L1+ Gates grün; Merges = squash-to-main durch general-purpose-Agent, Manager committet nie selbst):
 - **B7** sichtbare Vorschau-Fehler (onerror + fabric-undefined-Banner + 403-Mapping) — `0041e0c`/`1e46964`
@@ -32,8 +32,8 @@ Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel
 - Artefakte: `artifacts/b-l3-wave/*.png`
 
 **VERBLEIBEND:**
-1. **Release** v0.9.0-RC → Tag NUR mit Kilians ausdrücklicher Freigabe (release.yml; braucht Push von main). **← einziger offener Punkt.**
-2. **Optional/Backlog:** L4 Panel-Foto (keine Kamera am Pi), alarm-Modus HA live (code-covered), **Pillow/requests-Client-Bump** (Deps-Rest, braucht HW-Retest), 6 konservativ behaltene Zwischen-Worktrees (b3-client/b4a/b4b/b5a/b5c/b5b — Inhalt in main, nur nicht beweisbar), Doku-Sweep alter `/api/widgets/*`.
+1. ✅ **Release** v0.9.0-RC — main gepusht (`3ecf4ce..8589fc4`) + Tag `v0.9.0-RC` gepusht → `release.yml` läuft (GitHub Actions). **ERLEDIGT.**
+2. **Optional/Backlog (post-RC):** L4 Panel-Foto (keine Kamera am Pi) + README-Foto, alarm-Modus HA live (code-covered), **Pillow/requests-Client-Bump** (Deps-Rest, braucht HW-Retest), Dependabot-Modul-Advisories prüfen (erreichbar=0 lt. govulncheck; Rest x/crypto/ssh unused), 6 konservativ behaltene Zwischen-Worktrees, Doku-Sweep alter `/api/widgets/*`. Für v1.0: HW-DoD-Gates (Pi Zero 2 W, 72h-Dauerlauf).
 
 **⚠️ DEPLOY-INCIDENT (2026-07-16):** Phase-1-Deploy von `main` auf den Pi: Code-Sync (server 137/client 9/scripts 4) lief, aber der **go1.25-ARM-Docker-Build AUF dem Pi** hat den Host in OOM/Kernel-Hang gefahren → **Pi komplett offline** (ARP `(incomplete)` beide IF, „Host is down"). `data/` war vom Sync ausgeschlossen → intakt. Zwei hardware-validator-Runs sind am Build gestallt (600s-Watchdog). **Lesson/Fix:** NIE auf dem Pi bauen — **Cross-Build** (Apple-Silicon `docker buildx --platform linux/arm64|arm/v7`) → `docker save` → `docker load` + `docker compose up -d` auf dem Pi (kein Build, kein OOM). Braucht Pi-Ziel-Arch (`uname -m`). **✅ RESOLVED (2026-07-17):** Kilian hat den Pi power-cycelt (aarch64); Redeploy von main via rsync + **2 GB Temp-Swap** + detached Docker-Build (~19 min, kein OOM) erfolgreich; Client separat rebuildet (~59 min, Waveshare-clone-Bottleneck). Lehre bleibt: Swap ODER Cross-Build, nie ungeschützt auf dem Pi bauen.
 
