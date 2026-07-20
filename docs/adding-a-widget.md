@@ -112,6 +112,29 @@ Typ in `widgets.js` **exakt so oft** vorkommt wie er registrierte Rollen hat
 (bei `widget_progress`: dreimal). Jedes weitere Vorkommen ist per Definition ein
 zweiter Codepfad.
 
+**Die Verbatim-Prüfung ist ein Statement-Pin, kein Substring-Test.**
+`assertPassthroughReturnsVerbatim` vergleicht das komplette Return-Statement
+(whitespace-normalisiert) mit der Konstante `passthroughReturnPin`. Das ist
+Absicht: Der Passthrough-Zweig enthält `liveData.content` **zweimal** — einmal
+im `typeof`-Guard, einmal als Rückgabewert. Ein `strings.Contains`-Test ist
+deshalb schon durch den Guard erfüllt und sagt über den tatsächlichen
+Rückgabewert **gar nichts** aus; eine Transformation im Zweig
+(`? this.reformatDates(liveData.content)`) blieb damit unentdeckt. Wer das
+Statement bewusst ändert, zieht die Konstante im selben Commit nach — genau
+dieser Zwang ist der Zweck.
+
+**Catch-all-Substring: Eindeutigkeit vorher beweisen.** Die
+Häufigkeitsprüfung auf einen Domänenbegriff (bei `widget_holidays`: `holiday`,
+exakt dreimal) funktioniert **nur**, wenn dieser Substring im Rest von
+`widgets.js` nachweislich nicht vorkommt — vor dem Übernehmen mit
+`grep -oi <substring> server/static/js/widgets.js | wc -l` gegenprüfen und
+sonst einen längeren, eindeutigen Substring wählen (`widget_air` statt `air`,
+das sonst auch in `pair`, `chair`, `repair` trifft). Schlägt der Test aus
+solchen Fremdtreffern fehl, ist die Korrektur der längere Substring, **nicht**
+das Hochsetzen der erwarteten Zahl: Diese entwertet die Prüfung vollständig,
+denn das zusätzlich tolerierte Vorkommen ist genau der zweite Codepfad, den die
+Assertion finden soll.
+
 Weitere Konsequenz aus der Single-Source-Regel: **kein eigener Grafikpfad.**
 Ein gezeichneter Balken bräuchte einen eigenen `drawElement`-Zweig, den der
 Canvas nicht übernehmen kann. Deshalb ist der Progress-Balken ASCII
@@ -261,6 +284,16 @@ ist der Test auf minimalen Hosts rot statt ehrlich übersprungen.
 **Parity-Test.** `WidgetTextContent(typ, props)` byteidentisch zum direkten
 `fill*Content(props)`, plus die statischen JS-Prüfungen aus Abschnitt 2.
 Muster: `TestProgressCanvasPanelParity`.
+
+Der Go-seitige Single-Source-Pin (Block 5 im Parity-Test:
+`WidgetTextContent(typ, props) == fill*Content(props)` **plus** ein Vergleich
+gegen einen fest notierten Referenz-String) ist eine Verbesserung gegenüber der
+ursprünglichen F7-Vorlage und gehört in **jedes** künftige Widget. Die
+Gleichheit der beiden Aufrufe allein zeigt nur, dass der Dispatch ein reiner
+Pass-through ist — sie bliebe auch dann grün, wenn beide Pfade gemeinsam
+falsch werden. Erst der gepinnte Referenz-String (der Wert, den auch
+Golden-Design und Spec festschreiben) macht eine stille Verhaltensänderung
+sichtbar.
 
 **Golden-Design.** Nur sinnvoll, wenn die Zeitquelle des Widgets injizierbar
 ist — sonst wird `TestGoldenRender` innerhalb einer Stunde rot und blockiert
