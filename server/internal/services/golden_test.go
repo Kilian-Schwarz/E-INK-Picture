@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"e-ink-picture/server/internal/models"
 
@@ -30,7 +31,43 @@ import (
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
 
 // goldenDesigns are the deterministic test designs under testdata/designs/.
-var goldenDesigns = []string{"basic", "gradient", "rotation", "calibration", "rounding"}
+var goldenDesigns = []string{"basic", "gradient", "rotation", "calibration", "rounding", "progress"}
+
+// goldenNow is the instant every golden PreviewService clock is pinned to:
+// 2026-07-20 12:00:00 +02:00 == Monday, 2026-07-20 12:00 Europe/Berlin (CEST)
+// == 10:00 UTC.
+//
+// progress.json is the first golden design containing widget_* elements, and
+// widget_progress is time-dependent — without a pinned clock its golden PNG
+// would go red within the hour. The zone is a FixedZone rather than
+// LoadLocation("Europe/Berlin") so that constructing the instant itself never
+// depends on the host tzdata.
+//
+// At this instant, with period=year and barWidth=20, the widget reads
+// "[##########----------] 54%": elapsed = 200d12h - 1h (the 2026-03-29 DST
+// switch falls inside the interval) = 4811h of 8760h -> ratio 0.549201,
+// filled = int(0.549201*20) = 10, percent = int(0.549201*100) = 54.
+var goldenNow = time.Date(2026, 7, 20, 12, 0, 0, 0, time.FixedZone("CEST", 2*60*60))
+
+// goldenTZDesigns are golden designs whose elements carry an IANA timezone
+// property. Rendering them reproducibly requires host tzdata; without it
+// time.LoadLocation fails and widget_progress silently falls back to server
+// time, which would surface as an unexplained pixel diff.
+var goldenTZDesigns = map[string]string{"progress": "Europe/Berlin"}
+
+// skipIfTimezoneUnavailable skips a golden subtest when the design needs an
+// IANA zone the host cannot load. Skipping keeps the suite honest on minimal
+// systems instead of failing with a misleading pixel diff.
+func skipIfTimezoneUnavailable(t *testing.T, designName string) {
+	t.Helper()
+	zone, ok := goldenTZDesigns[designName]
+	if !ok {
+		return
+	}
+	if _, err := time.LoadLocation(zone); err != nil {
+		t.Skipf("design %q needs timezone %q, unavailable on this host (no tzdata?): %v", designName, zone, err)
+	}
+}
 
 // goldenDisplays are the display profiles covered by the golden harness.
 var goldenDisplays = []models.DisplayType{
@@ -87,7 +124,10 @@ func newGoldenPreviewService(tmpDir string) *PreviewService {
 	imageSvc := NewImageService(tmpDir)
 	weatherSvc := NewWeatherService("", "", tmpDir)
 	settingsSvc := NewSettingsService(tmpDir, models.DisplayWaveshare75V2)
-	return NewPreviewService(designSvc, weatherSvc, imageSvc, settingsSvc, tmpDir)
+	svc := NewPreviewService(designSvc, weatherSvc, imageSvc, settingsSvc, tmpDir)
+	// Pin the clock seam so time-dependent widgets render reproducibly.
+	svc.now = func() time.Time { return goldenNow }
+	return svc
 }
 
 // newGradientImage generates a deterministic photo-like RGB gradient across
@@ -179,6 +219,7 @@ func TestGoldenRender(t *testing.T) {
 		for _, displayType := range goldenDisplays {
 			name := fmt.Sprintf("%s__%s", designName, displayType)
 			t.Run(name, func(t *testing.T) {
+				skipIfTimezoneUnavailable(t, designName)
 				previewSvc, _ := setupGoldenServices(t, displayType, models.RenderQualityHigh)
 				design := loadTestDesign(t, designName)
 
@@ -298,12 +339,15 @@ func TestPaletteExactness(t *testing.T) {
 		models.RenderQualityHigh,
 	}
 
-	ditherDesigns := []string{"gradient", "rotation", "calibration", "rounding"}
+	// progress is included so AC10 holds for the widget design too: no foreign
+	// RGB value on either profile and at least two palette colors used.
+	ditherDesigns := []string{"gradient", "rotation", "calibration", "rounding", "progress"}
 
 	for _, designName := range ditherDesigns {
 		for _, displayType := range goldenDisplays {
 			for _, quality := range qualities {
 				t.Run(fmt.Sprintf("%s__%s__%s", designName, displayType, quality), func(t *testing.T) {
+					skipIfTimezoneUnavailable(t, designName)
 					previewSvc, _ := setupGoldenServices(t, displayType, quality)
 					design := loadTestDesign(t, designName)
 
@@ -376,6 +420,7 @@ func TestRenderDeterminism(t *testing.T) {
 	for _, designName := range goldenDesigns {
 		for _, displayType := range goldenDisplays {
 			t.Run(fmt.Sprintf("%s__%s", designName, displayType), func(t *testing.T) {
+				skipIfTimezoneUnavailable(t, designName)
 				previewSvc, tmpDir := setupGoldenServices(t, displayType, models.RenderQualityHigh)
 				assertRenderDeterminism(t, previewSvc, tmpDir, loadTestDesign(t, designName))
 			})

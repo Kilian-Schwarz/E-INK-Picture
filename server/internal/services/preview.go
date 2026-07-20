@@ -88,6 +88,23 @@ type PreviewService struct {
 
 	scalerMu    sync.Mutex
 	scalerCache map[scalerKey]xdraw.Scaler
+
+	// now is the injectable wall clock. It exists so time-dependent widget
+	// content is deterministically testable (F7). It is currently used ONLY by
+	// fillProgressContent; every other fill*Content still calls time.Now()
+	// directly. Always read it through nowOrDefault, never directly: a
+	// zero-value PreviewService (or one built without NewPreviewService) has a
+	// nil now and would panic in the render path.
+	now func() time.Time
+}
+
+// nowOrDefault returns the injected clock, falling back to time.Now when the
+// service was built without NewPreviewService (zero value).
+func (s *PreviewService) nowOrDefault() time.Time {
+	if s.now == nil {
+		return time.Now()
+	}
+	return s.now()
 }
 
 // NewPreviewService creates a PreviewService with access to other services.
@@ -103,6 +120,7 @@ func NewPreviewService(d *DesignService, w *WeatherService, i *ImageService, s *
 		fontCache:   make(map[string]*opentype.Font),
 		renderSem:   make(chan struct{}, 1),
 		scalerCache: make(map[scalerKey]xdraw.Scaler),
+		now:         time.Now,
 	}
 }
 
@@ -257,24 +275,7 @@ func (s *PreviewService) Render(ctx context.Context, design *models.DesignV2, ra
 		}
 
 		// Per-type fontSize defaults matching the frontend designer
-		defaultFontSize := 18
-		switch elem.Type {
-		case "widget_clock":
-			defaultFontSize = 48
-		case "widget_forecast", "widget_calendar", "widget_news":
-			defaultFontSize = 13
-		case "widget_system":
-			defaultFontSize = 12
-		case "widget_custom":
-			defaultFontSize = 24
-		case "widget_timer":
-			defaultFontSize = 24
-		case "widget_hass":
-			defaultFontSize = 18
-		case "text":
-			defaultFontSize = 24
-		}
-		fontSize := int(float64(GetPropInt(props, "fontSize", defaultFontSize)) * scale)
+		fontSize := int(float64(GetPropInt(props, "fontSize", defaultFontSizeFor(elem.Type))) * scale)
 		// Frontend exports fontWeight:"bold" and fontStyle:"italic" as strings
 		bold := GetPropString(props, "fontWeight", "normal") == "bold" || GetPropBool(props, "bold", false)
 		italic := GetPropString(props, "fontStyle", "normal") == "italic" || GetPropBool(props, "italic", false)
@@ -345,6 +346,39 @@ func (s *PreviewService) Render(ctx context.Context, design *models.DesignV2, ra
 	return buf.Bytes(), nil
 }
 
+// widgetDefaultFontSizes maps an element type to the fontSize used when the
+// element carries no explicit fontSize property.
+//
+// This table is duplicated in the frontend designer
+// (static/js/widgets.js, getPreviewFontSize). Both sides must agree, otherwise
+// the canvas preview and the rendered panel disagree on glyph size for the same
+// element. TestWidgetDefaultFontSizesMatchFrontend pins them together — extend
+// BOTH tables when adding a widget type.
+var widgetDefaultFontSizes = map[string]int{
+	"text":            24,
+	"widget_clock":    48,
+	"widget_weather":  18,
+	"widget_forecast": 13,
+	"widget_calendar": 13,
+	"widget_news":     13,
+	"widget_system":   12,
+	"widget_custom":   24,
+	"widget_timer":    24,
+	"widget_hass":     18,
+	"widget_progress": 18,
+}
+
+// widgetFallbackFontSize applies to element types absent from the table above.
+const widgetFallbackFontSize = 18
+
+// defaultFontSizeFor returns the default fontSize for an element type.
+func defaultFontSizeFor(elemType string) int {
+	if size, ok := widgetDefaultFontSizes[elemType]; ok {
+		return size
+	}
+	return widgetFallbackFontSize
+}
+
 // WidgetTextContent returns the text content for a text/widget element type
 // using the same fill*Content logic drawElement draws. It is the single,
 // exported dispatch entry point shared by the panel renderer (drawElement) and
@@ -374,6 +408,8 @@ func (s *PreviewService) WidgetTextContent(elemType string, props map[string]any
 		return s.fillSystemContent(props), true
 	case "widget_hass":
 		return s.fillHassContent(props), true
+	case "widget_progress":
+		return s.fillProgressContent(props), true
 	default:
 		return "", false
 	}

@@ -49,12 +49,21 @@ var WidgetPreview = {
 
     // Get preview content based on layout and live data.
     //
-    // clock/timer format client-live. The six data widgets render the server's
-    // {content} verbatim (canvas == panel). liveData.content is authoritative;
-    // it is set as canvas text via Fabric (label.set('text', ...)) which draws
-    // to the 2D context — no innerHTML, so free text is never HTML-injected.
-    // The type-label placeholder only shows on a rare fetch failure (the server
-    // otherwise always returns a content string, even "No data").
+    // clock/timer format client-live. All other widgets are PASSTHROUGH: they
+    // render the server's {content} verbatim, so canvas == panel by
+    // construction and the formatting lives exactly once, in the Go dispatch
+    // (WidgetTextContent -> fill*Content). Never reimplement a widget's
+    // formatting or math here — that forks the single source and drifts
+    // silently. Passthrough widgets whose content changes on its own (e.g.
+    // widget_progress, worst case once per hour in the "day" period) stay
+    // honest via the 60s data refresh.
+    //
+    // liveData.content is authoritative; it is set as canvas text via Fabric
+    // (label.set('text', ...)) which draws to the 2D context — no innerHTML, so
+    // server-side free text (Home Assistant friendly_name/zone/state, news
+    // headlines) can never be HTML-injected (AC-SEC11). The type-label
+    // placeholder only shows on a rare fetch failure (the server otherwise
+    // always returns a content string, even "No data").
     getPreviewContent(type, props, liveData) {
         props = props || {};
         var layout = props.layout || this.getDefaultLayout(type);
@@ -71,12 +80,7 @@ var WidgetPreview = {
             case 'widget_system':
             case 'widget_custom':
             case 'widget_hass':
-                // widget_hass is a data widget: its content (incl. HA free text
-                // like friendly_name/zone/state) is rendered verbatim from the
-                // server via POST /api/widget_content. It flows into the Fabric
-                // textbox via label.set('text', ...) (see updatePreview) — canvas
-                // glyph rendering, never innerHTML, so HA free text can never be
-                // HTML-injected (AC-SEC11).
+            case 'widget_progress':
                 return (liveData && typeof liveData.content === 'string')
                     ? liveData.content
                     : this._widgetTypeLabel(type);
@@ -98,6 +102,7 @@ var WidgetPreview = {
             widget_news: 'headlines',
             widget_system: 'vertical',
             widget_timer: 'countdown_large',
+            widget_progress: 'bar_percent',
         };
         return defaults[type] || 'default';
     },
@@ -223,6 +228,8 @@ var WidgetPreview = {
             widget_custom: 24,
             widget_system: 12,
             widget_hass: 18,
+            // Must match preview.go's defaultFontSize for widget_progress (18).
+            widget_progress: 18,
         };
         return defaults[type] || 14;
     },

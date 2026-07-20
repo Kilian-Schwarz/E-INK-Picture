@@ -7,6 +7,15 @@
 > Spec-Text) — was hier nicht sauber registriert ist, wird als falsches Rezept
 > in die Doku kopiert und fünfmal wiederholt.
 
+> **Stand: vollständig implementiert.** Dieses Spec ist gegen den gemergten
+> Code nachgezogen und beschreibt den Ist-Zustand, nicht mehr den Plan. Alle
+> acht Registrierungspunkte sind belegt, alle Akzeptanzkriterien sind durch
+> Tests abgedeckt, die Golden-PNGs für beide Displays sind eingecheckt. Es gibt
+> keine offenen Punkte mehr — der docs-writer kann `docs/adding-a-widget.md`
+> ableiten. Alle Zahlenbeispiele sind nachgerechnet und durch Tabellentests
+> gepinnt. Zeilenanker beziehen sich, wo nicht anders vermerkt, auf den Stand
+> **nach** der Implementierung.
+
 ## Ziel
 
 Ein Element vom Typ `widget_progress` zeigt an, wie viel der laufenden Periode
@@ -18,10 +27,10 @@ Netzwerk —, und wird von Canvas-Preview und Panel-Renderer aus **derselben**
 
 ### Zentrale Dispatch (unverändert lassen, nur erweitern)
 
-`server/internal/services/preview.go:355` —
-`WidgetTextContent(elemType string, props map[string]any) (content string, ok bool)`,
-`switch` bei `:356-380`. Konsumenten:
-- `drawElement` (`preview.go:401`) — Panel-Render
+`server/internal/services/preview.go` —
+`WidgetTextContent(elemType string, props map[string]any) (content string, ok bool)`
+(Signatur `:389`, `switch` `:390-415`). Konsumenten:
+- `drawElement` (`preview.go:427`) — Panel-Render
 - `handlers/widgets.go:43` — `POST /api/widget_content`
 
 **Verifiziert:** beide lesen aus dieser einen Quelle. Das muss wahr bleiben.
@@ -37,46 +46,72 @@ Layout-Dropdown über `GET /api/widgets/{type}/layouts` →
 `widgets.GetLayouts`; ohne Eintrag liefert die Funktion nur den generischen
 `default`-Eintrag, `layouts.go:11-17`).
 
-| # | Datei | Anker (HEAD 7e71604) | Was eintragen |
-|---|-------|----------------------|---------------|
-| 1 | `server/static/js/element-factory.js` | `defaultSizes` **:117-127** | `widget_progress: { w: 300, h: 60 }` |
-| 2 | `server/static/js/element-factory.js` | `getDefaultProperties` **:194-281** | Property-Defaults (Schema unten) |
-| 3 | `server/static/js/properties-panel.js` | `getWidgetPropertyDefs` **:1074-1134** | Feld-Definitionen (Schema unten) |
-| 4 | `server/static/js/widgets.js` | `getPreviewContent` **:58-86**, Passthrough-Cases **:67-73** | `case 'widget_progress':` in den **Passthrough-Block** (Server-Content verbatim), NICHT als eigene `build*Content`-Funktion |
-| 5 | `server/static/js/widgets.js` | `getDefaultLayout` **:92-103** und Font-Größen **:216-226** | `widget_progress: 'bar_percent'` bzw. `widget_progress: 18` |
-| 6 | `server/templates/designer.html` | Palette **:92-127** (nicht :92-124; letzter Eintrag `widget_hass` endet bei :127) | `<div class="widget-item" data-type="widget_progress">` mit Icon `%` und Label `Progress` |
-| 7 | `server/internal/services/preview.go` | Font-Größen-`switch` **:259-276** | `case "widget_progress": defaultFontSize = 18` |
-| 8 | `server/internal/services/widgets/layouts.go` | `allLayouts` **:19-67**, `allPlaceholders` **:78-107** | Layout-Liste + Placeholder-Liste (unten) |
+Alle acht Punkte sind belegt. Die Anker zeigen auf den **gemergten** Stand;
+`TestWidgetRegistrationCompleteness` prüft sie mechanisch, so dass die Tabelle
+auch bei verschobenen Zeilen nicht schweigend falsch wird.
 
-Abweichungen der Zeilenanker gegenüber der Vorlage: #1 (117-127 statt
-118-126), #4 (58-86 statt 63-83), #6 (92-127 statt 92-124). Alle anderen
-Anker stimmten exakt.
+| # | Datei | Anker (gemergt) | Eintrag | Status |
+|---|-------|-----------------|---------|--------|
+| 1 | `server/static/js/element-factory.js` | `defaultSizes` **:117-131** | `widget_progress: { w: 320, h: 60 }` | erledigt (`:130`) |
+| 2 | `server/static/js/element-factory.js` | `getDefaultProperties` **:198-300** | Property-Defaults (Schema unten) | erledigt (`:289-299`) |
+| 3 | `server/static/js/properties-panel.js` | `getWidgetPropertyDefs` **:1079-…** | Feld-Definitionen (Schema unten) | erledigt (`:1141`) |
+| 4 | `server/static/js/widgets.js` | `getPreviewContent` **:67-93** | `case 'widget_progress':` im **Passthrough-Block** (`:83`), Server-Content verbatim, KEINE eigene `build*Content`-Funktion | erledigt |
+| 5 | `server/static/js/widgets.js` | `getDefaultLayout` **:96**, `getPreviewFontSize` **:214** | `widget_progress: 'bar_percent'` (`:105`), `widget_progress: 18` (`:232`) | erledigt |
+| 6 | `server/templates/designer.html` | Palette | `<div class="widget-item" data-type="widget_progress">` mit Icon `%` und Label `Progress` | erledigt (`:124`) |
+| 7 | `server/internal/services/preview.go` | `widgetDefaultFontSizes` **:357-369** | `"widget_progress": 18` | erledigt (`:368`) |
+| 8 | `server/internal/services/widgets/layouts.go` | `allLayouts`, `allPlaceholders` | Layout-Liste + Placeholder-Liste (unten) | erledigt (`:67`, `:115`) |
+
+**Warum `w: 320` und nicht 300** (der nicht offensichtliche Teil — die
+Vorlage sagte 300, das wäre zu knapp gewesen): das Canvas-Label ist eine
+`fabric.Textbox`, also **umbruchfähig**, und `updatePreview` setzt
+`label.set('width', w - 16)` (`widgets.js:263`). Der Default-String des
+`bar_percent`-Layouts ist `[##########----------] 54%` — 26 Zeichen
+Monospace bei 18 px, also grob 26 × 10,8 px ≈ 281 px Textbreite. Bei `w=300`
+bleiben `300−16 = 284` px, d. h. nur ~2-3 px Reserve: jede Fontmetrik-Abweichung
+bricht den Balken mitten durch (`… 54%` rutscht in Zeile 2, das Element ist mit
+`h=60` einzeilig ausgelegt). Bei `w=320` sind es `320−16 = 304` px, also ~23 px
+Reserve. `h=60` trägt außerdem das zweizeilige `full`-Layout.
 
 ### Bekanntes Duplikat — NICHT in diesem Task fixen
 
-`preview.go:259-276` (Go) und `widgets.js:216-226` (JS) halten **dieselbe**
+`preview.go` (Go) und `widgets.js:214ff` (JS) halten **dieselbe**
 Tabelle „Widget-Typ → Default-Font-Size" doppelt. Beide Seiten driften
-unbemerkt auseinander (Beleg: `widget_weather` steht in JS mit 18, fehlt im
-Go-`switch` komplett und trifft nur zufällig denselben Wert über
-`defaultFontSize := 18`).
+unbemerkt auseinander (Beleg: `widget_weather` stand in JS mit 18, fehlte auf
+der Go-Seite komplett und traf nur zufällig denselben Wert über den Fallback).
 
 In diesem Task: **beide Seiten konsistent** auf `18` setzen, Duplikat **nicht**
-auflösen (Scope). Stattdessen billige Absicherung: Test `TestWidgetDefaultFontSizesMatchFrontend`
-in `server/internal/services/` liest `server/static/js/widgets.js` (der Pfad ist
-vom Test aus erreichbar), parst den `defaults`-Block bei `:216-226` per Regex
-`(widget_\w+):\s*(\d+)` und vergleicht ihn gegen die Go-Tabelle. Voraussetzung
-dafür: die Go-Tabelle wird aus dem `switch` in eine paketprivate
-`var widgetDefaultFontSizes = map[string]int{...}` gehoben, die der `switch`
-konsultiert (rein mechanisch, ~10 Zeilen). Findet der Test die JS-Datei nicht,
-`t.Skip` — kein flakiger Test.
+auflösen (Scope). Stattdessen billige Absicherung:
+`TestWidgetDefaultFontSizesMatchFrontend` (erledigt,
+`widget_registration_test.go:478`) liest `server/static/js/widgets.js`, parst
+den `getPreviewFontSize`-Block per Regex `(widget_\w+):\s*(\d+)` und vergleicht
+ihn in **beide** Richtungen gegen die Go-Tabelle. Findet der Test die JS-Datei
+nicht, `t.Skip` — kein flakiger Test.
+
+Der `switch`→`map`-Umbau ist **erledigt**: die Go-Tabelle ist die paketprivate
+`var widgetDefaultFontSizes = map[string]int{...}` (`preview.go:357-369`), der
+Lookup läuft über `defaultFontSizeFor` (`:375-380`) mit
+`widgetFallbackFontSize = 18` (`:372`).
+
+**Bewusste Abweichung vom ursprünglichen Non-Goal: `widget_weather` steht
+jetzt in der Go-Tabelle** (`preview.go:360`). Der Plan hatte das ausdrücklich
+ausgeschlossen; die Implementierung hat es trotzdem getan, und zwar begründet:
+`TestWidgetDefaultFontSizesMatchFrontend` vergleicht die beiden Tabellen
+symmetrisch und verlangt für jeden Dispatch-Typ einen **expliziten** Eintrag
+auf beiden Seiten — denn die Fallbacks unterscheiden sich (Go: 18,
+`widgets.js`: `|| 14`), ein Typ auf dem Fallback rendert also auf Canvas und
+Panel verschieden groß. Ohne den `widget_weather`-Eintrag bräuchte der Test
+eine Ausnahmeliste, und die würde genau die Drift verstecken, gegen die der
+Test existiert. **Verifiziert ohne Wirkung auf das Rendering:** der Typ traf
+über `widgetFallbackFontSize` bereits dieselben 18; die Golden-PNGs sind
+byteidentisch geblieben.
 
 ### Zeit-Semantik — definierte Entscheidung, kein Zufall
 
 **Verifiziert:** `settings.go` hat **keine** Timezone-Konfiguration; das
 Sleep-Window rechnet auf lokaler Serverzeit (`services/settings.go:122-132`,
-`now.Hour()*60+now.Minute()`). `fillClockContent` (`preview.go:483-493`) hat
-dagegen eine eigene `timezone`-Property und fällt bei leerem Wert auf
-`time.Now().Location()` zurück.
+`now.Hour()*60+now.Minute()`). `fillClockContent` hat dagegen eine eigene
+`timezone`-Property und fällt bei leerem Wert auf `time.Now().Location()`
+zurück.
 
 **Gefahr:** Server läuft im Container typischerweise auf UTC, der Pi steht in
 Europa/Berlin. „Tag 201 von 365" und ein Jahreswechsel wären dann bis zu 2
@@ -92,12 +127,13 @@ Stunden versetzt.
 
 Alle Periodengrenzen werden **in dieser Location** bestimmt, nicht in UTC und
 nicht gemischt. Die Container-UTC-vs-Pi-Local-Falle wird als Kommentar über
-der Berechnungsfunktion dokumentiert und per Test festgenagelt (AC-T4).
+der Berechnungsfunktion dokumentiert (umgesetzt: `widget_progress.go:34-41`)
+und per Test festgenagelt.
 
 ### Kein Grafik-Pfad — Balken ist Text
 
 Die Dispatch liefert einen String, den `renderTextV` zeichnet
-(`preview.go:401-412`). Ein gezeichneter Balken bräuchte einen eigenen
+(`preview.go:423-434`). Ein gezeichneter Balken bräuchte einen eigenen
 `drawElement`-Zweig und würde die Single-Source-Eigenschaft brechen (der
 Canvas könnte ihn nicht verbatim übernehmen). Der Balken ist deshalb ein
 **ASCII-Textbalken**. Unicode-Blockzeichen (U+2588/U+2591) sind verboten: die
@@ -123,14 +159,26 @@ Kein `label`, kein `showX`-Flag, keine Farb-/Zeichen-Konfiguration des Balkens.
 
 ### Layouts (`layouts.go`)
 
-| ID | Name | Beispiel-Ausgabe (2026-07-20, `period=year`) |
+Referenzzeitpunkt aller Beispiele: **2026-07-20 12:00 Europe/Berlin**,
+`period=year`, `barWidth=20`.
+
+Nachrechnung (verbindlich, weil die goldene Datei daran hängt):
+`elapsed = 200 Tage 12 h − 1 h` (die Sommerzeitumstellung am 2026-03-29 liegt
+im Intervall) `= 4811 h`, `total = 8760 h` → `ratio = 0,549201`.
+`filled = int(0,549201 × 20) = int(10,984) = **10**`,
+`percent = int(0,549201 × 100) = **54**`.
+
+| ID | Name | Beispiel-Ausgabe |
 |---|---|---|
-| `bar` | Bar | `[###########---------]` |
+| `bar` | Bar | `[##########----------]` |
 | `percent` | Percent | `54%` |
-| `bar_percent` | Bar + Percent | `[###########---------] 54%` |
+| `bar_percent` | Bar + Percent | `[##########----------] 54%` |
 | `count` | Count | `Tag 201 von 365` |
-| `full` | Full | `Tag 201 von 365\n[###########---------] 54%` |
+| `full` | Full | `Tag 201 von 365\n[##########----------] 54%` |
 | `custom` | Custom Template | frei |
+
+Zehn `#`, zehn `-`. Elf `#` wäre Aufrunden und widerspricht der
+Abschneide-Regel unten.
 
 ### Placeholders (`allPlaceholders`)
 
@@ -144,10 +192,18 @@ Kein `label`, kein `showX`-Flag, keine Farb-/Zeichen-Konfiguration des Balkens.
 - `%percent%`: `int(ratio*100)` (Abschneiden) + `%`. Erreicht nie `100%` vor
   dem tatsächlichen Periodenende.
 - `count`: `Tag N von M` (Jahr/Monat), `Tag N von 7` (Woche),
-  `Stunde N von 24` (Tag). Deutsch, konsistent mit `formatGermanDate`.
+  `Stunde N von 24` (Tag). Deutsch, konsistent mit `formatGermanDate`
+  (`preview.go:543`).
 - `%remaining%` = `total − current`.
 
-### Periodenmathematik
+**Bewusste Inkonsistenz an DST-Tagen.** Der `count`-Layout meldet für
+`period=day` immer `von 24`, obwohl der Tag 23 bzw. 25 Stunden hat, und
+`current = Hour()+1` überspringt bzw. wiederholt eine Stunde. `ratio`/`percent`
+rechnen dagegen exakt mit 23 h/25 h. Das ist so gewollt: „Stunde 13 von 24"
+bleibt für den Leser sinnvoller als „Stunde 12 von 23". Der Prozentwert bleibt
+die genaue Größe.
+
+## Periodenmathematik
 
 `ratio = elapsed / total`, beides als `time.Duration` zwischen den
 Periodengrenzen in der gewählten Location:
@@ -161,16 +217,22 @@ Grenzen werden über `time.Date(..., loc)` konstruiert und voneinander
 subtrahiert — **nicht** über `24*time.Hour`-Arithmetik. Nur so stimmen
 DST-Tage (23h/25h) und Schaltjahre.
 
+`ratio` wird auf `[0, 1)` geklemmt (`math.Nextafter(1, 0)` als Obergrenze), so
+dass `100%` innerhalb der Periode unerreichbar bleibt.
+
 `current` in der `count`-Darstellung ist 1-basiert (`YearDay()`,
 `Day()`, ISO-Wochentag 1..7, `Hour()+1`).
 
 ## Akzeptanzkriterien
 
-**AC1 — Dispatch bleibt Single Source.**
-`WidgetTextContent("widget_progress", props)` gibt `ok == true` zurück.
-`grep -c "widget_progress" server/static/js/widgets.js` findet den Typ
-ausschließlich in `getPreviewContent`s Passthrough-Case, `getDefaultLayout`
-und der Font-Size-Tabelle — **keine** `buildProgressContent`-Funktion.
+**AC1 — Dispatch bleibt Single Source. (erledigt)**
+`WidgetTextContent("widget_progress", props)` gibt `ok == true` zurück
+(`preview.go:411-412`). In `widgets.js` kommt der Typ (Kommentare entfernt)
+in **genau drei** Rollen vor — Passthrough-Case `:83`, `getDefaultLayout`
+`:105`, `getPreviewFontSize` `:232` — und in keiner weiteren; **keine**
+`buildProgressContent`-Funktion. `TestProgressCanvasPanelParity` zählt das
+mechanisch (Punkt 4 des Tests) und verbietet zusätzlich JS-seitige
+Progress-Primitive (`'#'.repeat`, `barWidth`, …).
 
 **AC2 — Canvas == Panel, inhaltlich identisch.**
 Für eine feste Property-Menge liefert `POST /api/widget_content`
@@ -181,12 +243,21 @@ Handler-Response byteweise gegen den Direktaufruf vergleicht
 (Muster: `widget_content_test.go:46,73`). Der Canvas rendert diesen String
 verbatim via `label.set('text', ...)` (`widgets.js:251`) — kein `innerHTML`.
 
-**AC3 — Alle acht Registrierungspunkte belegt.**
-Ein Test/Skript prüft mechanisch je Punkt eine Zeichenkette:
-`widget_progress` kommt vor in `element-factory.js` (2×: `defaultSizes`,
-`getDefaultProperties`), `properties-panel.js` (1×), `widgets.js` (3×),
-`designer.html` (1× als `data-type="widget_progress"`), `preview.go`
-(Dispatch + Font-Size), `layouts.go` (Layouts + Placeholders).
+**AC3 — Alle acht Registrierungspunkte belegt. (erledigt)**
+`TestWidgetRegistrationCompleteness` (`widget_registration_test.go:190`) prüft
+mechanisch je Punkt eine Zeichenkette: `widget_progress` kommt vor in
+`element-factory.js` (2×: `defaultSizes`, `getDefaultProperties`),
+`properties-panel.js` (1×), `widgets.js` (3×), `designer.html` (1× als
+`data-type="widget_progress"`), `preview.go` (Dispatch + Font-Size),
+`layouts.go` (Layouts + Placeholders).
+
+Wichtig für die Folge-Widgets: der Test leitet die Typenliste per AST aus
+`WidgetTextContent` selbst ab, prüft also **jedes neue Widget automatisch**,
+sobald es in der Dispatch auftaucht — niemand muss hier eine Liste pflegen.
+Die Punkte 5a/8 (Layouts) gelten nur für Widgets, die `props["layout"]`
+tatsächlich lesen; das wird in beide Richtungen geprüft, so dass weder eine
+fehlende Registrierung noch eine veraltete Ausnahme überlebt.
+`TestProgressLayoutsRegistered` deckt Punkt 8 zusätzlich direkt ab.
 
 **AC4 — Jahresgrenze.**
 `period=year`, Location `Europe/Berlin`:
@@ -206,17 +277,23 @@ Ein Test/Skript prüft mechanisch je Punkt eine Zeichenkette:
 Ein Sonntag darf **nie** `Tag 1` sein.
 
 **AC7 — DST.**
-`period=day`, `Europe/Berlin`, `2026-03-29` (23-Stunden-Tag): `total == 23h`;
-um `12:00` lokal ist `ratio` = 12h/23h → `52%`, nicht 50 %.
-`2026-10-25` (25-Stunden-Tag): `total == 25h`.
-Mit `timezone="UTC"` haben beide Tage `total == 24h`.
+`period=day`, `Europe/Berlin`. An DST-Tagen verschiebt sich **beides**: die
+Gesamtlänge des Tages *und* die seit Ortsmitternacht verstrichene Zeit.
+
+- `2026-03-29` (Spring Forward, 23-Stunden-Tag): `total == 23h`. Weil die Uhr
+  um 02:00 auf 03:00 springt, liegt `12:00` lokal nur **11 h** nach
+  Ortsmitternacht → `ratio = 11/23 = 0,4783` → **`47%`**, nicht 50 %.
+- `2026-10-25` (Fall Back, 25-Stunden-Tag): `total == 25h`. `12:00` lokal liegt
+  **13 h** nach Ortsmitternacht → `ratio = 13/25 = 0,52` → **`52%`**,
+  nicht 50 %.
+- Mit `timezone="UTC"` haben beide Tage `total == 24h` und `12:00` → `50%`.
 
 **AC8 — Timezone-Verhalten definiert.**
 `timezone: "UTC"` und `timezone: "Europe/Berlin"` liefern am
-`2026-01-01 00:30 UTC` unterschiedliche Ergebnisse (`Tag 1 von 365` vs.
-`Tag 1 von 365` bei gleichem Tag, aber unterschiedlichem `ratio`), und
-`2025-12-31 23:30 UTC` liefert mit `Europe/Berlin` bereits `Tag 1 von 365`
-des Jahres 2026. `timezone: "Mars/Olympus"` (ungültig) fällt still auf
+`2026-01-01 00:30 UTC` beide `Tag 1 von 365`, aber unterschiedliche `ratio`
+(Berlin ist dort bereits 01:30 Ortszeit). `2025-12-31 23:30 UTC` liefert mit
+`Europe/Berlin` bereits `Tag 1 von 365` des Jahres 2026, mit `UTC` dagegen noch
+`Tag 365 von 365`. `timezone: "Mars/Olympus"` (ungültig) fällt still auf
 Serverzeit zurück und wirft **keinen** Fehler.
 
 **AC9 — Fehler-/Leerfall.**
@@ -230,7 +307,7 @@ Serverzeit zurück und wirft **keinen** Fehler.
 - `POST /api/widget_content` mit `{"type":"widget_progress"}` (ohne
   `properties`) → HTTP 200 mit nichtleerem `content`, nicht 400.
 
-**AC10 — Beide Display-Typen.**
+**AC10 — Beide Display-Typen. (erledigt)**
 Das Widget rendert auf `waveshare_7in5_v2` (S/W) und `waveshare_7in3_e`
 (6 Farben). `assertPaletteExactness` (`golden_test.go:220-280`, arbeitet
 generisch über `cfg.Colors`) läuft für die neue Golden-Design ohne Anpassung
@@ -239,71 +316,111 @@ grün, d. h. keine Fremdfarbe im Output und ≥ 2 Palettenfarben genutzt.
 **AC11 — Kein Netzwerk, keine Dependency.**
 `go.mod`/`go.sum` unverändert. Die Content-Funktion enthält keinen
 `http`-Aufruf; ein Test mit deaktiviertem Netz (kein `httptest`-Server,
-keine Weather-/HTTP-Client-Nutzung) liefert vollständigen Content.
+keine Weather-/HTTP-Client-Nutzung) liefert vollständigen Content —
+abgesichert dadurch, dass alle Progress-Tests auf einem `&PreviewService{}`
+ohne jede verdrahtete Abhängigkeit laufen.
 
 **AC12 — ASCII-Only.**
 Jedes Byte des von `layout ∈ {bar, percent, bar_percent}` erzeugten Strings
 ist `< 0x80`. (`count`/`full` dürfen deutsche Wörter enthalten, aber keine
-Blockzeichen.) Test: `for _, r := range content { r < 128 }`.
+Blockzeichen.) Test: `TestProgressASCIIOnly`.
 
-**AC13 — Font-Size-Parität.**
-`preview.go` und `widgets.js` melden für `widget_progress` beide `18`,
-verifiziert durch `TestWidgetDefaultFontSizesMatchFrontend` (siehe oben).
+**AC13 — Font-Size-Parität. (erledigt)**
+`preview.go:368` und `widgets.js:232` melden für `widget_progress` beide `18`,
+verifiziert durch `TestWidgetDefaultFontSizesMatchFrontend`. Der
+`switch`→`map`-Umbau der Go-Tabelle ist erfolgt; der Test verlangt für jeden
+Dispatch-Typ einen expliziten Eintrag auf beiden Seiten (siehe die Begründung
+für den `widget_weather`-Nachtrag oben).
 
 ## Test-Anforderungen
 
-Neue Datei `server/internal/services/widget_progress_test.go`.
+Datei `server/internal/services/widget_progress_test.go`.
 
-**Voraussetzung — Clock-Seam.** Verifiziert: `PreviewService` hat **keine**
-injizierbare Uhr, alle `fill*Content` rufen `time.Now()` direkt. Es existiert
-aber bereits das Muster `testClock`/`setNow` im selben Paket
-(`negcache_test.go:16-28`, genutzt in `nominatim_test.go`). F7 fügt
+**Voraussetzung — Clock-Seam.** Verifiziert: `PreviewService` hatte **keine**
+injizierbare Uhr, alle `fill*Content` riefen `time.Now()` direkt. F7 fügt
 `PreviewService` ein Feld `now func() time.Time` hinzu (Default `time.Now`,
-gesetzt in `NewPreviewService`) und nutzt es **ausschließlich** in
+gesetzt in `NewPreviewService`, defensiver Lookup über
+`nowOrDefault()`, `preview.go:103`) und nutzt es **ausschließlich** in
 `fillProgressContent`. Bestehende `fill*`-Funktionen bleiben unangetastet
 (Scope). Ohne diesen Seam ist keines von AC4–AC8 und keine Golden-Datei
 deterministisch testbar.
 
-Pflicht-Tests:
+Konvention für zeitabhängige Folge-Widgets: `nowOrDefault()` **einmal** in eine
+lokale Variable lesen und alles davon ableiten (`widget_progress.go:42-60`).
+Zwei Aufrufe können über eine Perioden-/Sekundengrenze hinweg auseinanderfallen.
+
+Tests in `server/internal/services/widget_progress_test.go`:
 
 1. `TestProgressPeriodMath` — Tabellentest über `(zeit, tz, period, layout)`
    → erwarteter String. Deckt AC4 (Jahresanfang/-ende), AC5 (Schaltjahr 2028,
-   Februar 28 vs. 29), AC6 (ISO-Montag/Sonntag), AC7 (DST 2026-03-29 /
-   2026-10-25 in `Europe/Berlin` vs. `UTC`).
-2. `TestProgressDefaultsAndInvalidInput` — AC9 vollständig, inkl. `nil`-Props.
-3. `TestProgressCanvasPanelParity` — AC2: Handler-Response vs.
-   `WidgetTextContent`-Direktaufruf, byteidentisch.
-4. `TestProgressASCIIOnly` — AC12.
-5. `TestWidgetDefaultFontSizesMatchFrontend` — AC13.
-6. `TestProgressNoNetwork` — AC11.
+   Februar 28 vs. 29), AC6 (ISO-Montag/Sonntag), AC7 (DST 2026-03-29 → `47%` /
+   2026-10-25 → `52%` in `Europe/Berlin`, `50%` in `UTC`).
+2. `TestProgressPeriodDurations` — Tageslänge 23h/25h/24h direkt auf
+   `progressPeriodBounds`.
+3. `TestProgressNeverCompletesWithinPeriod` — AC4, dritter Punkt.
+4. `TestProgressTimezoneHandling` — AC8 inkl. ungültiger Zone.
+5. `TestProgressDefaultsAndInvalidInput` — AC9 vollständig, inkl. `nil`-Props.
+6. `TestProgressZeroValueServiceDoesNotPanic` — Clock-Seam-Nil-Schutz.
+7. `TestProgressASCIIOnly` — AC12.
+8. `TestProgressLayoutsRegistered` — Registrierungspunkt 8.
 
-**Golden-File-Eintrag.**
-`golden_test.go` (verifiziert): `-update`-Flag `:30`, `goldenDesigns` `:33`
-(aktuell `basic, gradient, rotation, calibration, rounding`), `goldenDisplays`
-`:36` (beide Profile). **Wichtig, weicht von der Vorlage ab:** die bestehenden
-Golden-Designs enthalten **null** `widget_*`-Elemente (verifiziert per grep) —
-genau weil jedes Widget zeitabhängig ist. F7 ist damit das erste Widget im
-Golden-Harness und muss die Determinismus-Lücke selbst schließen:
+In `server/internal/services/widget_registration_test.go` (erledigt):
 
-- Neues Design `server/internal/services/testdata/designs/progress.json` mit
+9. `TestProgressCanvasPanelParity` (`:350`) — AC2: `WidgetTextContent` vs.
+   `fillProgressContent` byteidentisch, plus die vier statischen
+   JS-Prüfungen (Passthrough-Case, kein `build*Content`, keine Progress-Mathe,
+   genau drei Vorkommen).
+10. `TestWidgetDefaultFontSizesMatchFrontend` (`:478`) — AC13.
+11. `TestWidgetRegistrationCompleteness` (`:190`) + `TestDispatchWidgetTypesFound`
+    (`:175`) — AC3 inkl. Selbstschutz des AST-Parsers gegen vakuum-grüne Läufe.
+12. `TestDeadPlaceholderRegistry` (`:279`) — pinnt einen **vorbestehenden**
+    Defekt (`widget_calendar`/`widget_news` bewerben Placeholder, die ihre
+    `fill*Content` nie substituiert) als exakte Menge fest. Nicht Teil von F7;
+    er darf weder wachsen noch unbemerkt verschwinden.
+
+Fallstrick für Folge-Widgets: `GetPropInt` (`design.go:1005-1017`) dekodiert
+nur `float64` und `string` — die Formen, die aus einer JSON-Design-Datei
+kommen. Ein `int`-Literal in einer Test-Property-Map wird **stillschweigend
+verworfen** und der Default greift. In Tests deshalb immer `float64(20)`
+schreiben, nie `20`.
+
+**Golden-File-Eintrag. (erledigt)**
+`golden_test.go`: `-update`-Flag `:31`, `goldenDesigns` `:34` (enthält
+`progress`), `goldenDisplays` `:73` (beide Profile), fixe Uhr `goldenNow`
+`:50` (`2026-07-20 12:00 CEST`), gesetzt in `newGoldenPreviewService` `:129`.
+**Wichtig, weicht von der Vorlage ab:** die bestehenden Golden-Designs
+enthielten **null**
+`widget_*`-Elemente (verifiziert per grep) — genau weil jedes Widget
+zeitabhängig ist. F7 ist damit das erste Widget im Golden-Harness und hat die
+Determinismus-Lücke selbst geschlossen:
+
+- Design `server/internal/services/testdata/designs/progress.json` mit
   vier `widget_progress`-Elementen (je ein `period`), `fontFamily`
-  `testfont.ttf` gepinnt (Pflicht, siehe `golden_test.go:41-51`),
-  `timezone: "Europe/Berlin"` explizit gesetzt.
-- `"progress"` in `goldenDesigns` (`:33`) ergänzen.
-- `setupGoldenServices` / `newGoldenPreviewService` (`:52-91`) setzt auf dem
-  erzeugten `PreviewService` die Uhr auf einen festen Zeitpunkt
-  (`2026-07-20 12:00:00 Europe/Berlin`). Ohne das ist die Golden-Datei nach
-  einer Minute rot.
-- Golden-PNGs für **beide** Displays erzeugen und **im selben Commit** wie der
-  Renderer-Code einchecken (Konvention `golden_test.go:26-29`).
-- Die fünf bestehenden Golden-Dateien müssen **sha-identisch** bleiben.
+  `testfont.ttf` gepinnt (Pflicht), `timezone: "Europe/Berlin"` explizit
+  gesetzt.
+- `"progress"` steht in `goldenDesigns` (`:34`).
+- `newGoldenPreviewService` (`:122`) setzt `svc.now` auf `goldenNow` (`:129`).
+  Ohne das wäre die Golden-Datei nach einer Minute rot. Bei diesem Zeitpunkt
+  zeigt das `year`-Element `[##########----------] 54%` — derselbe String, den
+  `TestProgressCanvasPanelParity` pinnt.
+- Golden-PNGs für **beide** Displays sind eingecheckt
+  (`progress__waveshare_7in3_e.png`, `progress__waveshare_7in5_v2.png`),
+  im selben Commit wie der Renderer-Code (Konvention `golden_test.go:26-30`).
+- Die zehn bestehenden Golden-Dateien sind **byteidentisch** geblieben.
 
 ## Non-Goals
 
 - **Kein** grafisch gezeichneter Fortschrittsbalken (kein neuer
   `drawElement`-Zweig, keine Rects/Gradienten).
 - **Keine** Auflösung des Font-Size-Duplikats `preview.go` ↔ `widgets.js`
-  (nur konsistent befüllen + Paritätstest).
+  (nur konsistent befüllen + Paritätstest). Die Tabellen bleiben doppelt; nur
+  die Go-Seite wurde mechanisch von `switch` auf `map` umgestellt, damit der
+  Paritätstest sie lesen kann.
+  **Bewusst überschriebenes Non-Goal:** der `widget_weather`-Nachtrag in die
+  Go-Tabelle war ursprünglich ausgeschlossen, ist aber erfolgt — Begründung
+  siehe „Bekanntes Duplikat" oben (ohne ihn bräuchte der Paritätstest eine
+  Ausnahmeliste, die genau die Drift verdeckt, gegen die er existiert).
+  Rendering nachweislich unverändert.
 - **Keine** globale Timezone-Einstellung in `settings.go` / `.env.example`.
   Nur die widget-lokale `timezone`-Property.
 - **Keine** Umstellung anderer `fill*Content`-Funktionen auf den neuen
@@ -313,7 +430,7 @@ Golden-Harness und muss die Determinismus-Lücke selbst schließen:
 - **Kein** `docs/adding-a-widget.md` in diesem Task — das schreibt der
   docs-writer **nach** dem Merge aus dem gemergten Code.
 - **Keine** Lokalisierung/i18n-Infrastruktur; deutsche Strings hartkodiert wie
-  bei `formatGermanDate` (`preview.go:521`).
+  bei `formatGermanDate` (`preview.go:543`).
 
 Diff-Budget: **≤ 400 Zeilen** (ohne Golden-PNGs und ohne `progress.json`).
 
@@ -323,10 +440,10 @@ Diff-Budget: **≤ 400 Zeilen** (ohne Golden-PNGs und ohne `progress.json`).
 ```
 cd server && gofmt -l . && go vet ./... && go test ./...
 ```
-Erwartung: `gofmt -l` leer, `go vet` still, alle Tests grün inkl. der sechs
-neuen und `TestGoldenRender` (7 Designs × 2 Displays).
+Erwartung: `gofmt -l` leer, `go vet` still, alle Tests grün inkl. der neuen
+und `TestGoldenRender`.
 
-**L2 — Render-Verifikation**
+**L2 — Render-Verifikation** (erst nach dem Golden-Design sinnvoll)
 ```
 cd server && go test ./internal/services -run 'TestGoldenRender|TestPaletteExactness' -v
 git diff --stat server/internal/services/testdata/golden/
@@ -360,17 +477,35 @@ Content im bestehenden Render-Pfad).
 | Risiko | Wirkung | Gegenmaßnahme / Rollback |
 |---|---|---|
 | Golden-Datei wird durch die echte Uhr zeitabhängig | `TestGoldenRender` wird flaky, CI rot für alle | Clock-Seam ist **Voraussetzung**, nicht Kür. Fällt er weg: Design aus `goldenDesigns` entfernen, Widget bleibt (nur Unit-Tests) |
-| Clock-Seam in `NewPreviewService` vergessen → `now == nil` | Nil-Panic im Render-Pfad, Panel bleibt schwarz | Defensive Lookup-Helper `s.nowOrDefault()`; Test mit `PreviewService{}`-Zerowert |
+| Clock-Seam in `NewPreviewService` vergessen → `now == nil` | Nil-Panic im Render-Pfad, Panel bleibt schwarz | Defensiver Lookup-Helper `s.nowOrDefault()`; Test mit `PreviewService{}`-Zerowert |
 | Font-Size-Paritätstest parst JS per Regex | Bricht bei Umformatierung von `widgets.js` | `t.Skip` bei nicht gefundener Datei/Block; Test ist Frühwarnung, kein Gate-Blocker |
 | Unicode-Blockzeichen schleichen sich ein | Tofu/Leerraum auf dem Panel, auf dem Canvas sieht es korrekt aus | AC12 als harter Test |
 | DST-Rechnung über `24*time.Hour` | `ratio > 1` oder `101%` an zwei Tagen im Jahr | AC7 + Clamping `ratio ∈ [0,1)` |
+| Beispielwerte im Spec statt aus der Regel abgeleitet | Falsche Zahlen wandern in `docs/adding-a-widget.md` und von dort in fünf Folge-Widgets | Jedes Beispiel in diesem Spec ist nachgerechnet und durch einen Tabellentest in `widget_progress_test.go` gepinnt |
 | Container-UTC vs. Pi-Local | Jahreswechsel/Tageswechsel bis zu 2 h versetzt | Dokumentiertes Verhalten (Serverzeit) + `timezone`-Property als Ausweg; im Widget-Panel als Feld sichtbar |
 | Registrierungspunkt vergessen | Widget fehlt in der Palette / ohne Properties / falsche Schriftgröße auf dem Panel — und der docs-writer schreibt den Fehler fest | AC3 als mechanischer Test |
 
-**Rollback:** Ein Commit, isoliert. `git revert` entfernt Widget, Golden-Design
-und Golden-PNGs zusammen; bestehende Golden-Dateien und alle anderen Widgets
-sind unberührt, weil kein bestehender Code-Pfad verändert wird (außer der
-mechanischen `switch`→`map`-Umstellung der Font-Size-Tabelle).
+**Rollback:** `git revert` entfernt Widget, Golden-Design und Golden-PNGs
+zusammen; bestehende Golden-Dateien und alle anderen Widgets sind unberührt,
+weil kein bestehender Code-Pfad verändert wird (außer der mechanischen
+`switch`→`map`-Umstellung der Font-Size-Tabelle).
+
+## Offener Rest
+
+**Keiner.** Alle ursprünglich offenen Punkte sind geschlossen:
+
+1. Registrierungspunkte 1–6 (Frontend) — erledigt, siehe Tabelle oben.
+2. Golden-Design `testdata/designs/progress.json` + `"progress"` in
+   `goldenDesigns` + fixe Uhr in `newGoldenPreviewService` + beide PNGs
+   (AC10) — erledigt.
+3. `switch`→`map`-Umbau der Go-Font-Size-Tabelle und
+   `TestWidgetDefaultFontSizesMatchFrontend` (AC13) — erledigt.
+4. Mechanischer Registrierungstest über alle acht Punkte (AC3) — erledigt.
+5. `TestProgressCanvasPanelParity` (AC2) — erledigt.
+
+Bekannte, **bewusst nicht** in F7 gefixte Altlasten: die toten Placeholder von
+`widget_calendar`/`widget_news` (durch `TestDeadPlaceholderRegistry` als exakte
+Menge eingefroren) und das Font-Size-Duplikat selbst.
 
 ## Nach dem Merge
 

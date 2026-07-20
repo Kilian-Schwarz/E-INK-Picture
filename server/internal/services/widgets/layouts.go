@@ -64,6 +64,14 @@ var allLayouts = map[string][]WidgetLayout{
 		{ID: "days_only", Name: "Days Only", Description: "Only remaining days"},
 		{ID: "custom", Name: "Custom Template", Description: "Define your own format"},
 	},
+	"widget_progress": {
+		{ID: "bar", Name: "Bar", Description: "ASCII progress bar only"},
+		{ID: "percent", Name: "Percent", Description: "Percentage only"},
+		{ID: "bar_percent", Name: "Bar + Percent", Description: "Progress bar with percentage"},
+		{ID: "count", Name: "Count", Description: "Elapsed units of the period"},
+		{ID: "full", Name: "Full", Description: "Count, bar and percentage"},
+		{ID: "custom", Name: "Custom Template", Description: "Define your own format"},
+	},
 }
 
 // Placeholders returns available placeholder keys for a widget type.
@@ -103,5 +111,9 @@ var allPlaceholders = map[string][]string{
 	"widget_timer": {
 		"%days%", "%hours%", "%minutes%", "%seconds%",
 		"%total_hours%", "%label%",
+	},
+	"widget_progress": {
+		"%bar%", "%percent%", "%current%",
+		"%total%", "%remaining%", "%period%",
 	},
 }

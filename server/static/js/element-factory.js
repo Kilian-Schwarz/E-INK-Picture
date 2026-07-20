@@ -124,6 +124,10 @@ const ElementFactory = {
             widget_custom: { w: 200, h: 60 },
             widget_system: { w: 300, h: 100 },
             widget_hass: { w: 220, h: 80 },
+            // Wide enough for the default bar_percent string
+            // "[##########----------] 54%" (26 monospace chars @ 18px),
+            // tall enough for the two-line "full" layout.
+            widget_progress: { w: 320, h: 60 },
         };
 
         var size = defaultSizes[type] || { w: 200, h: 100 };
@@ -272,6 +276,23 @@ const ElementFactory = {
                 hassMode: 'temperature',
                 entityId: '',
                 label: '',
+                fontSize: 18,
+                color: '#000000',
+                textAlign: 'left'
+            },
+            // F7 progress widget. Every default here MUST mirror
+            // internal/services/widget_progress.go, otherwise the canvas
+            // (which renders the server string) and a freshly dropped widget
+            // would disagree on the very first frame.
+            // barWidth stays a NUMBER: the server's GetPropInt only decodes
+            // float64 and string, a boolean/undefined would silently fall back.
+            widget_progress: {
+                period: 'year',
+                layout: 'bar_percent',
+                barWidth: 20,
+                timezone: '',
+                customTemplate: '%bar% %percent%',
+                fontFamily: 'monospace',
                 fontSize: 18,
                 color: '#000000',
                 textAlign: 'left'

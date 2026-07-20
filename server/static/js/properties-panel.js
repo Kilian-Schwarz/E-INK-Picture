@@ -718,10 +718,15 @@ var PropertiesPanel = {
             return '<div class="property-group"><label>' + def.label + '</label>' +
                 '<input type="number" class="prop-input widget-prop" data-key="' + key + '" value="' + (val || 0) + '" min="' + (def.min || 0) + '" max="' + (def.max || 999) + '"></div>';
         } else if (def.type === 'select') {
+            // Options are either plain strings (value == label) or
+            // {value, label} pairs when the wire value is not presentable
+            // (e.g. widget_progress period ids year/month/week/day).
             var options = '';
             for (var j = 0; j < def.options.length; j++) {
                 var o = def.options[j];
-                options += '<option value="' + o + '"' + (val === o ? ' selected' : '') + '>' + o + '</option>';
+                var oVal = (o && typeof o === 'object') ? o.value : o;
+                var oLabel = (o && typeof o === 'object') ? o.label : o;
+                options += '<option value="' + oVal + '"' + (val === oVal ? ' selected' : '') + '>' + oLabel + '</option>';
             }
             return '<div class="property-group"><label>' + def.label + '</label>' +
                 '<select class="prop-input widget-prop" data-key="' + key + '">' + options + '</select></div>';
@@ -1127,6 +1132,24 @@ var PropertiesPanel = {
                 hassMode: { label: 'Mode', type: 'select', options: ['temperature', 'alarm', 'presence'], default: 'temperature' },
                 entityId: { label: 'Entity ID(s)', type: 'text', default: '' },
                 label: { label: 'Label', type: 'text', default: '' },
+                fontSize: { label: 'Font Size', type: 'number', default: 18, min: 8, max: 200 },
+            },
+            // F7 progress widget. Defaults and the barWidth range mirror
+            // widget_progress.go (progressMinBarWidth/progressMaxBarWidth);
+            // the server clamps anyway, min/max here just stops the spinner
+            // from offering values that would be silently rewritten.
+            widget_progress: {
+                period: {
+                    label: 'Period', type: 'select', default: 'year',
+                    options: [
+                        { value: 'year', label: 'Year' },
+                        { value: 'month', label: 'Month' },
+                        { value: 'week', label: 'Week' },
+                        { value: 'day', label: 'Day' },
+                    ],
+                },
+                barWidth: { label: 'Bar Width', type: 'number', default: 20, min: 5, max: 60 },
+                timezone: { label: 'Timezone (empty = server)', type: 'text', default: '' },
                 fontSize: { label: 'Font Size', type: 'number', default: 18, min: 8, max: 200 },
             },
         };

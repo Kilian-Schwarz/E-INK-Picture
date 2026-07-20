@@ -215,6 +215,21 @@ func TestWidgetContentEndpointMatchesDispatcher(t *testing.T) {
 		{name: "custom raw", typ: "widget_custom",
 			props:    map[string]any{"url": apiSrv.URL},
 			contains: []string{"21.5"}},
+
+		// widget_progress needs no fixture: it is computed purely locally.
+		// period=year is used so the two calls cannot straddle a period
+		// boundary in any realistic run.
+		{name: "progress bar_percent", typ: "widget_progress",
+			props:    map[string]any{"period": "year", "layout": "bar_percent", "barWidth": float64(20), "timezone": "UTC"},
+			contains: []string{"[", "]", "%"}},
+		{name: "progress count", typ: "widget_progress",
+			props:    map[string]any{"period": "year", "layout": "count", "timezone": "UTC"},
+			contains: []string{"Tag ", " von "},
+			omits:    []string{"["}},
+		{name: "progress custom template", typ: "widget_progress",
+			props:    map[string]any{"period": "year", "layout": "custom", "customTemplate": "%period%=%percent%", "timezone": "UTC"},
+			contains: []string{"Jahr="},
+			omits:    []string{"["}},
 	}
 
 	for _, tc := range cases {
