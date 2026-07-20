@@ -395,9 +395,7 @@ func TestProgressCanvasPanelParity(t *testing.T) {
 	if !strings.Contains(branch, "'widget_progress'") {
 		t.Errorf("widget_progress is not in the getPreviewContent passthrough case group; the passthrough group is:\n%s", branch)
 	}
-	if !strings.Contains(branch, "liveData.content") {
-		t.Errorf("the passthrough branch no longer returns liveData.content verbatim:\n%s", branch)
-	}
+	assertPassthroughReturnsVerbatim(t, previewContent)
 
 	// 2. No JS-side content builder for progress. Every other widget with
 	//    client-side formatting has a build*Content function; progress must
@@ -488,9 +486,7 @@ func TestHolidaysCanvasPanelParity(t *testing.T) {
 	if !strings.Contains(branch, "'widget_holidays'") {
 		t.Errorf("widget_holidays is not in the getPreviewContent passthrough case group; the passthrough group is:\n%s", branch)
 	}
-	if !strings.Contains(branch, "liveData.content") {
-		t.Errorf("the passthrough branch no longer returns liveData.content verbatim:\n%s", branch)
-	}
+	assertPassthroughReturnsVerbatim(t, previewContent)
 
 	// 2. No JS-side content builder and no JS-side holiday math. These are the
 	//    identifiers and domain terms a reimplementation would need; the match
@@ -523,6 +519,17 @@ func TestHolidaysCanvasPanelParity(t *testing.T) {
 	// 3. The word "holiday" may occur in widgets.js only as part of the three
 	//    registered widget_holidays roles. This is the catch-all for any helper
 	//    the explicit list above does not happen to name.
+	//
+	//    CAREFUL when copying this block to another widget: the catch-all only
+	//    works because "holiday" appears nowhere else in widgets.js. A short or
+	//    common substring silently breaks it — "air" for widget_air would also
+	//    match "pair", "chair", "repair", and the test would fail for reasons
+	//    that have nothing to do with a forked code path. The correct fix is
+	//    then to pick a longer, provably unique substring ("widget_air",
+	//    "airquality"), NOT to raise the expected count: bumping the number to
+	//    make it pass voids the check entirely, because the extra occurrence it
+	//    now tolerates is exactly the second code path this assertion exists to
+	//    find. Verify uniqueness first: grep -oi <substring> widgets.js | wc -l
 	if n, want := strings.Count(lower, "holiday"), 3; n != want {
 		t.Errorf("the substring \"holiday\" occurs %d times in widgets.js (comments stripped), want exactly %d — one per registered widget_holidays role; any extra occurrence is a second code path by definition", n, want)
 	}
@@ -583,6 +590,54 @@ func passthroughBranch(t *testing.T, previewContent string) string {
 		groupStart = 0
 	}
 	return previewContent[groupStart+1 : idx+len("liveData.content")]
+}
+
+// passthroughReturnPin is the exact statement the passthrough case group must
+// return, whitespace-normalised. Pinning the whole statement — rather than
+// probing it for the substring "liveData.content" — is what makes a
+// transformation wrapped around the value detectable: `? liveData.content` and
+// `? this.reformatDates(liveData.content)` both *contain* the substring, but
+// only the first equals this pin.
+//
+// If you change the passthrough statement on purpose, update this constant in
+// the same commit. That edit is the point: it forces the change to be a
+// conscious one instead of a silent fork of the Go single source.
+const passthroughReturnPin = `return (liveData && typeof liveData.content === 'string') ? liveData.content : this._widgetTypeLabel(type);`
+
+// assertPassthroughReturnsVerbatim checks that the passthrough case group
+// returns the server's content string untouched.
+//
+// Why the whole statement and not a substring: the passthrough branch contains
+// liveData.content twice — once in the `typeof` guard and once as the returned
+// value. Any substring check is satisfied by the guard alone and therefore says
+// nothing at all about what is actually returned.
+func assertPassthroughReturnsVerbatim(t *testing.T, previewContent string) {
+	t.Helper()
+
+	idx := strings.Index(previewContent, "liveData.content")
+	if idx < 0 {
+		t.Fatal("getPreviewContent no longer references liveData.content — the passthrough pattern is gone")
+	}
+	retStart := strings.LastIndex(previewContent[:idx], "return")
+	if retStart < 0 {
+		t.Fatal("no return statement precedes liveData.content in getPreviewContent")
+	}
+	end := strings.Index(previewContent[retStart:], ";")
+	if end < 0 {
+		t.Fatal("the passthrough return statement is not terminated by a semicolon")
+	}
+	stmt := normalizeJSWhitespace(previewContent[retStart : retStart+end+1])
+
+	if stmt != passthroughReturnPin {
+		t.Errorf("the passthrough branch does not return liveData.content verbatim.\n got: %s\nwant: %s\n\nAnything wrapped around liveData.content (a formatter, a fallback, a\ntransformation) forks the single source in the Go dispatch and makes the\ncanvas disagree with the rendered panel.", stmt, passthroughReturnPin)
+	}
+}
+
+// normalizeJSWhitespace collapses runs of whitespace to single spaces so the
+// pin survives reformatting/re-indentation of widgets.js without going blind to
+// changes in the code itself.
+func normalizeJSWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // jsFontSizeDefaults parses the getPreviewFontSize defaults table out of
