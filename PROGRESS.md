@@ -3,6 +3,36 @@
 Manager-geführtes Log für den Weg zu v1.0. Nach jedem Task aktualisiert.
 Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel-Foto | L5 Review.
 
+## 🚀 FEATURE-RUNDE v1.1 (gestartet 2026-07-20, Manager) — hier weiterlesen
+
+**Ausgangslage verifiziert durch `repo-cartographer` (2026-07-20). Drei Korrekturen am angenommenen Stand:**
+
+1. **HEAD ist `7e71604`, nicht `2130eb8`** — 207 Commits, **4 Commits ungepusht**, darunter zwei am Render-Kern (Linear-Light-Fehlerdiffusion `23553e3` + Golden-Regeneration `7e71604`). Tag `v0.9.0-RC` liegt 4 Commits dahinter und **deckt den Render-Fix nicht ab**. → Push-Task (test-engineer) läuft als Erstes.
+2. **`conditions.go` ist gelöscht (E4a), die Structs nicht.** `ConditionalRule`/`TargetDesign` stehen weiter in `models/design.go:141-164` **ohne einen einzigen Lesezugriff**; `static/js/conditions.js` wird in `designer.html:475` noch geladen, `ConditionsPanel` nirgends aufgerufen. **F3 darf daran nicht andocken** — Schema-Rest ist Ballast, nicht Fundament.
+3. **`server/certs/` + `client/certs/` enthalten nur `.gitkeep`, es gibt null TLS-Code** (`main.go:355` = nacktes `ListenAndServe`; `config.go:28/58` nur `EINK_COOKIE_SECURE` für Reverse-Proxy). **F9 ist Greenfield**, nicht halbfertig.
+
+**Zwei Befunde, die der Auftrag nicht kannte:**
+
+- **Das Widget-Rezept hat 8 Registrierungspunkte, nicht 5.** Zusätzlich zu preview.go/element-factory/properties-panel/widgets.js: Palette-Eintrag `templates/designer.html:92-127`, **`services/widgets/layouts.go:19-67` + `:78-107`** (ohne Eintrag bleibt das Layout-Dropdown leer) und eine **duplizierte Default-Fontsize-Tabelle** `preview.go:261-276` ↔ `widgets.js:217-225`. Die Duplikation **driftet bereits**: `widget_weather` steht in JS mit 18, fehlt im Go-`switch` komplett und trifft den Wert nur zufällig über den Default. Auflösung = eigener Chore-Task, nicht Teil von F7.
+- **Das Nacht-Fenster nutzt implizit Host-Lokalzeit** (`services/settings.go:122-132`, `now.Hour()*60+now.Minute()`, keine TZ-Konfiguration). Container laufen UTC, der Pi lokal → das Fenster kann heute still 1–2 h danebenliegen. **Betrifft F1 + F3 direkt.**
+- **Golden-Files können Zeit-Widgets heute nicht abdecken:** kein bestehendes Golden-Design enthält ein `widget_*`-Element, und `PreviewService` hat **keine injizierbare Uhr** (alle `fill*Content` rufen `time.Now()` direkt). Ein Clock-Seam (Muster existiert: `testClock`/`setNow` in `negcache_test.go:16-28`) ist **Voraussetzung** für jeden Golden-Eintrag mit Zeitbezug.
+
+### Epics v1.1
+
+| Epic | Inhalt | Status |
+|------|--------|--------|
+| **W1** | **F9** TLS/HTTPS — Modi `selfsigned` (Default) / `letsencrypt` / `custom`; kein HSTS bei self-signed; Python-Client prüft Cert (**kein `verify=False`**); IP- **und** Hostname-SANs (DHCP wandert); Auto-Rotation; dokumentierter Rollback-Pfad | **blockiert** — wartet auf Kilian (Domain/Port für LE? lokale CA?) |
+| **W2** | **F7** Jahresfortschritt (Pilot, rein lokal) → daraus `docs/adding-a-widget.md`; **F4** Feiertage (lokal berechnet vs. API) | F7-Spec ✅ `specs/F7-year-progress.md`; Implementierung wartet auf Push-Task |
+| **W3** | **F6** Luftqualität (Open-Meteo Air-Quality, kein Key, Infrastruktur aus E5.5 wiederverwenden); **F5** Strommix (ggf. durch `widget_hass` abgedeckt); **F2** ÖPNV (**Spike zuerst** — DB-HAFAS abgeschaltet, `v6.db.transport.rest` läuft auf `db-vendo-client` mit 100 Req/min) | F5 + F2 blockiert (Kilian) |
+| **W4** | **F1** Foto-Diashow; **F3** Design-Zeitplan — beide hebeln Content-Skip (E5.2) bewusst aus → **Verschleiß-Budget im UI sichtbar**, Mindest-Intervall erzwungen, Nacht-Fenster respektiert | blockiert (Kilian: Mindest-Intervall, Override-Semantik) |
+| **W5** | **F8** Design-Import/Export als ZIP-Bundle (design.json + assets/ + manifest.json) — Export **ohne Secrets** (`data/hass.json` bleibt draußen), Import = unvertrauenswürdige Eingabe (Zip-Slip, Zip-Bomb, Entry-Count, SSRF via Widget-URLs). Bestehende Upload-Validierung (`image.go:68-81` sanitize, doppelte Größen-Limits, echtes `image.Decode`) ist wiederverwendbar, deckt Zip-Risiken aber **nicht** ab. | blockiert (Kilian: Verhalten bei abweichender Auflösung/Palette) |
+
+### Offene Fragen an Kilian (gestellt 2026-07-20, gebündelt)
+
+F9: öffentliche Domain+Port für Let's Encrypt oder LAN-only? · lokale CA zum Importieren? — F5: existiert schon eine Strommix-Integration in Home Assistant? — Standort: PLZ Hannover + Bundesland (es gibt bislang **keine globale Standort-Einstellung**, nur Lat/Lon pro Wetter-Element) — F4: lokal rechnen vs. API — F2: welche Haltestelle(n)? · stale-Daten bei Ausfall? — F1/F3: kürzestes Rotationsintervall? · manuelle Design-Wahl während Zeitplan = Override oder Pause? — F8: Import bei abweichender Auflösung/Palette.
+
+**Vorab-Veto-Punkt:** Alle geplanten Quellen sind kostenlos und key-frei (Open-Meteo, Corrently GrünstromIndex, v6.db.transport.rest). Nur Electricity Maps bräuchte ein Token — Default: **nicht** verwenden.
+
 ## ⭐ COMPACT-CHECKPOINT (2026-07-16) — verbindlicher Stand nach /compact hier weiterlesen
 
 **`main` @ `8589fc4`, GEPUSHT nach origin; Tag **`v0.9.0-RC`** (annotated, → `8589fc4`) gepusht 2026-07-17 → `release.yml` läuft. ✅ ALLE 7 B-EPICS + Go-1.25-Deps-Runde + Pi-L3-Welle GRÜN + RELEASE v0.9.0-RC RAUS. Finishing-Runde abgeschlossen.**
