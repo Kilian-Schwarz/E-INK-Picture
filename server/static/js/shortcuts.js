@@ -1,15 +1,35 @@
 // Keyboard shortcuts
 var Shortcuts = {
+    // True while the user is typing into a field, where the browser's own
+    // editing shortcuts (native undo/redo) must win over ours.
+    isEditingTarget(el) {
+        if (!el) return false;
+        var tag = el.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+        return el.isContentEditable === true;
+    },
+
     init() {
+        var self = this;
         document.addEventListener('keydown', function(e) {
             // Don't trigger shortcuts when typing in inputs
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+            if (self.isEditingTarget(e.target)) return;
 
-            if (e.ctrlKey && e.key === 'z') {
+            // Ctrl on Windows/Linux, Cmd on macOS
+            var mod = e.ctrlKey || e.metaKey;
+            // e.key is uppercase while Shift is held
+            var key = typeof e.key === 'string' ? e.key.toLowerCase() : '';
+
+            if (mod && key === 'z') {
                 e.preventDefault();
-                HistoryManager.undo();
+                // Shift+Z is the macOS redo, but accept it everywhere
+                if (e.shiftKey) {
+                    HistoryManager.redo();
+                } else {
+                    HistoryManager.undo();
+                }
             }
-            if (e.ctrlKey && e.key === 'y') {
+            if (mod && key === 'y') {
                 e.preventDefault();
                 HistoryManager.redo();
             }
@@ -17,11 +37,11 @@ var Shortcuts = {
                 e.preventDefault();
                 Toolbar.deleteSelected();
             }
-            if (e.ctrlKey && e.key === 'd') {
+            if (mod && key === 'd') {
                 e.preventDefault();
                 Toolbar.duplicateSelected();
             }
-            if (e.ctrlKey && e.key === 's') {
+            if (mod && key === 's') {
                 e.preventDefault();
                 var saveBtn = document.getElementById('save-btn');
                 if (saveBtn) saveBtn.click();
