@@ -22,7 +22,7 @@ Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel
 | Epic | Inhalt | Status |
 |------|--------|--------|
 | **W1** | **F9** TLS/HTTPS — Modi `selfsigned` (Default) / `letsencrypt` / `custom`; kein HSTS bei self-signed; Python-Client prüft Cert (**kein `verify=False`**); IP- **und** Hostname-SANs (DHCP wandert); Auto-Rotation; dokumentierter Rollback-Pfad | **blockiert** — wartet auf Kilian (Domain/Port für LE? lokale CA?) |
-| **W2** | **F7** Jahresfortschritt (Pilot, rein lokal) → daraus `docs/adding-a-widget.md`; **F4** Feiertage (lokal berechnet vs. API) | F7-Spec ✅ `specs/F7-year-progress.md`; Implementierung wartet auf Push-Task |
+| **W2** | **F7** Jahresfortschritt (Pilot, rein lokal) → daraus `docs/adding-a-widget.md`; **F4** Feiertage (lokal berechnet vs. API) | **F7 ✅ GEMERGED `a06539a`** (L1+L2+L5 APPROVE, 5 Agenten, Verifizierer≠Implementierer durchgehend); Rezept-Ableitung läuft; F4 offen |
 | **W3** | **F6** Luftqualität (Open-Meteo Air-Quality, kein Key, Infrastruktur aus E5.5 wiederverwenden); **F5** Strommix (ggf. durch `widget_hass` abgedeckt); **F2** ÖPNV (**Spike zuerst** — DB-HAFAS abgeschaltet, `v6.db.transport.rest` läuft auf `db-vendo-client` mit 100 Req/min) | F5 + F2 blockiert (Kilian) |
 | **W4** | **F1** Foto-Diashow; **F3** Design-Zeitplan — beide hebeln Content-Skip (E5.2) bewusst aus → **Verschleiß-Budget im UI sichtbar**, Mindest-Intervall erzwungen, Nacht-Fenster respektiert | blockiert (Kilian: Mindest-Intervall, Override-Semantik) |
 | **W5** | **F8** Design-Import/Export als ZIP-Bundle (design.json + assets/ + manifest.json) — Export **ohne Secrets** (`data/hass.json` bleibt draußen), Import = unvertrauenswürdige Eingabe (Zip-Slip, Zip-Bomb, Entry-Count, SSRF via Widget-URLs). Bestehende Upload-Validierung (`image.go:68-81` sanitize, doppelte Größen-Limits, echtes `image.Decode`) ist wiederverwendbar, deckt Zip-Risiken aber **nicht** ab. | blockiert (Kilian: Verhalten bei abweichender Auflösung/Palette) |
@@ -32,6 +32,31 @@ Gates: L1 statisch | L2 Render-Verifikation | L3 Hardware-in-the-Loop | L4 Panel
 F9: öffentliche Domain+Port für Let's Encrypt oder LAN-only? · lokale CA zum Importieren? — F5: existiert schon eine Strommix-Integration in Home Assistant? — Standort: PLZ Hannover + Bundesland (es gibt bislang **keine globale Standort-Einstellung**, nur Lat/Lon pro Wetter-Element) — F4: lokal rechnen vs. API — F2: welche Haltestelle(n)? · stale-Daten bei Ausfall? — F1/F3: kürzestes Rotationsintervall? · manuelle Design-Wahl während Zeitplan = Override oder Pause? — F8: Import bei abweichender Auflösung/Palette.
 
 **Vorab-Veto-Punkt:** Alle geplanten Quellen sind kostenlos und key-frei (Open-Meteo, Corrently GrünstromIndex, v6.db.transport.rest). Nur Electricity Maps bräuchte ein Token — Default: **nicht** verwenden.
+
+### F7 — Pilot abgeschlossen (Squash `a06539a`, 2026-07-20)
+
+`widget_progress` (Jahr/Monat/Woche/Tag als ASCII-Balken/Prozent/Zähler). 15 Dateien, +1463/−145. Fünf Agenten, Verifizierer≠Implementierer durchgehend eingehalten.
+
+**Was der Pilot strukturell gebracht hat — das ist der eigentliche Ertrag, nicht das Widget:**
+- **Clock-Seam** (`now func() time.Time` auf `PreviewService`, nil-safe via `nowOrDefault()`, per grep nachweislich auf `fillProgressContent` beschränkt). Damit ist **das erste Golden-Design mit einem Widget überhaupt** deterministisch — Uhr auf 2026-07-20 12:00 gepinnt, Zone als `FixedZone` statt `LoadLocation`, also host-unabhängig. Byte-stabil über zwei `-update`-Läufe, `assertPaletteExactness` grün für **beide** Panels auf allen 3 Quality-Stufen.
+- **`TestWidgetRegistrationCompleteness`**: leitet die Widget-Liste **per AST aus dem `WidgetTextContent`-Dispatch** ab, prüft die Registrierungspunkte bidirektional. Wird **nicht** pro Widget kopiert — deckt die nächsten fünf automatisch ab, sobald deren Case auftaucht, und meldet konkret, welcher Punkt fehlt. 7 Mutationsproben, alle gefangen.
+- **Font-Size-`switch` → `map`** + `TestWidgetDefaultFontSizesMatchFrontend` (parst `widgets.js`, bidirektional). Die Go↔JS-Drift kann nicht mehr still wachsen.
+- Cross-Build **arm64 + armv7 + armv6** verifiziert (schließt die offene CI-Frage aus dem Push-Task).
+
+**Gefundene Altlasten — gepinnt statt übertüncht:**
+- `widget_calendar` und `widget_news` stehen in `allPlaceholders`, ihre `fill*Content` lesen aber **nie** `props["customTemplate"]` → das Panel bietet `%next_event%` / `%headline_1%` an, der Server ersetzt sie nie. Fix ändert gerendertes Output ⇒ außerhalb F7. Exakte Menge in `TestDeadPlaceholderRegistry` gepinnt: **sowohl ein neuer toter Eintrag als auch ein Fix** lässt den Test fehlschlagen.
+- Zweite Font-Size-Drift: Fallbacks divergieren (Go `18`, `widgets.js` `|| 14`). Heute unschädlich, weil alle Typen explizit gelistet sind; ein halb registriertes Widget würde auf Canvas und Panel **unterschiedlich groß** rendern.
+- `widget_weather` fehlte in der Go-Tabelle, traf 18 nur zufällig über den Default — nachgetragen, verifiziert ohne Rendering-Änderung (bewusster Override des Spec-Non-Goals: eine Ausnahmeliste hätte genau die Drift verdeckt, gegen die der Test existiert).
+
+**Zwei Rechenfehler in der eigenen Spec durch die Implementierung widerlegt** (Balkenfüllung 11 vs. korrekt 10 `#`; DST 52 % vs. korrekt 47 % — die 52 % gehörten zum anderen Tag). Tests haben die Spec korrigiert, nicht umgekehrt.
+
+**Ein Testbug im L5 gefunden:** `"barWidth": 20` als untypisiertes `int` — `GetPropInt` dekodiert nur `float64`/`string`, der Wert wurde still verworfen und der Default war zufällig auch 20, **die Assertion prüfte nichts**. Beweglichkeitsprobe nach dem Fix bestätigt.
+
+**Offene Follow-ups aus F7** (kein Blocker, gehören in die Runde):
+- `_ "time/tzdata"`-Import: `LoadLocation`-Fehlschlag führt zu **stillem** Fallback auf Serverzeit — auf dem Panel unbemerkt falsch. Heute unkritisch (Dockerfile kopiert `zoneinfo.zip` + `ENV ZONEINFO=`, Pi OS hat `/usr/share/zoneinfo`, `widget_clock` hat dieselbe Abhängigkeit seit jeher), aber jedes Widget mit `timezone`-Property erbt sie.
+- Dead-Placeholder-Fix für `widget_calendar`/`widget_news` (ändert Rendering → eigener Task mit Golden-Regeneration).
+- `services/widgets` hat weiterhin `[no test files]` — `layouts.go` wird nur indirekt abgedeckt.
+- Nachtfenster-Zeitzone (Container UTC vs. Pi lokal) — **vor F1/F3 fällig**, nicht danach.
 
 ## ⭐ COMPACT-CHECKPOINT (2026-07-16) — verbindlicher Stand nach /compact hier weiterlesen
 
