@@ -104,7 +104,9 @@
     height: 100%;
     background: var(--accent);
     border-radius: 2px;
-    transition: width 0.3s ease;
+    /* Short + linear: progress events arrive continuously, a long ease would
+       make the bar visibly trail the real byte count */
+    transition: width 0.15s linear;
     width: 0%;
 }
 

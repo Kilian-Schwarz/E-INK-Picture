@@ -12,6 +12,7 @@ var MediaLibrary = {
     loading: false,
     searchTimeout: null,
     activeTab: 'images',
+    activeUpload: null,
 
     open(callback) {
         this.callback = callback;
@@ -293,50 +294,133 @@ var MediaLibrary = {
         }
     },
 
+    // Uploads a single file via XHR. fetch() cannot report request body
+    // progress, so XHR is the only way to get real byte counts.
+    // Never rejects: the outcome is always reported through the result object.
+    uploadFile(endpoint, file, onProgress) {
+        var self = this;
+        return new Promise(function(resolve) {
+            var formData = new FormData();
+            formData.append('file', file);
+
+            var xhr = new XMLHttpRequest();
+            self.activeUpload = xhr;
+            xhr.open('POST', endpoint);
+
+            xhr.upload.addEventListener('progress', function(e) {
+                if (e.lengthComputable) onProgress(e.loaded);
+            });
+
+            xhr.addEventListener('load', function() {
+                self.activeUpload = null;
+                onProgress(file.size);
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve({ ok: true });
+                    return;
+                }
+                var message = 'Unknown error';
+                try {
+                    var err = JSON.parse(xhr.responseText);
+                    if (err && err.message) message = err.message;
+                } catch (e) {
+                    // Non-JSON error body (proxy error page, empty response)
+                    message = 'HTTP ' + xhr.status;
+                }
+                resolve({ ok: false, message: message });
+            });
+
+            xhr.addEventListener('error', function() {
+                self.activeUpload = null;
+                resolve({ ok: false, message: file.name });
+            });
+
+            xhr.addEventListener('abort', function() {
+                self.activeUpload = null;
+                resolve({ ok: false, aborted: true });
+            });
+
+            xhr.send(formData);
+        });
+    },
+
+    cancelUpload() {
+        if (this.activeUpload) this.activeUpload.abort();
+    },
+
     async uploadFiles(files, type) {
+        var self = this;
         var progressEl = document.getElementById('media-upload-progress-' + type);
         var progressFill = progressEl ? progressEl.querySelector('.progress-fill') : null;
         var progressText = progressEl ? progressEl.querySelector('.progress-text') : null;
-        if (progressEl) progressEl.style.display = 'block';
 
         var endpoint = type === 'fonts' ? '/api/media/fonts/upload' : '/api/media/images/upload';
         var total = files.length;
         var completed = 0;
 
-        for (var i = 0; i < files.length; i++) {
-            var formData = new FormData();
-            formData.append('file', files[i]);
+        // Progress is tracked over the whole batch, so the bar keeps advancing
+        // across files instead of restarting at 0% for each one.
+        var totalBytes = 0;
+        for (var b = 0; b < total; b++) totalBytes += files[b].size;
+        var sentBytes = 0;
 
-            try {
-                var resp = await fetch(endpoint, { method: 'POST', body: formData });
-                if (!resp.ok) {
-                    var err = await resp.json();
-                    showNotification('Upload failed: ' + (err.message || 'Unknown error'), 'error');
-                } else {
-                    completed++;
-                }
-            } catch (e) {
-                showNotification('Upload failed: ' + files[i].name, 'error');
-            }
+        // Only reveal the bar once the upload is still running after a moment.
+        // Small files finish within a frame and would just make it flicker.
+        var barShown = false;
+        var revealTimer = setTimeout(function() {
+            barShown = true;
+            if (progressEl) progressEl.style.display = 'block';
+        }, 150);
 
-            if (progressFill) {
-                progressFill.style.width = Math.round(((i + 1) / total) * 100) + '%';
-            }
+        function renderProgress(loaded, index) {
+            var done = sentBytes + loaded;
+            var percent = totalBytes > 0 ? Math.min(100, Math.round((done / totalBytes) * 100)) : 100;
+            if (progressFill) progressFill.style.width = percent + '%';
             if (progressText) {
-                progressText.textContent = (i + 1) + ' / ' + total;
+                progressText.textContent = total > 1
+                    ? (index + 1) + ' / ' + total + ' — ' + percent + '%'
+                    : percent + '%';
             }
         }
 
+        renderProgress(0, 0);
+
+        for (var i = 0; i < total; i++) {
+            var file = files[i];
+            var result = await this.uploadFile(endpoint, file, (function(index) {
+                return function(loaded) { renderProgress(loaded, index); };
+            })(i));
+
+            if (result.aborted) break;
+            if (result.ok) {
+                completed++;
+            } else {
+                showNotification('Upload failed: ' + result.message, 'error');
+            }
+
+            // Count the file either way so the bar reflects work processed
+            sentBytes += file.size;
+            renderProgress(0, i);
+        }
+
+        clearTimeout(revealTimer);
         if (progressEl) {
-            setTimeout(function() { progressEl.style.display = 'none'; }, 1000);
+            if (barShown) {
+                setTimeout(function() {
+                    progressEl.style.display = 'none';
+                    if (progressFill) progressFill.style.width = '0%';
+                }, 1000);
+            } else {
+                progressEl.style.display = 'none';
+                if (progressFill) progressFill.style.width = '0%';
+            }
         }
 
         if (completed > 0) {
             showNotification(completed + ' file(s) uploaded', 'success');
             if (type === 'fonts') {
-                this.loadFonts();
+                self.loadFonts();
             } else {
-                this.loadImages(true);
+                self.loadImages(true);
             }
         }
     },
