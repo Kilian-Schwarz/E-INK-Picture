@@ -1,8 +1,9 @@
 # Ein neues Widget hinzufügen
 
 Abgeleitet aus der gemergten F7-Implementierung (`widget_progress`). Referenz
-für alle weiteren Widgets: Feiertage, Luftqualität, Strommix, ÖPNV,
-Foto-Slideshow.
+für alle weiteren Widgets: Luftqualität, Strommix, ÖPNV, Foto-Slideshow.
+Feiertage (F4) sind inzwischen ebenfalls gemergt und die Referenz für ein
+Widget **ohne** Netzpfad.
 
 Referenzdateien, die beim Bauen offen sein sollten:
 
@@ -47,6 +48,10 @@ Danach die acht Punkte in dieser Reihenfolge:
 | 8 | 5b | `static/js/widgets.js`, `getPreviewFontSize` (aktuell `:214-235`) | `widget_<name>: <px>` — identisch zu Punkt 7 (Go) | Siehe Punkt 1: Größendrift zwischen Canvas und Panel. |
 | 9 | 6 | `templates/designer.html`, Widget-Palette (aktuell `:80-132`) | `<div class="widget-item" data-type="widget_<name>">` mit `<span class="widget-icon">` und Label | Widget taucht in der Palette nicht auf und ist im Designer nicht erreichbar. |
 
+Die Tabelle hat neun Zeilen für acht Punkte: **5a und 5b sind ein Punkt** (beide
+in `widgets.js`), stehen aber als zwei Zeilen, weil sie zwei verschiedene
+Funktionen betreffen und unabhängig voneinander vergessen werden können.
+
 **Die Zeilenangaben sind Anker auf den heutigen Stand und driften.** Autorität
 ist `TestWidgetRegistrationCompleteness` (`widget_registration_test.go`, aktuell
 `:190`): der Test schneidet die JS-Dateien per Brace-Matching auf die
@@ -55,10 +60,20 @@ und der Test sich widersprechen, gilt der Test. Findet der Test eine Datei
 oder einen Block nicht, macht er `t.Skip` statt rot zu werden — ein
 übersprungener Registrierungstest ist also selbst ein Befund.
 
-Punkte 5a und 8 gelten nur für Widgets, die `props["layout"]` bzw.
-`props["customTemplate"]` tatsächlich lesen. Der Test prüft das in **beide**
-Richtungen: ein Layout-Eintrag ohne Leser ist ebenso ein Fehler wie ein Leser
-ohne Eintrag (`widget_registration_test.go:244-258`).
+Ein zweiter Anker in derselben Datei ist die Untergrenze in
+`TestDispatchWidgetTypesFound` (`:182`): `if len(types) < 8`. Sie sichert den
+AST-Parser gegen stilles Nichts-Finden ab. Beim **Hinzufügen** eines Widgets ist
+sie irrelevant (aktuell 11 Typen). Sie bricht, wenn Widgets **entfernt** werden
+oder wenn der Parser aufhört zu greifen — dann ist die Zahl anzupassen bzw. der
+Parser zu reparieren, nicht die Grenze zu senken.
+
+Punkt 5a gilt nur für Widgets, die `props["layout"]` lesen. Punkt 8 hängt an
+**beiden** Properties, nicht 1:1 an einer: `allLayouts` wird über
+`props["layout"]` erzwungen (`widget_registration_test.go:244-250`),
+`allPlaceholders` unabhängig davon über `props["customTemplate"]` (`:256-258`).
+Ein Widget kann also Punkt 8 zur Hälfte erfüllen müssen. Für `layout` prüft der
+Test in **beide** Richtungen: ein Layout-Eintrag ohne Leser ist ebenso ein
+Fehler wie ein Leser ohne Eintrag (`:251-253`).
 
 Wer Placeholders in `allPlaceholders` einträgt, muss `customTemplate` auch
 wirklich substituieren. `TestDeadPlaceholderRegistry` (`:279`) friert die
@@ -100,9 +115,40 @@ zweiter Codepfad.
 Weitere Konsequenz aus der Single-Source-Regel: **kein eigener Grafikpfad.**
 Ein gezeichneter Balken bräuchte einen eigenen `drawElement`-Zweig, den der
 Canvas nicht übernehmen kann. Deshalb ist der Progress-Balken ASCII
-(`[`, `#`, `-`, `]`). Unicode-Blockzeichen (U+2588/U+2591) sind verboten: die
-eingebettete Fallback-Schrift `goregular` hat diese Glyphen nicht, das Panel
-rendert Leerraum oder Tofu, während der Browser-Canvas korrekt aussieht.
+(`[`, `#`, `-`, `]`).
+
+### Zeichenvorrat: die Grenze ist U+0100, nicht ASCII
+
+Die Fallback-Schrift ist `goregular` (`preview.go:1453`, Cache-Key
+`__goregular__`); sie greift, sobald `fontFamily` nicht auflösbar ist. Ihr
+Glyphenvorrat ist die eigentliche Schranke — und die verläuft **nicht** bei
+ASCII:
+
+- **Erlaubt: alles unter U+0100 (Latin-1).** `ä ö ü ß Ä Ö Ü ° § « »` sind
+  non-ASCII und werden gerendert. Präzedenzfall ist `germanMonths` mit `März`
+  (`locale.go:22`), das über `preview.go:558` seit jeher auf beiden Panels
+  steht. Ein deutschsprachiges Widget darf und soll Umlaute schreiben.
+- **Verboten: alles ab U+0100.** Verifiziert fehlend sind die Blockzeichen
+  U+2588/U+2591 (`widget_progress.go:15`) — das Panel rendert Leerraum oder
+  Tofu, während der Browser-Canvas korrekt aussieht. Für den Rest gibt es
+  schlicht keinen verifizierten Präzedenzfall, und ein Fehlversuch ist auf dem
+  Panel still.
+
+Explizit verboten, weil man sie beim Formatieren von `Datum — Name` versehentlich
+tippt (oder der Editor sie einsetzt):
+
+| Falsch | Codepoint | Richtig |
+|---|---|---|
+| `–` En-Dash | U+2013 | `-` |
+| `—` Em-Dash | U+2014 | `-` oder ` - ` |
+| `…` Ellipse | U+2026 | `...` |
+| `„ " ' '` typografische Anführungszeichen | U+201E/U+201C/U+2018/U+2019 | `"` `'` |
+| `→` Pfeil | U+2192 | `->` |
+| `×` Malzeichen | U+00D7 | erlaubt (< U+0100), aber `x` ist eindeutiger |
+
+Achtung, kein Freibrief: `widget_hass` führt heute `—` (U+2014) und `…`
+(U+2026) in `locale.go:88,107`. Diese Strings sind **nie gegen das Panel
+verifiziert** worden — sie sind Altbestand, kein Präzedenzfall. Nicht kopieren.
 
 ---
 
@@ -165,6 +211,16 @@ Zahlen, keine Strings, keine Booleans.
 
 Datei: `server/internal/services/widget_<name>_test.go`.
 
+**`widget_registration_test.go` ist für das eigene Widget nicht anzufassen.**
+Die Registrierungstests iterieren über die aus dem `switch` abgeleitete
+Typenliste (`for _, widgetType := range dispatchWidgetTypes(t)`, `:207`) und
+decken jedes neue Widget ab, sobald sein `case` in `WidgetTextContent` steht —
+ohne Eintrag in irgendeiner Testliste. Einzige Ausnahme ist der Parity-Test
+(unten): der ist pro Widget handgeschrieben, weil die erwartete Vorkommenszahl
+in `widgets.js` widget-spezifisch ist. Wer eine Zahl in
+`widget_registration_test.go` anpassen zu müssen glaubt, hat vermutlich ein
+anderes Problem — siehe die Untergrenze `len(types) < 8` in Abschnitt 1.
+
 **Unit-Tests.** Tabellentest über die Widget-Logik, mit fixierter Uhr:
 
 ```go
@@ -177,7 +233,26 @@ func new<Name>Service(frozen time.Time) *PreviewService {
 
 (Muster: `widget_progress_test.go:14-18`.) Abzudecken: Defaults, `nil`-Props,
 ungültige Werte, Clamping, Grenzfälle der Domäne, Zerowert-Service ohne Panic.
-Ist Ausgabe ASCII-pflichtig (Balken, Tabellen), einen Byte-Test ergänzen.
+
+**Glyphen-Test — für jedes Widget, nicht nur für Balken.** Die Prüfung ist die
+Grenze aus Abschnitt 2: **jede Rune < U+0100**. `TestProgressASCIIOnly`
+(`widget_progress_test.go:213`) prüft bytweise `content[i] >= 0x80` und ist
+damit **strenger als nötig** — das ging nur durch, weil AC12 ausschließlich die
+reinen Balken-Layouts abdeckt. Ein deutschsprachiges Widget kann das nicht
+kopieren, es würde an jedem Umlaut scheitern. Stattdessen über Runen prüfen:
+
+```go
+for _, r := range content {
+    if r >= 0x100 {
+        t.Errorf("rune %U outside Latin-1 in %q", r, content)
+    }
+}
+```
+
+Diese Form fängt En-Dash, Em-Dash, Ellipse und typografische Anführungszeichen
+und lässt `März` durch. Enthält das Widget zusätzlich ein reines
+ASCII-Konstrukt (Balken, Tabelle, Spaltenraster), dafür separat auf `>= 0x80`
+prüfen.
 
 Zonen-abhängige Tests laden über einen Helper, der bei fehlender tzdata
 `t.Skip` macht (`mustLoadLocation`, `widget_progress_test.go:20-27`) — sonst
@@ -202,10 +277,24 @@ Schritte:
 3. Bei IANA-Timezone-Property zusätzlich in `goldenTZDesigns`
    (`golden_test.go:56`) eintragen — sonst schlägt der Test auf Hosts ohne
    tzdata mit einem irreführenden Pixel-Diff fehl statt zu skippen.
-4. Die Uhr ist bereits gepinnt: `newGoldenPreviewService` setzt `svc.now` auf
+4. **Design-Namen in `ditherDesigns` (`golden_test.go:344`) eintragen.** Das ist
+   eine **zweite, eigene Liste** neben `goldenDesigns` — ein Name in
+   `goldenDesigns` landet dort nicht automatisch. Wird der Schritt vergessen,
+   ist die Folge **still**: die Palette-Assertion läuft für dieses Design
+   einfach nie, alle Tests bleiben grün, und ein Widget mit Fremdfarbe im
+   Output fällt erst auf dem echten Panel auf. Der einzige Schritt hier ohne
+   rotes Warnsignal.
+
+   `assertPaletteExactness` (`:261`) arbeitet generisch über
+   `models.GetDisplayConfig(displayType).Colors` und prüft: Palettenlänge und
+   -reihenfolge exakt wie im Treiber, keine Fremdfarbe im Output, mindestens
+   zwei Palettenfarben genutzt. `goldenDisplays` (`:73`) enthält beide Profile —
+   `DisplayWaveshare75V2` (S/W) und `DisplayWaveshare73E` (6 Farben); dort ist
+   nichts zu registrieren, aber beide müssen grün sein.
+5. Die Uhr ist bereits gepinnt: `newGoldenPreviewService` setzt `svc.now` auf
    `goldenNow` (`golden_test.go:129`), ein `FixedZone`-Instant
-   `2026-07-20 12:00 +02:00`.
-5. Golden-PNGs für **beide** Displays erzeugen und im **selben** Commit wie der
+   `2026-07-20 12:00 +02:00`. Nichts zu tun, nur zur Kenntnis.
+6. Golden-PNGs für **beide** Displays erzeugen und im **selben** Commit wie der
    Renderer-Code einchecken (Konvention `golden_test.go:26-30`):
 
    ```
@@ -215,13 +304,24 @@ Schritte:
    Danach prüfen, dass im Diff **nur** die neuen PNGs erscheinen. `-update`
    niemals laufen lassen, um einen roten Test zu beruhigen.
 
-**Palette-Assertions für beide Displays.** Design-Namen in `ditherDesigns`
-(`golden_test.go:344`) eintragen. `assertPaletteExactness` (`:261`) arbeitet
-generisch über `models.GetDisplayConfig(displayType).Colors` und prüft:
-Palettenlänge und -reihenfolge exakt wie im Treiber, keine Fremdfarbe im
-Output, mindestens zwei Palettenfarben genutzt. `goldenDisplays` (`:73`)
-enthält beide Profile — `DisplayWaveshare75V2` (S/W) und `DisplayWaveshare73E`
-(6 Farben); es gibt nichts extra zu registrieren, aber beide müssen grün sein.
+7. **Die neuen PNGs mit den Augen anschauen — Pflicht, nicht optional.**
+
+   `-update` friert ein, was gerendert wurde, ohne zu bewerten, **ob** das
+   Gerenderte vollständig ist. Der F4-Implementierer hatte sein erstes
+   Textelement zu niedrig dimensioniert; die Ausgabe war mitten in einer Zeile
+   abgeschnitten, und `-update` hätte genau diesen Zustand als „korrekte"
+   Referenz festgeschrieben. Danach ist der Test dauerhaft grün und pinnt einen
+   Darstellungsfehler.
+
+   **Kein automatischer Check fängt das.** Der Golden-Vergleich prüft
+   Pixelgleichheit gegen die selbst erzeugte Datei, die Palettenprüfung nur die
+   Farbtabelle — beide sind mit einem abgeschnittenen Text genauso zufrieden wie
+   mit einem vollständigen. Nur der Blick auf das PNG entscheidet das.
+
+   Konkret prüfen: keine Zeile abgeschnitten (oben/unten/rechts), kein
+   ungewollter Umbruch, kein Tofu bei `ä`/`ö`/`ü`/`ß`, Elementhöhe trägt alle
+   Zeilen des größten Layouts (z. B. `count = 3`), und der Text steht innerhalb
+   seines Rahmens statt an ihm zu kleben.
 
 **`-count=1` ist Pflicht.**
 
@@ -238,8 +338,16 @@ Cache beweist nichts.
 
 ## 6. Netzgestützte Widgets
 
-Für Feiertage, Luftqualität, Strommix und ÖPNV gilt: die Infrastruktur
-existiert, sie wird **wiederverwendet**, nicht neu gebaut.
+Für Luftqualität, Strommix und ÖPNV gilt: die Infrastruktur existiert, sie
+wird **wiederverwendet**, nicht neu gebaut.
+
+> **Feiertage gehören ausdrücklich nicht in diese Liste.** F4 hat sich bewusst
+> gegen eine API und für lokale Berechnung entschieden (Osterformel +
+> Regeltabelle, `widget_holidays.go`): die Domäne ist reine Arithmetik über
+> `(Jahr, Bundesland)`, ein Netzaufruf würde ihr nur Latenz, einen Ausfallmodus
+> und Nicht-Determinismus hinzufügen. Kein Cache, kein `failCache`, kein
+> `safefetch.go`. Prüfe bei jedem neuen Widget zuerst, ob es überhaupt eine
+> externe Quelle **braucht** — Abschnitt 6 gilt nur, wenn ja.
 
 **Fetch + persistenter Cache — `services/weather.go`.**
 `WeatherService.FetchForLocation` (`:248-383`) ist das Referenzmuster:
@@ -348,12 +456,15 @@ Implementierung
 [ ] Uhr (falls zeitabhängig) einmal über nowOrDefault() in lokale Variable
 [ ] Zeitgrenzen via time.Date(..., loc), kein 24*time.Hour
 [ ] timezone-Property: leerer Wert = Serverzeit, ungültig = stiller Fallback
-[ ] Ausgabe ASCII-tauglich, keine Unicode-Blockzeichen (goregular hat sie nicht)
+[ ] jede Rune der Ausgabe < U+0100 (Umlaute ja, En-/Em-Dash, Ellipse,
+    typografische Anfuehrungszeichen, Blockzeichen nein)
 [ ] kein eigener drawElement-Zweig
 
 Registrierung (Reihenfolge)
 [ ] 7  preview.go widgetDefaultFontSizes
-[ ] 8  widgets/layouts.go allLayouts (+ allPlaceholders nur bei customTemplate)
+[ ] 8  widgets/layouts.go allLayouts (nur wenn props["layout"] gelesen wird)
+[ ] 8  widgets/layouts.go allPlaceholders (nur wenn props["customTemplate"]
+       gelesen wird — unabhaengig von allLayouts)
 [ ] 1  element-factory.js defaultSizes
 [ ] 2  element-factory.js getDefaultProperties (Zahlen bleiben Zahlen)
 [ ] 3  properties-panel.js getWidgetPropertyDefs
@@ -374,14 +485,18 @@ Tests
 [ ] Unit-Tabellentest mit fixierter Uhr (PreviewService{} + s.now)
 [ ] Zerowert-Service paniked nicht
 [ ] alle Property-Zahlen in Tests als float64(...), nie als int
+[ ] Glyphen-Test: jede Rune < 0x100 (nicht >= 0x80 kopieren)
+[ ] widget_registration_test.go NICHT angefasst (deckt neue Widgets selbst ab)
 [ ] Parity-Test: WidgetTextContent == fill<Name>Content
 [ ] Parity-Test: Typ kommt in widgets.js exakt N-mal vor (N = Rollen)
 [ ] testdata/designs/<name>.json mit fontFamily "testfont.ttf"
 [ ] Name in goldenDesigns
 [ ] Name in goldenTZDesigns (falls timezone-Property)
-[ ] Name in ditherDesigns (Palette-Assertion)
+[ ] Name in ditherDesigns — SEPARATE Liste, Vergessen faellt still aus
 [ ] Golden-PNGs für BEIDE Displays im selben Commit
 [ ] bestehende Golden-PNGs unverändert (git diff --stat prüfen)
+[ ] neue PNGs ANGESCHAUT: nichts abgeschnitten/umgebrochen — -update friert
+    auch eine truncated Ausgabe klaglos ein, kein Test merkt es
 
 Lesbarkeit
 [ ] farbkodierte Information hat eine S/W-taugliche Zweitform

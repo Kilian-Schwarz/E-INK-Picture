@@ -1,0 +1,32 @@
+{
+  "name": "golden-holidays",
+  "version": 2,
+  "canvas": { "width": 800, "height": 480, "background": "#FFFFFF" },
+  "elements": [
+    {
+      "id": "t_title", "type": "text",
+      "x": 24, "y": 16, "width": 752, "height": 44, "zIndex": 1, "visible": true,
+      "properties": { "text": "widget_holidays @ 2026-07-20 12:00 Europe/Berlin", "fontSize": 26, "color": "#000000", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "h_next_countdown", "type": "widget_holidays",
+      "x": 24, "y": 76, "width": 380, "height": 110, "zIndex": 2, "visible": true,
+      "properties": { "state": "DE", "layout": "next_countdown", "timezone": "Europe/Berlin", "color": "#000000", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "h_list_sn", "type": "widget_holidays",
+      "x": 24, "y": 200, "width": 380, "height": 110, "zIndex": 2, "visible": true,
+      "properties": { "state": "SN", "layout": "list", "count": 3, "timezone": "Europe/Berlin", "color": "#0000FF", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "h_next_by", "type": "widget_holidays",
+      "x": 24, "y": 324, "width": 380, "height": 110, "zIndex": 2, "visible": true,
+      "properties": { "state": "BY", "layout": "next", "timezone": "Europe/Berlin", "color": "#FF0000", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    },
+    {
+      "id": "t_note", "type": "text",
+      "x": 424, "y": 76, "width": 352, "height": 280, "zIndex": 1, "visible": true,
+      "properties": { "text": "Computed locally: Gauss Easter\nplus a per-Land rule table.\nNo network, no cache.\n\nEvery rune stays below U+0100,\nso goregular draws Buß- und\nBettag and Mariä Himmelfahrt.\n\nNo element pins fontSize: the Go\ndefault table (13) is rendered.", "fontSize": 18, "color": "#000000", "textAlign": "left", "fontFamily": "testfont.ttf" }
+    }
+  ]
+}

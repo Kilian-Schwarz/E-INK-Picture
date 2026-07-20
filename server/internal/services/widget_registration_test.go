@@ -184,6 +184,23 @@ func TestDispatchWidgetTypesFound(t *testing.T) {
 	}
 }
 
+// pendingFrontendRegistration lists widget types whose SERVER half has landed —
+// the WidgetTextContent case, the Go font-size table and the layouts.go entries
+// — while the six frontend registration points (element-factory.js,
+// properties-panel.js, widgets.js, designer.html) are still owned by a
+// follow-up task.
+//
+// It exists so a deliberately split task can land the Go half on a green suite.
+// It does NOT bless a half-registered widget: for a listed type the Go-side
+// points 7 and 8 are asserted as strictly as for any other, only the frontend
+// points are deferred. And the exemption is self-clearing — once all frontend
+// points ARE present, TestWidgetRegistrationCompleteness fails until the entry
+// is removed, so it cannot rot into a permanent hole.
+//
+// A widget type must not stay in this map beyond its follow-up task. An empty
+// map is the normal state of this repository.
+var pendingFrontendRegistration = map[string]bool{}
+
 // TestWidgetRegistrationCompleteness is AC3: every widget type served by the
 // Go dispatch must also be registered in all remaining seven places. A type
 // present in some places but not all fails here with the exact missing point.
@@ -206,6 +223,9 @@ func TestWidgetRegistrationCompleteness(t *testing.T) {
 	fills := dispatchWidgetFills(t)
 	for _, widgetType := range dispatchWidgetTypes(t) {
 		t.Run(widgetType, func(t *testing.T) {
+			fill := fills[widgetType]
+			pending := pendingFrontendRegistration[widgetType]
+
 			checks := []struct {
 				point string
 				where string
@@ -219,13 +239,34 @@ func TestWidgetRegistrationCompleteness(t *testing.T) {
 				{"5b", "widgets.js getPreviewFontSize", fontSizes, widgetType + ":"},
 				{"6", "designer.html widget palette", designerHTML, `data-type="` + widgetType + `"`},
 			}
+			// Point 5a only APPLIES to widgets that read props["layout"]; it is
+			// checked here rather than below so the pending-exemption counts it
+			// too, otherwise a listed type could never become fully registered.
+			if funcReadsProp(t, fill, "layout") {
+				checks = append(checks, struct {
+					point string
+					where string
+					body  string
+					token string
+				}{"5a", "widgets.js getDefaultLayout", defaultLayouts, widgetType + ":"})
+			}
+
+			frontendMissing := 0
 			for _, c := range checks {
-				if !strings.Contains(c.body, c.token) {
+				if strings.Contains(c.body, c.token) {
+					continue
+				}
+				frontendMissing++
+				if !pending {
 					t.Errorf("registration point %s missing: %q not found in %s", c.point, c.token, c.where)
 				}
 			}
+			if pending && frontendMissing == 0 {
+				t.Errorf("%q is listed in pendingFrontendRegistration but ALL frontend registration points are present — remove the entry so the exemption cannot rot", widgetType)
+			}
 
 			// Point 7: the Go font-size table (see also the parity test below).
+			// Asserted for pending types too: it is part of the server half.
 			if _, ok := widgetDefaultFontSizes[widgetType]; !ok {
 				t.Errorf("registration point 7 missing: %q absent from widgetDefaultFontSizes in preview.go", widgetType)
 			}
@@ -238,15 +279,10 @@ func TestWidgetRegistrationCompleteness(t *testing.T) {
 			// Both directions are asserted, so neither a missing registration
 			// nor a stale exemption can survive: the moment a fill*Content
 			// starts reading "layout", its layouts.go entry becomes mandatory.
-			fill := fills[widgetType]
-
 			hasLayouts := len(widgets.GetLayouts(widgetType)) > 1 || widgets.GetLayouts(widgetType)[0].ID != "default"
 			if funcReadsProp(t, fill, "layout") {
 				if !hasLayouts {
 					t.Errorf("registration point 8 missing: %s reads props[\"layout\"] but %q is absent from allLayouts in layouts.go (GetLayouts returned only the generic fallback)", fill, widgetType)
-				}
-				if !strings.Contains(defaultLayouts, widgetType+":") {
-					t.Errorf("registration point 5a missing: %s reads props[\"layout\"] but %q is absent from getDefaultLayout in widgets.js", fill, widgetType)
 				}
 			} else if hasLayouts {
 				t.Errorf("%q is registered in allLayouts but %s never reads props[\"layout\"] — dead layout entry, or the fill function lost its layout handling", widgetType, fill)
@@ -428,6 +464,104 @@ func TestProgressCanvasPanelParity(t *testing.T) {
 	}
 }
 
+// TestHolidaysCanvasPanelParity is F4 AC1 and AC2 on the frontend side.
+//
+// widget_holidays is a PASSTHROUGH widget, exactly like widget_progress: the
+// canvas must render the server's content string verbatim, so canvas and panel
+// cannot disagree by construction. The regression this test exists to catch is
+// not a wrong date — it is someone reimplementing the Easter algorithm, the
+// Buß- und Bettag rule or the per-Land rule table in JS so the canvas stops
+// waiting for the server. That fork would be invisible until a Land changes
+// its law and only one of the two sources gets updated.
+//
+// Mirrors TestProgressCanvasPanelParity; per docs/adding-a-widget.md this
+// parity test is the one thing written by hand for every new widget.
+func TestHolidaysCanvasPanelParity(t *testing.T) {
+	raw := frontendFile(t, "static/js/widgets.js")
+	src := stripJSComments(raw)
+
+	previewContent := jsFunctionBody(t, src, "getPreviewContent")
+
+	// 1. widget_holidays must sit in the passthrough branch, i.e. the same case
+	//    group whose body returns liveData.content untouched.
+	branch := passthroughBranch(t, previewContent)
+	if !strings.Contains(branch, "'widget_holidays'") {
+		t.Errorf("widget_holidays is not in the getPreviewContent passthrough case group; the passthrough group is:\n%s", branch)
+	}
+	if !strings.Contains(branch, "liveData.content") {
+		t.Errorf("the passthrough branch no longer returns liveData.content verbatim:\n%s", branch)
+	}
+
+	// 2. No JS-side content builder and no JS-side holiday math. These are the
+	//    identifiers and domain terms a reimplementation would need; the match
+	//    is case-insensitive so buildHolidayContent, EasterSunday and
+	//    BUNDESLAND are caught just as well as the spellings listed here.
+	lower := strings.ToLower(src)
+	for _, forbidden := range []string{
+		"buildholidays",
+		"holidaycontent",
+		"eastersunday",
+		"easter",
+		"ostersonntag",
+		"ostermontag",
+		"karfreitag",
+		"pfingst",
+		"neujahr",
+		"weihnacht",
+		"feiertag",
+		"bundesland",
+		"bussundbettag",
+		"buß- und bettag",
+		"holidaysforyear",
+		"upcomingholidays",
+	} {
+		if strings.Contains(lower, forbidden) {
+			t.Errorf("widgets.js contains %q — that looks like holiday logic moving into the frontend, which would fork the single source in widget_holidays.go", forbidden)
+		}
+	}
+
+	// 3. The word "holiday" may occur in widgets.js only as part of the three
+	//    registered widget_holidays roles. This is the catch-all for any helper
+	//    the explicit list above does not happen to name.
+	if n, want := strings.Count(lower, "holiday"), 3; n != want {
+		t.Errorf("the substring \"holiday\" occurs %d times in widgets.js (comments stripped), want exactly %d — one per registered widget_holidays role; any extra occurrence is a second code path by definition", n, want)
+	}
+
+	// 4. widget_holidays may appear in widgets.js only in its three registered
+	//    roles (AC1).
+	wantForms := []string{
+		"case 'widget_holidays':",            // getPreviewContent passthrough
+		"widget_holidays: 'next_countdown',", // getDefaultLayout
+		"widget_holidays: 13,",               // getPreviewFontSize
+	}
+	occurrences := strings.Count(src, "widget_holidays")
+	if occurrences != len(wantForms) {
+		t.Errorf("widget_holidays appears %d times in widgets.js (comments stripped), want exactly %d — one per registered role",
+			occurrences, len(wantForms))
+	}
+	for _, form := range wantForms {
+		if !strings.Contains(src, form) {
+			t.Errorf("expected registered form %q not found in widgets.js", form)
+		}
+	}
+
+	// 5. The Go dispatch really is the single source for the panel: the
+	//    exported entry point and the drawElement path must agree. Both read
+	//    fillHolidaysContent, so this pins that they still do.
+	svc := newHolidaysService(goldenNow)
+	props := map[string]any{"state": "DE", "layout": "next_countdown", "timezone": "Europe/Berlin"}
+	content, ok := svc.WidgetTextContent("widget_holidays", props)
+	if !ok {
+		t.Fatal("WidgetTextContent(widget_holidays) returned ok == false")
+	}
+	if direct := svc.fillHolidaysContent(props); direct != content {
+		t.Errorf("WidgetTextContent = %q but fillHolidaysContent = %q — the dispatch is no longer a pure pass-through", content, direct)
+	}
+	if want := "Tag der Deutschen Einheit\nSa, 03.10.2026 (in 75 Tagen)"; content != want {
+		t.Errorf("content = %q, want %q — the value pinned by the golden design and the spec", content, want)
+	}
+}
+
 // passthroughBranch extracts the fall-through case group of getPreviewContent
 // that ends in the liveData.content return.
 func passthroughBranch(t *testing.T, previewContent string) string {
@@ -489,7 +623,12 @@ func TestWidgetDefaultFontSizesMatchFrontend(t *testing.T) {
 	for typ, goSize := range goSizes {
 		jsSize, ok := jsSizes[typ]
 		if !ok {
-			t.Errorf("%s = %d in preview.go but missing from widgets.js getPreviewFontSize", typ, goSize)
+			// A type awaiting its frontend registration task legitimately has
+			// no widgets.js entry yet; the drift check applies again the moment
+			// the entry appears. See pendingFrontendRegistration.
+			if !pendingFrontendRegistration[typ] {
+				t.Errorf("%s = %d in preview.go but missing from widgets.js getPreviewFontSize", typ, goSize)
+			}
 			continue
 		}
 		if jsSize != goSize {
@@ -511,7 +650,7 @@ func TestWidgetDefaultFontSizesMatchFrontend(t *testing.T) {
 		if _, ok := goSizes[widgetType]; !ok {
 			t.Errorf("%s relies on the Go fallback (%d); widgets.js falls back to 14, so canvas and panel would disagree", widgetType, widgetFallbackFontSize)
 		}
-		if _, ok := jsSizes[widgetType]; !ok {
+		if _, ok := jsSizes[widgetType]; !ok && !pendingFrontendRegistration[widgetType] {
 			t.Errorf("%s relies on the widgets.js fallback (14); preview.go falls back to %d, so canvas and panel would disagree", widgetType, widgetFallbackFontSize)
 		}
 	}

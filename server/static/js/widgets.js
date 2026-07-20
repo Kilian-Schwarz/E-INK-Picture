@@ -81,6 +81,7 @@ var WidgetPreview = {
             case 'widget_custom':
             case 'widget_hass':
             case 'widget_progress':
+            case 'widget_holidays':
                 return (liveData && typeof liveData.content === 'string')
                     ? liveData.content
                     : this._widgetTypeLabel(type);
@@ -103,6 +104,7 @@ var WidgetPreview = {
             widget_system: 'vertical',
             widget_timer: 'countdown_large',
             widget_progress: 'bar_percent',
+            widget_holidays: 'next_countdown',
         };
         return defaults[type] || 'default';
     },
@@ -230,6 +232,10 @@ var WidgetPreview = {
             widget_hass: 18,
             // Must match preview.go's defaultFontSize for widget_progress (18).
             widget_progress: 18,
+            // Must match preview.go's widgetDefaultFontSizes for
+            // widget_holidays (13); pinned by
+            // TestWidgetDefaultFontSizesMatchFrontend.
+            widget_holidays: 13,
         };
         return defaults[type] || 14;
     },

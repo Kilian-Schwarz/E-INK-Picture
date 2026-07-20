@@ -72,6 +72,12 @@ var allLayouts = map[string][]WidgetLayout{
 		{ID: "full", Name: "Full", Description: "Count, bar and percentage"},
 		{ID: "custom", Name: "Custom Template", Description: "Define your own format"},
 	},
+	"widget_holidays": {
+		{ID: "next", Name: "Next", Description: "Next holiday with name and date"},
+		{ID: "next_countdown", Name: "Next + Countdown", Description: "Next holiday with days remaining"},
+		{ID: "list", Name: "List", Description: "The next few holidays, one per line"},
+		{ID: "custom", Name: "Custom Template", Description: "Define your own format"},
+	},
 }
 
 // Placeholders returns available placeholder keys for a widget type.
@@ -115,5 +121,8 @@ var allPlaceholders = map[string][]string{
 	"widget_progress": {
 		"%bar%", "%percent%", "%current%",
 		"%total%", "%remaining%", "%period%",
+	},
+	"widget_holidays": {
+		"%name%", "%date%", "%weekday%", "%days%", "%state%",
 	},
 }

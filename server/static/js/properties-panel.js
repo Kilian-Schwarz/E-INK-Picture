@@ -1152,6 +1152,46 @@ var PropertiesPanel = {
                 timezone: { label: 'Timezone (empty = server)', type: 'text', default: '' },
                 fontSize: { label: 'Font Size', type: 'number', default: 18, min: 8, max: 200 },
             },
+            // F4 holidays widget. Defaults and the count range mirror
+            // widget_holidays.go (holidayMinCount/holidayMaxCount); the server
+            // clamps anyway, min/max here just stops the spinner from offering
+            // values that would be silently rewritten.
+            //
+            // "layout" deliberately has NO entry here: renderWidgetProperties
+            // already renders a generic Layout dropdown fed from layouts.go via
+            // loadAndPopulateLayouts, so a def would paint a second one.
+            // Same for "customTemplate" (own textarea + placeholder chips).
+            //
+            // "DE" is first and labelled "Bundesweit (alle Länder)", NOT
+            // "Deutschland": as a Bundesland label it would read like a 17th
+            // state and the user would file the nine-holiday result as a bug.
+            widget_holidays: {
+                state: {
+                    label: 'Bundesland', type: 'select', default: 'DE',
+                    options: [
+                        { value: 'DE', label: 'Bundesweit (alle Länder)' },
+                        { value: 'BW', label: 'Baden-Württemberg' },
+                        { value: 'BY', label: 'Bayern' },
+                        { value: 'BE', label: 'Berlin' },
+                        { value: 'BB', label: 'Brandenburg' },
+                        { value: 'HB', label: 'Bremen' },
+                        { value: 'HH', label: 'Hamburg' },
+                        { value: 'HE', label: 'Hessen' },
+                        { value: 'MV', label: 'Mecklenburg-Vorpommern' },
+                        { value: 'NI', label: 'Niedersachsen' },
+                        { value: 'NW', label: 'Nordrhein-Westfalen' },
+                        { value: 'RP', label: 'Rheinland-Pfalz' },
+                        { value: 'SL', label: 'Saarland' },
+                        { value: 'SN', label: 'Sachsen' },
+                        { value: 'ST', label: 'Sachsen-Anhalt' },
+                        { value: 'SH', label: 'Schleswig-Holstein' },
+                        { value: 'TH', label: 'Thüringen' },
+                    ],
+                },
+                count: { label: 'Count (list layout)', type: 'number', default: 3, min: 1, max: 10 },
+                timezone: { label: 'Timezone (empty = server)', type: 'text', default: '' },
+                fontSize: { label: 'Font Size', type: 'number', default: 13, min: 8, max: 200 },
+            },
         };
         return defs[type] || {};
     },

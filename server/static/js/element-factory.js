@@ -128,6 +128,13 @@ const ElementFactory = {
             // "[##########----------] 54%" (26 monospace chars @ 18px),
             // tall enough for the two-line "full" layout.
             widget_progress: { w: 320, h: 60 },
+            // The label is a wrapping fabric.Textbox and updatePreview sets its
+            // width to w - 16. The longest default line is the list layout's
+            // "Sa, 03.10.2026  Tag der Deutschen Einheit" (41 chars); at
+            // fontSize 13 that is ~283px, so w = 380 leaves ~80px of slack.
+            // w = 300 would leave ~1px and wrap on any font-metric drift.
+            // h = 110 carries count = 3; count = 10 needs manual resizing.
+            widget_holidays: { w: 380, h: 110 },
         };
 
         var size = defaultSizes[type] || { w: 200, h: 100 };
@@ -294,6 +301,26 @@ const ElementFactory = {
                 customTemplate: '%bar% %percent%',
                 fontFamily: 'monospace',
                 fontSize: 18,
+                color: '#000000',
+                textAlign: 'left'
+            },
+            // F4 holidays widget. Every default MUST mirror
+            // internal/services/widget_holidays.go (holidayDefault* consts),
+            // otherwise a freshly dropped widget and the server string it
+            // renders would disagree on the very first frame.
+            // state 'DE' is the "nationwide only" sentinel, not a Bundesland:
+            // it is a strict subset of every Land, so a misconfiguration can
+            // only omit a holiday, never claim a workday is one.
+            // count stays a NUMBER: the server's GetPropInt decodes only
+            // float64 and string, so a quoted "3" would work but an unquoted
+            // number is what a design JSON round-trips to.
+            widget_holidays: {
+                state: 'DE',
+                layout: 'next_countdown',
+                count: 3,
+                timezone: '',
+                customTemplate: '%name% (%date%)',
+                fontSize: 13,
                 color: '#000000',
                 textAlign: 'left'
             },

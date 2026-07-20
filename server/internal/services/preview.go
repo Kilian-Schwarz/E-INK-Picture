@@ -366,6 +366,7 @@ var widgetDefaultFontSizes = map[string]int{
 	"widget_timer":    24,
 	"widget_hass":     18,
 	"widget_progress": 18,
+	"widget_holidays": 13,
 }
 
 // widgetFallbackFontSize applies to element types absent from the table above.
@@ -410,6 +411,8 @@ func (s *PreviewService) WidgetTextContent(elemType string, props map[string]any
 		return s.fillHassContent(props), true
 	case "widget_progress":
 		return s.fillProgressContent(props), true
+	case "widget_holidays":
+		return s.fillHolidaysContent(props), true
 	default:
 		return "", false
 	}

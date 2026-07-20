@@ -230,6 +230,20 @@ func TestWidgetContentEndpointMatchesDispatcher(t *testing.T) {
 			props:    map[string]any{"period": "year", "layout": "custom", "customTemplate": "%period%=%percent%", "timezone": "UTC"},
 			contains: []string{"Jahr="},
 			omits:    []string{"["}},
+
+		// widget_holidays needs no fixture either: the rule table and the
+		// Easter algorithm are local arithmetic over (year, state).
+		{name: "holidays next_countdown", typ: "widget_holidays",
+			props:    map[string]any{"state": "DE", "layout": "next_countdown", "timezone": "UTC"},
+			contains: []string{"\n", ".20", "("}},
+		{name: "holidays list saxony", typ: "widget_holidays",
+			props:    map[string]any{"state": "SN", "layout": "list", "count": float64(3), "timezone": "UTC"},
+			contains: []string{"\n", "  "},
+			omits:    []string{"("}},
+		{name: "holidays custom template", typ: "widget_holidays",
+			props:    map[string]any{"state": "BY", "layout": "custom", "customTemplate": "L=%state%", "timezone": "UTC"},
+			contains: []string{"L=Bayern"},
+			omits:    []string{"\n"}},
 	}
 
 	for _, tc := range cases {
@@ -260,6 +274,27 @@ func TestWidgetContentEndpointMatchesDispatcher(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestWidgetHolidaysContentWithoutProperties is F4 AC3: a widget_holidays
+// element carrying no properties at all — a widget freshly dragged from the
+// palette before the panel has written any defaults — must answer 200 with
+// non-empty content, not 400. Every property of the widget is optional.
+func TestWidgetHolidaysContentWithoutProperties(t *testing.T) {
+	svc := newContentTestService(t)
+	h := NewWidgetHandler(svc)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/widget_content", h.Content)
+
+	for _, props := range []map[string]any{nil, {}} {
+		code, content := postContent(t, mux, "widget_holidays", props)
+		if code != http.StatusOK {
+			t.Fatalf("POST widget_holidays props=%v = %d, want 200", props, code)
+		}
+		if content == "" {
+			t.Errorf("props=%v produced empty content; the DE default must always yield a holiday", props)
+		}
 	}
 }
 

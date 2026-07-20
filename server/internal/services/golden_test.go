@@ -31,7 +31,7 @@ import (
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
 
 // goldenDesigns are the deterministic test designs under testdata/designs/.
-var goldenDesigns = []string{"basic", "gradient", "rotation", "calibration", "rounding", "progress"}
+var goldenDesigns = []string{"basic", "gradient", "rotation", "calibration", "rounding", "progress", "holidays"}
 
 // goldenNow is the instant every golden PreviewService clock is pinned to:
 // 2026-07-20 12:00:00 +02:00 == Monday, 2026-07-20 12:00 Europe/Berlin (CEST)
@@ -53,7 +53,7 @@ var goldenNow = time.Date(2026, 7, 20, 12, 0, 0, 0, time.FixedZone("CEST", 2*60*
 // property. Rendering them reproducibly requires host tzdata; without it
 // time.LoadLocation fails and widget_progress silently falls back to server
 // time, which would surface as an unexplained pixel diff.
-var goldenTZDesigns = map[string]string{"progress": "Europe/Berlin"}
+var goldenTZDesigns = map[string]string{"progress": "Europe/Berlin", "holidays": "Europe/Berlin"}
 
 // skipIfTimezoneUnavailable skips a golden subtest when the design needs an
 // IANA zone the host cannot load. Skipping keeps the suite honest on minimal
@@ -339,9 +339,11 @@ func TestPaletteExactness(t *testing.T) {
 		models.RenderQualityHigh,
 	}
 
-	// progress is included so AC10 holds for the widget design too: no foreign
-	// RGB value on either profile and at least two palette colors used.
-	ditherDesigns := []string{"gradient", "rotation", "calibration", "rounding", "progress"}
+	// progress and holidays are included so AC10 holds for the widget designs
+	// too: no foreign RGB value on either profile and at least two palette
+	// colors used. This list is the leakiest of the four golden registration
+	// points — a design missing here is never palette-checked at all.
+	ditherDesigns := []string{"gradient", "rotation", "calibration", "rounding", "progress", "holidays"}
 
 	for _, designName := range ditherDesigns {
 		for _, displayType := range goldenDisplays {
