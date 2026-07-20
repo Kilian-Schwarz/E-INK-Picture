@@ -25,9 +25,10 @@ func paletteFromHex(hexColors []string) color.Palette {
 // quantizeForDisplay reduces img to the display's driver palette in two stages:
 //
 //  1. Error diffusion (Floyd-Steinberg or Atkinson) against the DITHER
-//     palette. With calibration "default" this is the profile's perceptual
-//     panel palette (preceded by the profile's precompensation pass); with
-//     "off" it is the ideal driver palette — the byte-exact legacy path.
+//     palette, performed in LINEAR LIGHT (see ditherErrorDiffusion). With
+//     calibration "default" this is the profile's perceptual panel palette
+//     (preceded by the profile's precompensation pass); with "off" it is the
+//     ideal driver palette.
 //  2. Index-preserving palette swap: the paletted image's palette is replaced
 //     with the pure driver palette. Pixel indices stay untouched, so the
 //     encoded PNG contains EXCLUSIVELY driver colors; the perceptual palette
@@ -55,14 +56,12 @@ func quantizeForDisplay(img image.Image, cfg models.DisplayConfig, algo models.D
 		}
 	}
 
-	bounds := img.Bounds()
 	var paletted *image.Paletted
 	switch algo {
 	case models.DitherAtkinson:
 		paletted = ditherAtkinson(img, ditherPal)
 	default: // floyd_steinberg
-		paletted = image.NewPaletted(bounds, ditherPal)
-		draw.FloydSteinberg.Draw(paletted, bounds, img, image.Point{})
+		paletted = ditherFloydSteinberg(img, ditherPal)
 	}
 
 	// Stage 2: index-preserving swap back to the pure driver colors.
@@ -86,8 +85,19 @@ func clampChannel(v int32) int32 {
 // *image.RGBA input it mutates src IN PLACE (no full-canvas copy — see the
 // ownership contract on quantizeForDisplay); other image types are copied
 // into a fresh RGBA first. Callers must skip identity presets entirely
-// (quantizeForDisplay does) so the byte-identity guarantees for uncalibrated
-// profiles hold.
+// (quantizeForDisplay does): a {1,1,1} preset is not exactly a no-op once it
+// round-trips through the LUT, so skipping is what keeps calibration
+// "default" byte-identical to "off" on identity profiles such as the 7.5" V2
+// (asserted by TestCalibrationAffectsOnlyCalibratedProfiles).
+//
+// NOTE: this pass still operates on gamma-encoded sRGB values. That is
+// deliberate — it is a calibration/appearance control, not part of the
+// colorimetric quantization, which linearizes downstream in
+// ditherErrorDiffusion.
+//
+// The former byte-identity guarantee against the pre-E1.6 stdlib
+// Floyd-Steinberg output is INTENTIONALLY GONE: that path diffused error in
+// the gamma-encoded domain and rendered mid-tones systematically too light.
 func precompensate(src image.Image, p models.PrecompensationPreset) *image.RGBA {
 	bounds := src.Bounds()
 	dst, ok := src.(*image.RGBA)
@@ -126,20 +136,140 @@ func precompensate(src image.Image, p models.PrecompensationPreset) *image.RGBA 
 	return dst
 }
 
-// ditherAtkinson quantizes src against pal using Atkinson error diffusion.
-// Definition (binding, see specs/E1.6-panel-calibration.md):
-//   - scan row-major, left to right, top to bottom, no serpentine,
-//   - value_c = clamp(src_c + acc_c, 0, 255),
-//   - nearest match by squared RGB distance, ties resolved to the LOWEST
-//     palette index,
-//   - err_c = value_c - palette[idx]_c, diffused as err_c/8 (Go integer
-//     division, truncation toward zero) to exactly six neighbors:
-//     (x+1,y), (x+2,y), (x-1,y+1), (x,y+1), (x+1,y+1), (x,y+2);
-//     out-of-bounds shares and the remaining 2/8 are dropped by design.
-//
-// The implementation is float-free and uses a rolling 3-row int32 error
-// buffer (~29 KB at 800px width).
+// sRGB transfer function constants (IEC 61966-2-1). The linear segment below
+// the 0.04045 breakpoint is part of the standard — the widespread "gamma 2.2"
+// approximation is NOT the sRGB curve and diverges most in the deep shadows.
+const (
+	srgbLinearCutoff  = 0.04045
+	srgbInverseCutoff = 0.0031308
+	srgbSlope         = 12.92
+	srgbAlpha         = 0.055
+	srgbExponent      = 2.4
+)
+
+// Rec.709 / sRGB luminance coefficients. They map LINEAR RGB to CIE Y; applied
+// to gamma-encoded values they would yield luma (Y'), a different quantity.
+const (
+	lumaR = 0.2126
+	lumaG = 0.7152
+	lumaB = 0.0722
+)
+
+// srgbToLinear converts a gamma-encoded sRGB channel in [0,1] to linear light.
+func srgbToLinear(c float64) float64 {
+	if c <= srgbLinearCutoff {
+		return c / srgbSlope
+	}
+	return math.Pow((c+srgbAlpha)/(1+srgbAlpha), srgbExponent)
+}
+
+// linearToSRGB is the exact inverse of srgbToLinear for inputs in [0,1].
+func linearToSRGB(v float64) float64 {
+	if v <= srgbInverseCutoff {
+		return v * srgbSlope
+	}
+	return (1+srgbAlpha)*math.Pow(v, 1/srgbExponent) - srgbAlpha
+}
+
+// srgb8ToLinear is a lookup table for the 256 possible 8-bit sRGB channel
+// values, so the pixel loop never calls math.Pow.
+var srgb8ToLinear = func() [256]float32 {
+	var lut [256]float32
+	for i := range lut {
+		lut[i] = float32(srgbToLinear(float64(i) / 255))
+	}
+	return lut
+}()
+
+// diffusionOffset is one neighbor share of an error diffusion kernel. dx is
+// given for a left-to-right pass and is mirrored on serpentine return rows.
+type diffusionOffset struct {
+	dx, dy int
+	weight float32
+}
+
+// diffusionKernel describes an error diffusion algorithm. rows is the number
+// of error accumulator rows required (1 + max dy).
+type diffusionKernel struct {
+	offsets []diffusionOffset
+	rows    int
+}
+
+// floydSteinbergKernel distributes the FULL error over 4 neighbors, which
+// preserves mean luminance exactly.
+var floydSteinbergKernel = diffusionKernel{
+	rows: 2,
+	offsets: []diffusionOffset{
+		{1, 0, 7.0 / 16},
+		{-1, 1, 3.0 / 16},
+		{0, 1, 5.0 / 16},
+		{1, 1, 1.0 / 16},
+	},
+}
+
+// atkinsonKernel spreads only 6/8 of the error over 6 neighbors; the dropped
+// 2/8 is what gives Atkinson its higher contrast and quieter flat areas.
+var atkinsonKernel = diffusionKernel{
+	rows: 3,
+	offsets: []diffusionOffset{
+		{1, 0, 1.0 / 8},
+		{2, 0, 1.0 / 8},
+		{-1, 1, 1.0 / 8},
+		{0, 1, 1.0 / 8},
+		{1, 1, 1.0 / 8},
+		{0, 2, 1.0 / 8},
+	},
+}
+
+// ditherFloydSteinberg quantizes src against pal using Floyd-Steinberg error
+// diffusion in linear light with a serpentine scan.
+func ditherFloydSteinberg(src image.Image, pal color.Palette) *image.Paletted {
+	return ditherErrorDiffusion(src, pal, floydSteinbergKernel)
+}
+
+// ditherAtkinson quantizes src against pal using Atkinson error diffusion in
+// linear light with a serpentine scan.
 func ditherAtkinson(src image.Image, pal color.Palette) *image.Paletted {
+	return ditherErrorDiffusion(src, pal, atkinsonKernel)
+}
+
+// isGrayscalePalette reports whether every palette entry is achromatic.
+func isGrayscalePalette(pal color.Palette) bool {
+	for _, c := range pal {
+		r, g, b, _ := c.RGBA()
+		if r != g || g != b {
+			return false
+		}
+	}
+	return len(pal) > 0
+}
+
+// ditherErrorDiffusion is the single quantizer for both dither algorithms.
+// Binding definition (supersedes the 8-bit integer Atkinson of E1.6):
+//
+//   - Source and palette channels are linearized with the exact sRGB transfer
+//     function before anything else. Dithering reconstructs a color by spatial
+//     averaging, and that averaging happens physically in linear light — only
+//     a linear-space error diffusion is energy preserving. Diffusing in the
+//     gamma-encoded domain makes every mid-tone systematically too light
+//     (sRGB #808080 would become ~50% white pixels instead of the correct
+//     ~21.4%, its actual relative luminance).
+//   - For an achromatic palette (epd7in5_V2) the source is desaturated with
+//     the Rec.709 coefficients applied to the LINEARIZED channels, i.e. true
+//     relative luminance Y, not luma.
+//   - Scan is serpentine: even rows left-to-right, odd rows right-to-left with
+//     mirrored kernel dx. This removes the directional error drift that shows
+//     up as diagonal worms and edge streaks.
+//   - value_c = clamp(src_c + acc_c, 0, 1) — clamping the value (not the
+//     error) bounds the per-pixel error to [-1,1] and, since the kernel
+//     weights sum to <= 1, keeps the accumulator bounded without a separate
+//     error clamp.
+//   - Nearest match by squared Euclidean distance in linear RGB; ties resolve
+//     to the LOWEST palette index (strict <).
+//
+// The accumulator is float32 and rolls over kernel.rows rows (~29 KB at 800px
+// width for Atkinson).
+func ditherErrorDiffusion(src image.Image, pal color.Palette, kernel diffusionKernel) *image.Paletted {
 	bounds := src.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
 	paletted := image.NewPaletted(bounds, pal)
@@ -147,45 +277,66 @@ func ditherAtkinson(src image.Image, pal color.Palette) *image.Paletted {
 		return paletted
 	}
 
-	// Palette channels as 8-bit values in int32.
-	pr := make([]int32, len(pal))
-	pg := make([]int32, len(pal))
-	pb := make([]int32, len(pal))
+	// Palette in linear light.
+	pr := make([]float32, len(pal))
+	pg := make([]float32, len(pal))
+	pb := make([]float32, len(pal))
 	for i, c := range pal {
 		r, g, b, _ := c.RGBA()
-		pr[i], pg[i], pb[i] = int32(r>>8), int32(g>>8), int32(b>>8)
+		pr[i] = srgb8ToLinear[r>>8]
+		pg[i] = srgb8ToLinear[g>>8]
+		pb[i] = srgb8ToLinear[b>>8]
 	}
 
-	// Rolling error buffer for rows y, y+1, y+2; 3 channels per pixel.
-	row0 := make([]int32, w*3)
-	row1 := make([]int32, w*3)
-	row2 := make([]int32, w*3)
+	gray := isGrayscalePalette(pal)
+	if gray {
+		for i := range pr {
+			y := lumaR*pr[i] + lumaG*pg[i] + lumaB*pb[i]
+			pr[i], pg[i], pb[i] = y, y, y
+		}
+	}
+
+	// Rolling error accumulator: kernel.rows rows, 3 channels per pixel.
+	rows := make([][]float32, kernel.rows)
+	for i := range rows {
+		rows[i] = make([]float32, w*3)
+	}
 
 	rgbaSrc, _ := src.(*image.RGBA)
 
 	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			var sr, sg, sb int32
-			if rgbaSrc != nil {
-				o := rgbaSrc.PixOffset(bounds.Min.X+x, bounds.Min.Y+y)
-				sr = int32(rgbaSrc.Pix[o])
-				sg = int32(rgbaSrc.Pix[o+1])
-				sb = int32(rgbaSrc.Pix[o+2])
-			} else {
-				r, g, b, _ := src.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
-				sr, sg, sb = int32(r>>8), int32(g>>8), int32(b>>8)
+		reverse := y%2 == 1
+		for i := 0; i < w; i++ {
+			x := i
+			if reverse {
+				x = w - 1 - i
 			}
 
-			vr := clampChannel(sr + row0[x*3])
-			vg := clampChannel(sg + row0[x*3+1])
-			vb := clampChannel(sb + row0[x*3+2])
+			var sr, sg, sb float32
+			if rgbaSrc != nil {
+				o := rgbaSrc.PixOffset(bounds.Min.X+x, bounds.Min.Y+y)
+				sr = srgb8ToLinear[rgbaSrc.Pix[o]]
+				sg = srgb8ToLinear[rgbaSrc.Pix[o+1]]
+				sb = srgb8ToLinear[rgbaSrc.Pix[o+2]]
+			} else {
+				r, g, b, _ := src.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
+				sr = srgb8ToLinear[r>>8]
+				sg = srgb8ToLinear[g>>8]
+				sb = srgb8ToLinear[b>>8]
+			}
+			if gray {
+				yl := lumaR*sr + lumaG*sg + lumaB*sb
+				sr, sg, sb = yl, yl, yl
+			}
+
+			vr := clampUnit(sr + rows[0][x*3])
+			vg := clampUnit(sg + rows[0][x*3+1])
+			vb := clampUnit(sb + rows[0][x*3+2])
 
 			best := 0
-			bestDist := int32(math.MaxInt32)
+			bestDist := float32(math.MaxFloat32)
 			for i := range pr {
-				dr := vr - pr[i]
-				dg := vg - pg[i]
-				db := vb - pb[i]
+				dr, dg, db := vr-pr[i], vg-pg[i], vb-pb[i]
 				// Strict < keeps the lowest index on equal distances.
 				if d := dr*dr + dg*dg + db*db; d < bestDist {
 					best, bestDist = i, d
@@ -193,41 +344,44 @@ func ditherAtkinson(src image.Image, pal color.Palette) *image.Paletted {
 			}
 			paletted.Pix[y*paletted.Stride+x] = uint8(best)
 
-			er := (vr - pr[best]) / 8
-			eg := (vg - pg[best]) / 8
-			eb := (vb - pb[best]) / 8
+			er := vr - pr[best]
+			eg := vg - pg[best]
+			eb := vb - pb[best]
 			if er == 0 && eg == 0 && eb == 0 {
 				continue
 			}
-			if x+1 < w {
-				row0[(x+1)*3] += er
-				row0[(x+1)*3+1] += eg
-				row0[(x+1)*3+2] += eb
+			for _, off := range kernel.offsets {
+				dx := off.dx
+				if reverse {
+					dx = -dx
+				}
+				nx := x + dx
+				if nx < 0 || nx >= w {
+					continue
+				}
+				row := rows[off.dy]
+				row[nx*3] += er * off.weight
+				row[nx*3+1] += eg * off.weight
+				row[nx*3+2] += eb * off.weight
 			}
-			if x+2 < w {
-				row0[(x+2)*3] += er
-				row0[(x+2)*3+1] += eg
-				row0[(x+2)*3+2] += eb
-			}
-			if x > 0 {
-				row1[(x-1)*3] += er
-				row1[(x-1)*3+1] += eg
-				row1[(x-1)*3+2] += eb
-			}
-			row1[x*3] += er
-			row1[x*3+1] += eg
-			row1[x*3+2] += eb
-			if x+1 < w {
-				row1[(x+1)*3] += er
-				row1[(x+1)*3+1] += eg
-				row1[(x+1)*3+2] += eb
-			}
-			row2[x*3] += er
-			row2[x*3+1] += eg
-			row2[x*3+2] += eb
 		}
-		row0, row1, row2 = row1, row2, row0
-		clear(row2)
+
+		// Rotate: row 0 is consumed, the trailing row is reused zeroed.
+		first := rows[0]
+		copy(rows, rows[1:])
+		clear(first)
+		rows[len(rows)-1] = first
 	}
 	return paletted
+}
+
+// clampUnit clamps a linear-light channel value to [0, 1].
+func clampUnit(v float32) float32 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }

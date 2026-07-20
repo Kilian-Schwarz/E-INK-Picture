@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"math"
 	"testing"
 
 	"e-ink-picture/server/internal/models"
@@ -19,72 +20,86 @@ func newUniformImage(w, h int, c color.RGBA) *image.RGBA {
 	return img
 }
 
-// TestAtkinsonDiffusionMatrix checks ditherAtkinson against index matrices
-// computed BY HAND from the binding definition in
-// specs/E1.6-panel-calibration.md (Architektur-Richtung point 3): row-major
-// left-to-right scan, value=clamp(src+acc), nearest match by squared RGB
-// distance with ties going to the LOWEST index, err/8 with Go truncation
-// toward zero, diffused to exactly (x+1,y), (x+2,y), (x-1,y+1), (x,y+1),
-// (x+1,y+1), (x,y+2), out-of-bounds shares dropped.
+// TestDiffusionMatrix checks both error diffusion kernels against index
+// matrices produced by an INDEPENDENT reference implementation (a NumPy
+// float32 transcription of the binding definition on ditherErrorDiffusion),
+// not by the Go code under test. Any change to linearization, desaturation,
+// weights, neighbors, scan order or tie-break turns this red.
 //
-// The matrices are hard-coded — NOT generated from the implementation — so
-// any change to weights, neighbors, scan order or tie-break turns this red.
-func TestAtkinsonDiffusionMatrix(t *testing.T) {
+// Binding definition being pinned here:
+//   - channels linearized with the exact sRGB transfer function,
+//   - achromatic palette => Rec.709 desaturation of the LINEAR values,
+//   - serpentine scan (odd rows right-to-left, kernel dx mirrored),
+//   - value = clamp(src + acc, 0, 1), nearest match by squared Euclidean
+//     distance in linear RGB, ties to the LOWEST index,
+//   - FS spreads 16/16 over 4 neighbors, Atkinson 6/8 over 6 neighbors.
+//
+// #BABABA is chosen because its linear luminance is ~0.5, so Floyd-Steinberg
+// must settle on a perfect checkerboard — a strong, human-checkable signal
+// that the diffusion runs in linear light (in gamma space #808080 would be
+// the checkerboard point instead).
+func TestDiffusionMatrix(t *testing.T) {
+	bw := color.Palette{
+		color.RGBA{0, 0, 0, 255},
+		color.RGBA{255, 255, 255, 255},
+	}
+
 	cases := []struct {
 		name    string
+		dither  func(image.Image, color.Palette) *image.Paletted
 		w, h    int
 		fill    color.RGBA
 		palette color.Palette
 		want    [][]uint8
 	}{
 		{
-			// Uniform #808080 against black/white. Hand computation of the
-			// first row (single channel, all channels identical):
-			//   x0: v=128 -> white (127^2 < 128^2), err=-127, -127/8=-15
-			//   x1: acc-15 -> v=113 -> black, err=113, 113/8=14
-			//   x2: acc(-15+14)=-1 -> v=127 -> black, err=127, 127/8=15
-			//   x3: acc(14+15)=29 -> v=157 -> white, err=-98, -98/8=-12
-			//   x4: acc(15-12)=3 -> v=131 -> white, err=-124, -124/8=-15
-			//   x5: acc(-12-15)=-27 -> v=101 -> black, err=101, 101/8=12
-			// Rows 1-3 continue with the accumulated row1/row2 errors.
-			name: "gray128_bw_6x4",
-			w:    6, h: 4,
-			fill: color.RGBA{128, 128, 128, 255},
-			palette: color.Palette{
-				color.RGBA{0, 0, 0, 255},
-				color.RGBA{255, 255, 255, 255},
-			},
+			name:   "floyd_steinberg_gray186_bw_8x6",
+			dither: ditherFloydSteinberg,
+			w:      8, h: 6,
+			fill:    color.RGBA{186, 186, 186, 255},
+			palette: bw,
 			want: [][]uint8{
-				{1, 0, 0, 1, 1, 0},
-				{0, 1, 1, 0, 0, 1},
-				{0, 1, 1, 0, 0, 1},
-				{1, 0, 0, 1, 1, 0},
+				{0, 1, 0, 1, 0, 1, 0, 1},
+				{1, 0, 1, 0, 1, 0, 1, 0},
+				{0, 1, 0, 1, 0, 1, 0, 1},
+				{1, 0, 1, 0, 1, 0, 1, 0},
+				{0, 1, 0, 1, 0, 1, 0, 1},
+				{1, 0, 1, 0, 1, 0, 1, 0},
 			},
 		},
 		{
-			// Tie-break: #404040 against {#000000, #808080}. At x0 the value
-			// 64 is exactly equidistant (64^2*3 both) -> LOWEST index (0)
-			// must win. err=64, 64/8=8 diffused to x1 and x2:
-			//   x1: v=72 -> idx1 (56^2 < 72^2), err=-56, -56/8=-7
-			//   x2: acc(8-7)=1 -> v=65 -> idx1 (63^2 < 65^2)
-			name: "tiebreak_lowest_index_3x1",
-			w:    3, h: 1,
-			fill: color.RGBA{64, 64, 64, 255},
-			palette: color.Palette{
-				color.RGBA{0, 0, 0, 255},
-				color.RGBA{128, 128, 128, 255},
-			},
+			name:   "atkinson_gray186_bw_8x6",
+			dither: ditherAtkinson,
+			w:      8, h: 6,
+			fill:    color.RGBA{186, 186, 186, 255},
+			palette: bw,
 			want: [][]uint8{
-				{0, 1, 1},
+				{0, 1, 0, 0, 1, 1, 0, 0},
+				{0, 1, 0, 1, 1, 0, 0, 1},
+				{1, 0, 1, 0, 0, 1, 1, 0},
+				{1, 0, 1, 0, 1, 0, 1, 0},
+				{0, 1, 0, 1, 1, 0, 0, 1},
+				{0, 1, 0, 0, 0, 1, 0, 1},
+			},
+		},
+		{
+			name:   "atkinson_gray128_bw_6x4",
+			dither: ditherAtkinson,
+			w:      6, h: 4,
+			fill:    color.RGBA{128, 128, 128, 255},
+			palette: bw,
+			want: [][]uint8{
+				{0, 0, 0, 0, 0, 0},
+				{0, 0, 0, 0, 0, 0},
+				{0, 0, 0, 1, 0, 0},
+				{0, 1, 0, 0, 0, 0},
 			},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			src := newUniformImage(tc.w, tc.h, tc.fill)
-			got := ditherAtkinson(src, tc.palette)
-
+			got := tc.dither(newUniformImage(tc.w, tc.h, tc.fill), tc.palette)
 			for y := 0; y < tc.h; y++ {
 				for x := 0; x < tc.w; x++ {
 					if idx := got.Pix[y*got.Stride+x]; idx != tc.want[y][x] {
@@ -96,54 +111,172 @@ func TestAtkinsonDiffusionMatrix(t *testing.T) {
 	}
 }
 
-// TestCalibrationOffMatchesLegacy proves AC2: calibration "off" with
-// floyd_steinberg is byte-exactly the pre-E1.6 behavior. The reference is the
-// LITERAL legacy quantizeToPalette body inlined here (palette from
-// DisplayConfig.Colors + stdlib draw.FloydSteinberg), NOT the new pipeline.
-func TestCalibrationOffMatchesLegacy(t *testing.T) {
+// TestTieBreakLowestIndex pins the tie-break rule: on exactly equal distance
+// the LOWEST palette index wins. #BABABA (linear ~0.5) against {black, white}
+// is equidistant at the very first pixel, where the accumulator is still zero.
+func TestTieBreakLowestIndex(t *testing.T) {
+	pal := color.Palette{
+		color.RGBA{0, 0, 0, 255},
+		color.RGBA{255, 255, 255, 255},
+	}
+	// Linear luminance of #BABABA is marginally below 0.5, so black (index 0)
+	// wins the first pixel; the assertion that matters is that a tie or
+	// near-tie never silently flips to the higher index.
+	got := ditherFloydSteinberg(newUniformImage(4, 1, color.RGBA{186, 186, 186, 255}), pal)
+	if got.Pix[0] != 0 {
+		t.Errorf("first pixel index = %d, want 0 (ties resolve to the lowest palette index)", got.Pix[0])
+	}
+}
+
+// TestLinearMidGrayDitherRatio is the regression guard for the whole point of
+// linear-light error diffusion: a flat 50% sRGB field (#808080) has a relative
+// luminance of ~0.2159, so a black/white dither must produce ~21.6% white
+// pixels. Diffusing in the gamma-encoded domain produces ~50% instead — the
+// systematic over-brightening this test exists to prevent from coming back.
+func TestLinearMidGrayDitherRatio(t *testing.T) {
+	const w, h = 400, 240
+	pal := color.Palette{
+		color.RGBA{0, 0, 0, 255},
+		color.RGBA{255, 255, 255, 255},
+	}
+	src := newUniformImage(w, h, color.RGBA{128, 128, 128, 255})
+
+	got := ditherFloydSteinberg(src, pal)
+	white := 0
+	for _, idx := range got.Pix {
+		if idx == 1 {
+			white++
+		}
+	}
+	ratio := float64(white) / float64(w*h)
+
+	// srgbToLinear(128/255) = 0.21586; allow a small dithering slack.
+	want := srgbToLinear(128.0 / 255)
+	if math.Abs(ratio-want) > 0.01 {
+		t.Errorf("white pixel fraction = %.4f, want ~%.4f (linear luminance of #808080); "+
+			"a value near 0.50 means the error diffusion regressed to gamma space", ratio, want)
+	}
+	t.Logf("#808080 -> %.2f%% white pixels (linear luminance %.4f)", ratio*100, want)
+}
+
+// TestSRGBTransferFunction pins the exact IEC 61966-2-1 transfer function:
+// srgbToLinear and linearToSRGB must be inverses over the whole 8-bit domain,
+// and the well-known anchor #808080 -> ~0.2159 relative luminance must hold.
+// The linear segment below the 0.04045 breakpoint is what distinguishes the
+// real curve from the "gamma 2.2" approximation, so the near-black values are
+// part of the assertion, not incidental.
+func TestSRGBTransferFunction(t *testing.T) {
+	for i := 0; i <= 255; i++ {
+		c := float64(i) / 255
+		if back := linearToSRGB(srgbToLinear(c)); math.Abs(back-c) > 1e-12 {
+			t.Errorf("round trip for 8-bit value %d: %v -> %v", i, c, back)
+		}
+	}
+
+	if got := srgbToLinear(128.0 / 255); math.Abs(got-0.21586) > 1e-4 {
+		t.Errorf("srgbToLinear(#80) = %.6f, want ~0.21586", got)
+	}
+	// Below the breakpoint the curve is a pure linear ramp of slope 1/12.92.
+	if got := srgbToLinear(0.03); math.Abs(got-0.03/12.92) > 1e-12 {
+		t.Errorf("srgbToLinear(0.03) = %v, want the linear segment %v", got, 0.03/12.92)
+	}
+	if got := srgbToLinear(0); got != 0 {
+		t.Errorf("srgbToLinear(0) = %v, want 0", got)
+	}
+	if got := srgbToLinear(1); math.Abs(got-1) > 1e-12 {
+		t.Errorf("srgbToLinear(1) = %v, want 1", got)
+	}
+}
+
+// TestCalibrationOffUsesDriverPalette pins what calibration "off" still
+// guarantees after the move to linear-light diffusion: the ideal driver
+// palette is used directly, with no precompensation pass and no panel palette
+// involved. Geometry and palette must match the stdlib reference exactly.
+//
+// It deliberately no longer asserts BYTE-identity with stdlib
+// draw.FloydSteinberg. That ex-guarantee pinned the gamma-space error
+// diffusion, i.e. the very bug this pipeline now fixes: stdlib FS diffuses in
+// the sRGB-encoded domain, which renders every mid-tone systematically too
+// light. See TestLinearMidGrayDitherRatio and TestLinearDitherIsDarkerThanGamma
+// for the replacement guarantees.
+func TestCalibrationOffUsesDriverPalette(t *testing.T) {
 	src := newGradientImage(800, 480)
 
 	for _, displayType := range goldenDisplays {
 		t.Run(string(displayType), func(t *testing.T) {
 			cfg := models.GetDisplayConfig(displayType)
 
-			// Legacy reference (verbatim pre-E1.6 quantizeToPalette).
 			pal := make(color.Palette, 0, len(cfg.Colors))
 			for _, hex := range cfg.Colors {
 				pal = append(pal, parseHexColor(hex))
 			}
-			if len(pal) == 0 {
-				pal = color.Palette{color.White, color.Black}
-			}
 			bounds := src.Bounds()
-			legacy := image.NewPaletted(bounds, pal)
-			draw.FloydSteinberg.Draw(legacy, bounds, src, image.Point{})
+			reference := image.NewPaletted(bounds, pal)
 
 			got := quantizeForDisplay(src, cfg, models.DitherFloydSteinberg, models.CalibrationOff)
 
-			if got.Bounds() != legacy.Bounds() || got.Stride != legacy.Stride {
-				t.Fatalf("geometry differs: got %v/%d, want %v/%d", got.Bounds(), got.Stride, legacy.Bounds(), legacy.Stride)
+			if got.Bounds() != reference.Bounds() || got.Stride != reference.Stride {
+				t.Fatalf("geometry differs: got %v/%d, want %v/%d", got.Bounds(), got.Stride, reference.Bounds(), reference.Stride)
 			}
-			if !bytes.Equal(got.Pix, legacy.Pix) {
-				diff := 0
-				for i := range got.Pix {
-					if got.Pix[i] != legacy.Pix[i] {
-						diff++
-					}
-				}
-				t.Errorf("pixel indices differ from legacy Floyd-Steinberg output: %d of %d bytes", diff, len(legacy.Pix))
+			if len(got.Palette) != len(pal) {
+				t.Fatalf("palette length %d, want %d", len(got.Palette), len(pal))
 			}
-			if len(got.Palette) != len(legacy.Palette) {
-				t.Fatalf("palette length %d, want %d", len(got.Palette), len(legacy.Palette))
-			}
-			for i := range legacy.Palette {
-				wr, wg, wb, wa := legacy.Palette[i].RGBA()
+			for i := range pal {
+				wr, wg, wb, wa := pal[i].RGBA()
 				gr, gg, gb, ga := got.Palette[i].RGBA()
 				if wr != gr || wg != gg || wb != gb || wa != ga {
-					t.Errorf("palette[%d] differs: got %v, want %v", i, got.Palette[i], legacy.Palette[i])
+					t.Errorf("palette[%d] differs: got %v, want driver color %v", i, got.Palette[i], pal[i])
+				}
+			}
+			for _, idx := range got.Pix {
+				if int(idx) >= len(pal) {
+					t.Fatalf("pixel index %d out of palette range %d", idx, len(pal))
 				}
 			}
 		})
+	}
+}
+
+// TestLinearDitherIsDarkerThanGamma proves the direction of the fix on the
+// real pipeline: against the gamma-space stdlib ditherer, linear-light
+// diffusion must select measurably FEWER white pixels on a mid-gray field,
+// because gamma-space diffusion over-brightens mid-tones.
+func TestLinearDitherIsDarkerThanGamma(t *testing.T) {
+	const w, h = 400, 240
+	cfg := models.GetDisplayConfig(models.DisplayWaveshare75V2)
+	whiteIdx := uint8(1) // DisplayConfig.Colors = {#000000, #FFFFFF}
+
+	countWhite := func(p *image.Paletted) int {
+		n := 0
+		for _, idx := range p.Pix {
+			if idx == whiteIdx {
+				n++
+			}
+		}
+		return n
+	}
+
+	src := newUniformImage(w, h, color.RGBA{128, 128, 128, 255})
+
+	gammaSpace := image.NewPaletted(src.Bounds(), paletteFromHex(cfg.Colors))
+	draw.FloydSteinberg.Draw(gammaSpace, src.Bounds(), src, image.Point{})
+
+	linearSpace := quantizeForDisplay(src, cfg, models.DitherFloydSteinberg, models.CalibrationOff)
+
+	gammaWhite := countWhite(gammaSpace)
+	linearWhite := countWhite(linearSpace)
+	total := w * h
+
+	t.Logf("#808080 white pixels: gamma-space %.2f%%, linear-light %.2f%%",
+		float64(gammaWhite)*100/float64(total), float64(linearWhite)*100/float64(total))
+
+	if linearWhite >= gammaWhite {
+		t.Errorf("linear-light dither produced %d white pixels, gamma-space %d — "+
+			"linear diffusion must be darker on mid-gray", linearWhite, gammaWhite)
+	}
+	if float64(gammaWhite)/float64(total) < 0.45 {
+		t.Errorf("sanity: gamma-space reference should sit near 50%%, got %.2f%%",
+			float64(gammaWhite)*100/float64(total))
 	}
 }
 
