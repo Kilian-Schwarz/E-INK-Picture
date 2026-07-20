@@ -42,20 +42,22 @@ Es darf **keine** zweite Content-Formatierung für `widget_progress` entstehen
 Die Kartographie nannte sieben; verifiziert wurden acht. Punkt 8
 (`widgets/layouts.go`) fehlte in der Vorlage, ist aber zwingend, sobald das
 Widget eine `layout`-Property hat (der Properties-Panel füllt sein
-Layout-Dropdown über `GET /api/widgets/{type}/layouts` →
-`widgets.GetLayouts`; ohne Eintrag liefert die Funktion nur den generischen
-`default`-Eintrag, `layouts.go:11-17`).
+Layout-Dropdown über `GET /api/widget_layouts/{type}` (`main.go:258`,
+konsumiert in `properties-panel.js:1005`) → `widgets.GetLayouts`; ohne Eintrag
+liefert die Funktion nur den generischen `default`-Eintrag, `layouts.go:11-17`).
 
-Alle acht Punkte sind belegt. Die Anker zeigen auf den **gemergten** Stand;
-`TestWidgetRegistrationCompleteness` prüft sie mechanisch, so dass die Tabelle
-auch bei verschobenen Zeilen nicht schweigend falsch wird.
+**Die Zeilenangaben sind Anker auf den heutigen Stand und driften.** Autorität
+ist `TestWidgetRegistrationCompleteness` (`widget_registration_test.go`, aktuell
+`:190`): der Test schneidet die JS-Dateien per Brace-Matching auf die jeweilige
+Funktion zu und prüft je Punkt eine Zeichenkette. Wenn die Tabelle und der Test
+sich widersprechen, gilt der Test.
 
-| # | Datei | Anker (gemergt) | Eintrag | Status |
+| # | Datei | Anker (ca.) | Eintrag | Status |
 |---|-------|-----------------|---------|--------|
 | 1 | `server/static/js/element-factory.js` | `defaultSizes` **:117-131** | `widget_progress: { w: 320, h: 60 }` | erledigt (`:130`) |
-| 2 | `server/static/js/element-factory.js` | `getDefaultProperties` **:198-300** | Property-Defaults (Schema unten) | erledigt (`:289-299`) |
-| 3 | `server/static/js/properties-panel.js` | `getWidgetPropertyDefs` **:1079-…** | Feld-Definitionen (Schema unten) | erledigt (`:1141`) |
-| 4 | `server/static/js/widgets.js` | `getPreviewContent` **:67-93** | `case 'widget_progress':` im **Passthrough-Block** (`:83`), Server-Content verbatim, KEINE eigene `build*Content`-Funktion | erledigt |
+| 2 | `server/static/js/element-factory.js` | `getDefaultProperties` **:198-302** | Property-Defaults (Schema unten) | erledigt (`:289-299`) |
+| 3 | `server/static/js/properties-panel.js` | `getWidgetPropertyDefs` **:1079-1157** | Feld-Definitionen (Schema unten) | erledigt (`:1141`) |
+| 4 | `server/static/js/widgets.js` | `getPreviewContent` **:67-90** | `case 'widget_progress':` im **Passthrough-Block** (`:83`), Server-Content verbatim, KEINE eigene `build*Content`-Funktion | erledigt |
 | 5 | `server/static/js/widgets.js` | `getDefaultLayout` **:96**, `getPreviewFontSize` **:214** | `widget_progress: 'bar_percent'` (`:105`), `widget_progress: 18` (`:232`) | erledigt |
 | 6 | `server/templates/designer.html` | Palette | `<div class="widget-item" data-type="widget_progress">` mit Icon `%` und Label `Progress` | erledigt (`:124`) |
 | 7 | `server/internal/services/preview.go` | `widgetDefaultFontSizes` **:357-369** | `"widget_progress": 18` | erledigt (`:368`) |
@@ -399,6 +401,17 @@ Determinismus-Lücke selbst geschlossen:
   `testfont.ttf` gepinnt (Pflicht), `timezone: "Europe/Berlin"` explizit
   gesetzt.
 - `"progress"` steht in `goldenDesigns` (`:34`).
+- **`goldenTZDesigns` (`:56`) — Pflicht, in der Vorlage nicht erwähnt.**
+  `var goldenTZDesigns = map[string]string{"progress": "Europe/Berlin"}` pinnt
+  die Zeitzone des Designs. Ohne Eintrag fällt `time.LoadLocation` auf die
+  Server-Zeitzone zurück, wenn die tzdata der Testumgebung fehlt — die
+  Golden-PNG wird dann je nach Host rot. Jedes zeitabhängige Widget-Design
+  braucht hier einen Eintrag.
+- **`ditherDesigns` (`:344`) — Pflicht, in der Vorlage nicht erwähnt.**
+  `"progress"` steht in der Liste. **Ohne Eintrag läuft die
+  Paletten-Exaktheits-Prüfung (AC10) für das neue Design überhaupt nicht** —
+  der Test wird nicht rot, er prüft das Design schlicht nie. Ein fehlender
+  Eintrag ist damit eine stille Lücke, kein Fehlschlag.
 - `newGoldenPreviewService` (`:122`) setzt `svc.now` auf `goldenNow` (`:129`).
   Ohne das wäre die Golden-Datei nach einer Minute rot. Bei diesem Zeitpunkt
   zeigt das `year`-Element `[##########----------] 54%` — derselbe String, den
@@ -483,6 +496,7 @@ Content im bestehenden Render-Pfad).
 | DST-Rechnung über `24*time.Hour` | `ratio > 1` oder `101%` an zwei Tagen im Jahr | AC7 + Clamping `ratio ∈ [0,1)` |
 | Beispielwerte im Spec statt aus der Regel abgeleitet | Falsche Zahlen wandern in `docs/adding-a-widget.md` und von dort in fünf Folge-Widgets | Jedes Beispiel in diesem Spec ist nachgerechnet und durch einen Tabellentest in `widget_progress_test.go` gepinnt |
 | Container-UTC vs. Pi-Local | Jahreswechsel/Tageswechsel bis zu 2 h versetzt | Dokumentiertes Verhalten (Serverzeit) + `timezone`-Property als Ausweg; im Widget-Panel als Feld sichtbar |
+| tzdata fehlt zur Laufzeit (`ZONEINFO` verloren, Image ohne `/usr/share/zoneinfo`) | `time.LoadLocation` schlägt fehl → **stiller** Fallback auf Serverzeit; falsche Perioden-/Tagesgrenze auf dem Panel, ohne Fehler oder Log. Betrifft jedes Widget mit `timezone`-Property, `widget_clock` seit jeher | Heute abgedeckt: `Dockerfile:31-32` kopiert `zoneinfo.zip` und setzt `ENV ZONEINFO=`; Raspberry Pi OS hat `/usr/share/zoneinfo`. Tests skippen ehrlich (`mustLoadLocation`, `skipIfTimezoneUnavailable` + `goldenTZDesigns`) statt einen irreführenden Pixel-Diff zu melden. **Offener Folge-Task, nicht in F7:** `import _ "time/tzdata"` würde einen verlorenen ENV überleben (~450 KB Binärgröße) |
 | Registrierungspunkt vergessen | Widget fehlt in der Palette / ohne Properties / falsche Schriftgröße auf dem Panel — und der docs-writer schreibt den Fehler fest | AC3 als mechanischer Test |
 
 **Rollback:** `git revert` entfernt Widget, Golden-Design und Golden-PNGs
