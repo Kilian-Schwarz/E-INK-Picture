@@ -33,6 +33,35 @@ F9: öffentliche Domain+Port für Let's Encrypt oder LAN-only? · lokale CA zum 
 
 **Vorab-Veto-Punkt:** Alle geplanten Quellen sind kostenlos und key-frei (Open-Meteo, Corrently GrünstromIndex, v6.db.transport.rest). Nur Electricity Maps bräuchte ein Token — Default: **nicht** verwenden.
 
+### Deploy-Stand v1.1 (2026-07-21) — ZWEI Zielgeräte, unterschiedlich
+
+Beide Geräte laufen auf **`1305099`** (F7 + F4 + linear-light dithering). L3 auf beiden PASS.
+
+| Gerät | Adresse / User | HW | Betrieb | Panel | Build |
+|---|---|---|---|---|---|
+| Test-Pi | `ksch@10.33.0.106` | Pi 3B, **aarch64** | Docker Compose | epd7in3e (6-Farb) | `GOARCH=arm64` |
+| **Jessica** (prod) | `adm_dev@10.33.243.75` | **Pi Zero W, armv6l** | **nativ systemd** | **epd7in5_V2 (S/W)** | **`GOARCH=arm GOARM=6`** |
+
+SSH-Key für beide: `~/.ssh/id_ed25519_10.33.0.121` (identisch .106/.111). Jessica: NetBird-SSH deaktiviert → Direktverbindung, sudo freigegeben (Kilian, 2026-07-21). `DATA_DIR` auf Jessica = **`server/data/`** (relativ zur systemd-WorkingDirectory), NICHT Top-Level `data/` — gitignored, `git reset --hard` fasst es nicht an. Backups auf dem Gerät: `~/eink-serverdata-backup-20260721-001703.tar.gz`, `.env`-Backup, Rollback-Binary `~/eink-server-rollback-20260720-231117` (2130eb8).
+
+**Konsequenzen für die restliche Runde:**
+- **W1 (TLS): Cert-Verteilung muss auf beiden Betriebsmodellen funktionieren** — Docker-Container UND nativer Python-venv-Client. Der `client/certs/`-Trust-Anchor-Pfad muss in beiden greifen.
+- **CI sollte armv6 (`GOARM=6`) mit cross-bauen** — Jessica ist das erste produktive armv6-Gerät; bisher nur arm64/armv7 verifiziert (F7-Runde).
+- **Dockerfile injiziert die Version weiterhin nicht** (`main.go:28` `var version="dev"`, kein `-ldflags -X`) — 3 Deploys mit manuellem ldflags-Workaround. `ARG VERSION` überfällig, sonst ist der E6.2-Rollback-Beweis wertlos.
+- **Passwort-Drift auf BEIDEN Geräten:** `EINK_ADMIN_PASSWORD` in `.env` ist ungenutzter Bootstrap, aktiv ist `server/data/auth.json` → `/api/widget_content` und `/api/trigger_refresh` sind bei HIL-Läufen auth-gated, Umweg nötig.
+- **Compose-Memory-Limits greifen auf dem Test-Pi nicht** (Kernel ohne cgroup-Memory-Support) — RAM-Schutz nur auf Papier.
+- **Dithering: grünes Text-Fringing** aus `23553e3` betrifft NUR das 6-Farb-Panel (Test-Pi). Auf Jessicas S/W-Panel kein Thema. Foto besser, Text auf 6-Farb schlechter — Kilian-Entscheidung offen, ob Diffusion an Hochkontrastkanten gedämpft wird. **F10 (unten) ist der User-facing Hebel dafür.**
+
+### F10 — Panel-Sendemodus (dithered/original) — auf Kilians Zuruf (2026-07-21)
+
+Globale Anzeige-Einstellung `panel_image_mode` (`dithered` Default / `original`). Bei `original` holt der Client `/preview?raw=true` → das ungedithered Vollfarbbild geht ans Panel, der Waveshare-Treiber mappt selbst hart auf seine Farben (kein Dithering). Direkter User-Hebel für den Fringing-Trade-off: dithered = Fotos weicher/Text mit Farbrändern, original = Text scharf/Fotos mit Banding.
+
+- Nutzt das vorhandene `raw`-Flag (`preview.go:191/336`, war bisher nur Browser-Debug) — Render-Pfad unverändert. Client hängt `raw=true` an (`client.py:244`), liest den Modus vom **Top-Level** der `/settings`-Antwort (nicht aus `display` — vom spec-writer gefundener Widerspruch, korrekt aufgelöst).
+- **Default = dithered, Deploy ist No-op bis umgeschaltet** — L5 hat das end-to-end getraced (fehlende/korrupte/alte settings.json + alter Server↔neuer Client, alle vier → dithered). Das ist die Sicherheitseigenschaft, die den Deploy auf Jessica (Produktiv) rechtfertigt.
+- Designer-Live-Preview bleibt bewusst gedithered (WYSIWYG gegen Panel-Default); der Designer behält seinen eigenen `?raw=true`-Debug-Toggle. Das Setting betrifft nur den physischen Panel-Pfad.
+- Gates: L1✅ (84 Client-Tests, cross-build arm64+armv6), L2✅ (`TestRawOutputIsUnquantized` beweist auf BEIDEN Panels: raw > Palettengröße, non-raw ≤; 2 Mutationsproben bissig), L5✅ APPROVE.
+- **L3 = das eigentliche Risiko-Gate, offen:** raw ging bisher NIE ans echte Panel. Muss `original` × `dithered` auf BEIDEN Panels visuell bestätigen — Kernunbekannte: mappt `epd.getbuffer` arbiträres RGB auf dem 6-Farb-Panel sauber (Q-A1), und wird B/W-Threshold auf Vollfarbe kein Matsch (Q-B1)? Mensch schaut `eink_last_sent.png` an. RGB-durch-`display_image` braucht keine Änderung (Resize-Guard NEAREST, greift bei 800×480 nicht) — von L5 gegen den Code bestätigt.
+
 ### F7 — Pilot abgeschlossen (Squash `a06539a`, 2026-07-20)
 
 `widget_progress` (Jahr/Monat/Woche/Tag als ASCII-Balken/Prozent/Zähler). 15 Dateien, +1463/−145. Fünf Agenten, Verifizierer≠Implementierer durchgehend eingehalten.
