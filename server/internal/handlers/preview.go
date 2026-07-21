@@ -27,6 +27,12 @@ func isContextErr(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
+// Preview renders a saved or the active design as a PNG. The ?raw=true query
+// param bypasses palette quantization (unquantized original). Per specs/F10 the
+// panel_image_mode setting is honoured client-side: the pi client appends
+// ?raw=true when the persisted mode is "original", so the server just honours
+// the query param here — no server-side setting fallback, keeping the browser
+// debug path (?raw=true forces raw, absent/false stays dithered) unchanged.
 func (h *PreviewHandler) Preview(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 
@@ -61,6 +67,12 @@ func (h *PreviewHandler) Preview(w http.ResponseWriter, r *http.Request) {
 }
 
 // PreviewLive renders a design from the request body without saving it.
+//
+// Decision (specs/F10): the designer live preview stays dithered by default and
+// does NOT follow panel_image_mode. It is WYSIWYG against the panel's default
+// output, and the designer keeps its own explicit ?raw=true debug toggle
+// (toolbar.js). The global send-mode setting only affects what the pi client
+// requests for the physical panel, never the designer's on-screen preview.
 func (h *PreviewHandler) PreviewLive(w http.ResponseWriter, r *http.Request) {
 	var design models.DesignV2
 	if err := json.NewDecoder(r.Body).Decode(&design); err != nil {

@@ -190,8 +190,25 @@ def load_display_driver(name: str) -> None:
         _reset_display_driver()
 
 
+def _normalize_panel_image_mode(value: object) -> str:
+    """Normalize the panel_image_mode setting to a known value.
+
+    Only "original" selects the ungedithered raw panel image; every other
+    value — including missing, empty, or an unexpected string — falls back to
+    the dithered default. An older server that does not know the field must
+    never break the client.
+    """
+    return "original" if value == "original" else "dithered"
+
+
 def fetch_display_config() -> dict:
-    """Fetch display config from server settings."""
+    """Fetch display config from server settings.
+
+    panel_image_mode is a TOP-LEVEL setting (sibling of render_quality), not
+    part of the nested display object, so it is surfaced into the returned dict
+    here — no second HTTP request. Callers pass display_config["panel_image_mode"]
+    down to fetch_preview to pick the wire endpoint.
+    """
     try:
         resp = _server_get("/settings", timeout=5)
         if resp.ok:
@@ -200,14 +217,23 @@ def fetch_display_config() -> dict:
             driver = display.get("driver", config.DISPLAY_DRIVER)
             if driver != driver_name:
                 load_display_driver(driver)
+            display["panel_image_mode"] = _normalize_panel_image_mode(
+                settings.get("panel_image_mode")
+            )
             return display
     except Exception as e:
         logger.warning("Could not fetch display settings: %s", e)
     return {}
 
 
-def fetch_preview() -> Optional[Image.Image]:
+def fetch_preview(panel_image_mode: str = "dithered") -> Optional[Image.Image]:
     """Fetch rendered preview PNG from server.
+
+    panel_image_mode == "original" requests the ungedithered raw panel image
+    (/preview?raw=true); any other value requests the server-dithered default
+    (/preview). The chosen wire bytes are what get hashed below, so a mode
+    switch changes the content hash and triggers exactly one extra refresh
+    before the skip (E5.2) goes quiet again.
 
     On success, records the SHA-256 of the raw wire bytes in
     _last_fetch_hash — the comparison point for the content skip (E5.2),
@@ -215,7 +241,8 @@ def fetch_preview() -> Optional[Image.Image]:
     """
     global _last_fetch_hash
     try:
-        resp = _server_get("/preview", timeout=30)
+        path = "/preview?raw=true" if panel_image_mode == "original" else "/preview"
+        resp = _server_get(path, timeout=30)
         resp.raise_for_status()
         content = resp.content
         content_hash = hashlib.sha256(content).hexdigest()
@@ -431,7 +458,7 @@ def handle_refresh(display_config: dict, reason: Optional[str]) -> bool:
         if epd is None and _hw_recovery_pending:
             _register_hw_failure()
             return False
-    img = fetch_preview()
+    img = fetch_preview(display_config.get("panel_image_mode", "dithered"))
     if img is None:
         logger.warning("Failed to fetch preview for refresh")
         return False
@@ -536,7 +563,7 @@ def main() -> None:
             # one hardware failure cycle; the poll loop retries the load.
             _register_hw_failure()
         else:
-            img = fetch_preview()
+            img = fetch_preview(display_config.get("panel_image_mode", "dithered"))
             if img:
                 if display_image(img, display_config):
                     _initial_display_done = True

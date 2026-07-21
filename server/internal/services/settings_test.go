@@ -43,6 +43,60 @@ func TestSettingsService_SaveAndLoad(t *testing.T) {
 	}
 }
 
+// TestPanelImageModeDefaults pins that a missing file, an empty field, and a
+// corrupt file all resolve panel_image_mode to the dithered default (F10 AC1).
+func TestPanelImageModeDefaults(t *testing.T) {
+	cases := []struct {
+		name    string
+		content *string // nil = no file written
+	}{
+		{"missing file", nil},
+		{"empty field", strPtr(`{"display_type":"waveshare_7in5_V2"}`)},
+		{"corrupt file", strPtr(`{not valid json`)},
+		{"unknown value", strPtr(`{"panel_image_mode":"raw"}`)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if c.content != nil {
+				if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(*c.content), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			svc := NewSettingsService(dir, models.DisplayWaveshare75V2)
+
+			settings, err := svc.GetSettings()
+			if err != nil {
+				t.Fatalf("GetSettings: %v", err)
+			}
+			if settings.PanelImageMode != models.PanelImageDithered {
+				t.Errorf("PanelImageMode = %q, want dithered", settings.PanelImageMode)
+			}
+			if got := svc.GetPanelImageMode(); got != models.PanelImageDithered {
+				t.Errorf("GetPanelImageMode() = %q, want dithered", got)
+			}
+		})
+	}
+}
+
+// TestPanelImageModeRoundtrip proves the setting survives save/load (F10 AC2).
+func TestPanelImageModeRoundtrip(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewSettingsService(dir, models.DisplayWaveshare75V2)
+
+	settings, _ := svc.GetSettings()
+	settings.PanelImageMode = models.PanelImageOriginal
+	if err := svc.SaveSettings(settings); err != nil {
+		t.Fatalf("SaveSettings: %v", err)
+	}
+
+	if got := svc.GetPanelImageMode(); got != models.PanelImageOriginal {
+		t.Errorf("GetPanelImageMode() after save = %q, want original", got)
+	}
+}
+
+func strPtr(s string) *string { return &s }
+
 func TestSettingsService_TriggerRefresh(t *testing.T) {
 	dir := t.TempDir()
 	svc := NewSettingsService(dir, models.DisplayWaveshare75V2)

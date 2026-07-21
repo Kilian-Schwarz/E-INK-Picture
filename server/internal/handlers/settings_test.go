@@ -185,6 +185,45 @@ func TestGetSettings_DitherCalibrationDefaults(t *testing.T) {
 	}
 }
 
+// F10 AC2: GET /settings exposes panel_image_mode at the top level, defaulting
+// to dithered; POST /update_settings persists a valid value round-trip.
+func TestUpdateSettingsPanelImageModeRoundtrip(t *testing.T) {
+	h := newTestSettingsHandler(t)
+
+	resp := getSettingsMap(t, h)
+	if resp["panel_image_mode"] != "dithered" {
+		t.Errorf("expected panel_image_mode=dithered by default, got %v", resp["panel_image_mode"])
+	}
+
+	if w := postSettings(t, h, `{"panel_image_mode":"original"}`); w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	resp = getSettingsMap(t, h)
+	if resp["panel_image_mode"] != "original" {
+		t.Errorf("expected panel_image_mode=original after save, got %v", resp["panel_image_mode"])
+	}
+}
+
+// F10 AC3: unknown panel_image_mode values reject with 400 and leave the
+// persisted value untouched; empty string means "unchanged".
+func TestUpdateSettingsPanelImageModeRejectsUnknown(t *testing.T) {
+	h := newTestSettingsHandler(t)
+
+	if w := postSettings(t, h, `{"panel_image_mode":"original"}`); w.Code != http.StatusOK {
+		t.Fatalf("setup: expected 200, got %d", w.Code)
+	}
+
+	if w := postSettings(t, h, `{"panel_image_mode":"raw"}`); w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for panel_image_mode=raw, got %d", w.Code)
+	}
+
+	resp := getSettingsMap(t, h)
+	if resp["panel_image_mode"] != "original" {
+		t.Errorf("rejected update must not change persisted value, got %v", resp["panel_image_mode"])
+	}
+}
+
 // E1.6 AC1: valid values persist; fields that are not sent stay unchanged.
 func TestUpdateSettings_DitherAlgorithmAndCalibration(t *testing.T) {
 	h := newTestSettingsHandler(t)

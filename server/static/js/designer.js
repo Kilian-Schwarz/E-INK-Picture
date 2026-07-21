@@ -481,6 +481,31 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
+    // Panel image mode selector (dithered vs. original for the E-Ink panel)
+    var panelImageModeSelect = document.getElementById('panel-image-mode');
+    if (panelImageModeSelect) {
+        try {
+            var pResp = await fetch('/settings');
+            var pData = await pResp.json();
+            if (pData.panel_image_mode) {
+                panelImageModeSelect.value = pData.panel_image_mode;
+            }
+        } catch (e) {}
+
+        panelImageModeSelect.addEventListener('change', async function() {
+            try {
+                await fetch('/update_settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ panel_image_mode: panelImageModeSelect.value }),
+                });
+                showNotification('Panel image mode updated', 'success');
+            } catch (e) {
+                showNotification('Failed to update panel image mode', 'error');
+            }
+        });
+    }
+
     // Home Assistant connection config (admin-only; drives widget_hass).
     //
     // The token is WRITE-ONLY: GET /api/hass/config returns {configured,

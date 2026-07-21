@@ -296,6 +296,68 @@ class TestFetchPreview(unittest.TestCase):
 
         self.assertIsNone(img)
 
+    def _mock_ok_png(self, mock_requests):
+        mock_resp = MagicMock()
+        mock_resp.ok = True
+        mock_resp.status_code = 200
+        mock_resp.content = make_test_png()
+        mock_resp.raise_for_status = MagicMock()
+        mock_requests.get.return_value = mock_resp
+
+    @patch("client.requests")
+    @patch("client.config")
+    def test_fetch_preview_original_appends_raw(self, mock_config, mock_requests):
+        """F10 AC5: mode=original requests /preview?raw=true."""
+        mock_config.SERVER_URL = "http://localhost:5000"
+        self._mock_ok_png(mock_requests)
+
+        import client
+        client.fetch_preview("original")
+
+        url = mock_requests.get.call_args.args[0]
+        self.assertEqual(url, "http://localhost:5000/preview?raw=true")
+
+    @patch("client.requests")
+    @patch("client.config")
+    def test_fetch_preview_dithered_no_raw(self, mock_config, mock_requests):
+        """F10 AC5: mode=dithered requests /preview unchanged."""
+        mock_config.SERVER_URL = "http://localhost:5000"
+        self._mock_ok_png(mock_requests)
+
+        import client
+        client.fetch_preview("dithered")
+
+        url = mock_requests.get.call_args.args[0]
+        self.assertEqual(url, "http://localhost:5000/preview")
+        self.assertNotIn("raw", url)
+
+    @patch("client.requests")
+    @patch("client.config")
+    def test_fetch_preview_default_no_raw(self, mock_config, mock_requests):
+        """F10 AC5: default (no arg) stays dithered — /preview, no raw."""
+        mock_config.SERVER_URL = "http://localhost:5000"
+        self._mock_ok_png(mock_requests)
+
+        import client
+        client.fetch_preview()
+
+        url = mock_requests.get.call_args.args[0]
+        self.assertEqual(url, "http://localhost:5000/preview")
+
+    @patch("client.requests")
+    @patch("client.config")
+    def test_fetch_preview_unknown_mode_no_raw(self, mock_config, mock_requests):
+        """F10 robustness: an unexpected mode value behaves as dithered."""
+        mock_config.SERVER_URL = "http://localhost:5000"
+        self._mock_ok_png(mock_requests)
+
+        import client
+        client.fetch_preview("bogus")
+
+        url = mock_requests.get.call_args.args[0]
+        self.assertEqual(url, "http://localhost:5000/preview")
+        self.assertNotIn("raw", url)
+
 
 class TestDisplayImage(ArtifactSandboxMixin, unittest.TestCase):
     """Test image display on mock EPD hardware."""
@@ -1441,6 +1503,65 @@ class TestFetchDisplayConfig(unittest.TestCase):
         result = client.fetch_display_config()
 
         self.assertEqual(result, {})
+
+    def _mock_settings(self, mock_config, mock_requests, settings):
+        mock_config.SERVER_URL = "http://localhost:5000"
+        mock_config.DISPLAY_DRIVER = "epd7in3e"
+        import client
+        client.driver_name = "epd7in3e"
+        mock_resp = MagicMock()
+        mock_resp.ok = True
+        mock_resp.json.return_value = settings
+        mock_requests.get.return_value = mock_resp
+
+    @patch("client.requests")
+    @patch("client.config")
+    def test_fetch_config_surfaces_top_level_panel_image_mode(
+        self, mock_config, mock_requests
+    ):
+        """F10 AC5: the TOP-LEVEL panel_image_mode is surfaced into the dict."""
+        self._mock_settings(
+            mock_config,
+            mock_requests,
+            {"display": {"driver": "epd7in3e"}, "panel_image_mode": "original"},
+        )
+
+        import client
+        result = client.fetch_display_config()
+
+        self.assertEqual(result["panel_image_mode"], "original")
+
+    @patch("client.requests")
+    @patch("client.config")
+    def test_fetch_config_panel_image_mode_missing_defaults_dithered(
+        self, mock_config, mock_requests
+    ):
+        """F10 robustness: a server without the field yields dithered."""
+        self._mock_settings(
+            mock_config, mock_requests, {"display": {"driver": "epd7in3e"}}
+        )
+
+        import client
+        result = client.fetch_display_config()
+
+        self.assertEqual(result["panel_image_mode"], "dithered")
+
+    @patch("client.requests")
+    @patch("client.config")
+    def test_fetch_config_panel_image_mode_unknown_defaults_dithered(
+        self, mock_config, mock_requests
+    ):
+        """F10 robustness: an unexpected value is normalized to dithered."""
+        self._mock_settings(
+            mock_config,
+            mock_requests,
+            {"display": {"driver": "epd7in3e"}, "panel_image_mode": "raw"},
+        )
+
+        import client
+        result = client.fetch_display_config()
+
+        self.assertEqual(result["panel_image_mode"], "dithered")
 
 
 class TestMainLoop(unittest.TestCase):

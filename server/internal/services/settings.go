@@ -148,6 +148,7 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 				RefreshInterval: defaultRefreshInterval,
 				DitherAlgorithm: models.DitherFloydSteinberg,
 				Calibration:     models.CalibrationDefault,
+				PanelImageMode:  models.PanelImageDithered,
 			}, nil
 		}
 		return nil, err
@@ -160,6 +161,7 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 			RefreshInterval: defaultRefreshInterval,
 			DitherAlgorithm: models.DitherFloydSteinberg,
 			Calibration:     models.CalibrationDefault,
+			PanelImageMode:  models.PanelImageDithered,
 		}, nil
 	}
 
@@ -178,6 +180,7 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 	if settings.Calibration == "" {
 		settings.Calibration = models.CalibrationDefault
 	}
+	settings.PanelImageMode = models.NormalizePanelImageMode(settings.PanelImageMode)
 	// Defensive normalization: invalid sleep window values on disk (e.g.
 	// hand-edited) disable the window. Fail open towards refreshing, never
 	// towards a frozen panel.
@@ -270,6 +273,7 @@ func (s *SettingsService) GetSettingsResponse() (*models.SettingsResponse, error
 		RenderQuality:   settings.RenderQuality,
 		DitherAlgorithm: settings.DitherAlgorithm,
 		Calibration:     settings.Calibration,
+		PanelImageMode:  settings.PanelImageMode,
 		SleepStart:      settings.SleepStart,
 		SleepEnd:        settings.SleepEnd,
 	}, nil
@@ -300,6 +304,16 @@ func (s *SettingsService) GetCalibration() models.CalibrationMode {
 		return models.CalibrationDefault
 	}
 	return settings.Calibration
+}
+
+// GetPanelImageMode returns the configured panel image mode (specs/F10),
+// falling back to the dithered default on any load error.
+func (s *SettingsService) GetPanelImageMode() models.PanelImageMode {
+	settings, err := s.GetSettings()
+	if err != nil {
+		return models.PanelImageDithered
+	}
+	return settings.PanelImageMode
 }
 
 // TriggerRefresh sets the last refresh trigger timestamp.

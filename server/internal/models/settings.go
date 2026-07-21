@@ -27,6 +27,29 @@ const (
 	CalibrationOff     CalibrationMode = "off"     // ideal driver palette, no precompensation
 )
 
+// PanelImageMode selects whether the image sent to the e-ink panel is the
+// server-dithered frame (current behaviour) or the unquantized original,
+// leaving the palette mapping to the Waveshare driver (specs/F10).
+type PanelImageMode string
+
+const (
+	PanelImageDithered PanelImageMode = "dithered" // server-dithered, current behaviour (default)
+	PanelImageOriginal PanelImageMode = "original" // unquantized original, driver hard-maps palette
+)
+
+// NormalizePanelImageMode returns m when it is a known value, otherwise the
+// default PanelImageDithered. Unlike the handler's request validation (which
+// hard-rejects unknown input), this normalizes hand-edited/corrupt on-disk
+// values so a bad settings.json never freezes rendering.
+func NormalizePanelImageMode(m PanelImageMode) PanelImageMode {
+	switch m {
+	case PanelImageOriginal:
+		return PanelImageOriginal
+	default:
+		return PanelImageDithered
+	}
+}
+
 // Refresh reasons reported in RefreshStatus when should_refresh is true.
 const (
 	RefreshReasonManual   = "manual"   // manual trigger, breaks the sleep window
@@ -46,6 +69,7 @@ type Settings struct {
 	RenderQuality      RenderQuality   `json:"render_quality,omitempty"`
 	DitherAlgorithm    DitherAlgorithm `json:"dither_algorithm,omitempty"`
 	Calibration        CalibrationMode `json:"calibration,omitempty"`
+	PanelImageMode     PanelImageMode  `json:"panel_image_mode,omitempty"`
 	SleepStart         string          `json:"sleep_start,omitempty"`
 	SleepEnd           string          `json:"sleep_end,omitempty"`
 	SetupCompleted     bool            `json:"setup_completed,omitempty"`
@@ -61,6 +85,7 @@ type SettingsResponse struct {
 	RenderQuality   RenderQuality   `json:"render_quality"`
 	DitherAlgorithm DitherAlgorithm `json:"dither_algorithm"`
 	Calibration     CalibrationMode `json:"calibration"`
+	PanelImageMode  PanelImageMode  `json:"panel_image_mode"`
 	SleepStart      string          `json:"sleep_start"`
 	SleepEnd        string          `json:"sleep_end"`
 }

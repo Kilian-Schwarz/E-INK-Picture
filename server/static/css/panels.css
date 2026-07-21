@@ -352,6 +352,13 @@ select.prop-input {
     color: var(--text-secondary);
 }
 
+.property-hint {
+    margin-top: 6px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-secondary);
+}
+
 .display-info .palette-preview {
     display: flex;
     gap: 4px;

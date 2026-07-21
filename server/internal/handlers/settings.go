@@ -47,6 +47,7 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 		RenderQuality   models.RenderQuality   `json:"render_quality,omitempty"`
 		DitherAlgorithm models.DitherAlgorithm `json:"dither_algorithm,omitempty"`
 		Calibration     models.CalibrationMode `json:"calibration,omitempty"`
+		PanelImageMode  models.PanelImageMode  `json:"panel_image_mode,omitempty"`
 		SleepStart      *string                `json:"sleep_start,omitempty"`
 		SleepEnd        *string                `json:"sleep_end,omitempty"`
 		SetupCompleted  *bool                  `json:"setup_completed,omitempty"`
@@ -101,6 +102,19 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 			current.Calibration = req.Calibration
 		default:
 			jsonError(w, "invalid calibration: "+string(req.Calibration), http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Empty string means "leave unchanged" (pattern shared with the enums
+	// above); unknown values hard-reject with 400 like the others (specs/F10
+	// AC3). The persisted value is untouched on rejection.
+	if req.PanelImageMode != "" {
+		switch req.PanelImageMode {
+		case models.PanelImageDithered, models.PanelImageOriginal:
+			current.PanelImageMode = req.PanelImageMode
+		default:
+			jsonError(w, "invalid panel_image_mode: "+string(req.PanelImageMode), http.StatusBadRequest)
 			return
 		}
 	}
