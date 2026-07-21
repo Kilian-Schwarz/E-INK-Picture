@@ -61,6 +61,13 @@ Globale Anzeige-Einstellung `panel_image_mode` (`dithered` Default / `original`)
 - Designer-Live-Preview bleibt bewusst gedithered (WYSIWYG gegen Panel-Default); der Designer behält seinen eigenen `?raw=true`-Debug-Toggle. Das Setting betrifft nur den physischen Panel-Pfad.
 - Gates: L1✅ (84 Client-Tests, cross-build arm64+armv6), L2✅ (`TestRawOutputIsUnquantized` beweist auf BEIDEN Panels: raw > Palettengröße, non-raw ≤; 2 Mutationsproben bissig), L5✅ APPROVE.
 - **L3 = das eigentliche Risiko-Gate, offen:** raw ging bisher NIE ans echte Panel. Muss `original` × `dithered` auf BEIDEN Panels visuell bestätigen — Kernunbekannte: mappt `epd.getbuffer` arbiträres RGB auf dem 6-Farb-Panel sauber (Q-A1), und wird B/W-Threshold auf Vollfarbe kein Matsch (Q-B1)? Mensch schaut `eink_last_sent.png` an. RGB-durch-`display_image` braucht keine Änderung (Resize-Guard NEAREST, greift bei 800×480 nicht) — von L5 gegen den Code bestätigt.
+- **L3 ✅ ABGESCHLOSSEN (2026-07-21):** `0c011f9` auf BEIDE Geräte deployt, beide Modi visuell geprüft, beide zurück auf `dithered` (sicherer Default). Kein Crash, kein Traceback, Timing normal (Test-Pi 22 s, Jessica 5,5 s). 6 Refreshes gesamt (3/Gerät, ≥60 s gespaced).
+  - **Q-A1 (6-Farb `getbuffer` auf RGB): beantwortet** — kein Crash, mappt sane. ABER: `eink_last_sent.png` wird beim 6-Farb-Panel VOR `getbuffer` gespeichert → Mode-B-Bild ist RGB-Quelle, nicht Panelausgabe; echte 6-Farb-Ausgabe nur simuliert (nearest-6), keine Kamera. Ergebnis: Text schärfer, **grünes Fringing weg**, Fotos mit Banding.
+  - **Q-B1 (B/W-Threshold auf Vollfarbe): voll beantwortet** — `eink_last_sent.png` wird NACH `convert("L").point(128)` gespeichert = panel-echt. Text identisch knackig, Fotos verlieren Mitteltöne (gemischt: high-key Portraits ok, mitteltonreiche matschig).
+  - **Fazit: `original` = echter Trade-off, kein „besser".** Text/Widgets scharf + kein Fringing; Fotos schlechter. Kilian entscheidet pro Gerät per Settings; Default bleibt `dithered`.
+  - **Client war NICHT identisch zu `1305099`** (Annahmefehler im Task) — F10 gab `client.py` den Raw-Fetch-Pfad (+37 Z.); alter Client hätte `raw=true` nie angehängt. hardware-validator hat den neuen Client auf beide Geräte deployt.
+  - **Rollback bereit:** Test-Pi `docker tag …:rollback-20260721-112009 …:latest`; Jessica `~/eink-server-rollback-20260721-113102` + `~/eink-serverdata-backup-20260721-113140.tar.gz`.
+- **Security-Notiz:** hardware-validator hat beim L3-Lauf `cat .env` über SSH ausgeführt → `EINK_CLIENT_TOKEN` im Session-Transcript materialisiert (verstößt gegen „keine Secrets in Logs"). Nicht extern geleakt (nur lokales Session-Log). Bei Bedarf Token rotieren.
 
 ### F7 — Pilot abgeschlossen (Squash `a06539a`, 2026-07-20)
 
