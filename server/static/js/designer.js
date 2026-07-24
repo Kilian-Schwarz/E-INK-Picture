@@ -430,30 +430,78 @@ document.addEventListener('DOMContentLoaded', async function() {
         });
     }
 
-    // Refresh interval selector
+    // Refresh schedule selector — interval presets, "Once a day" at 00:01, or a
+    // custom cron expression. Interval options carry a numeric value; the daily
+    // option carries "cron:<expr>"; "custom" reveals a free-form cron field.
     var refreshIntervalSelect = document.getElementById('refresh-interval');
+    var refreshCronRow = document.getElementById('refresh-cron-row');
+    var refreshCronInput = document.getElementById('refresh-cron-input');
+    var refreshCronApply = document.getElementById('refresh-cron-apply');
     if (refreshIntervalSelect) {
-        // Set current value from settings
+        // POST an update and surface the server's validation message on 400.
+        var saveRefreshSchedule = async function(payload, okMsg) {
+            try {
+                var res = await fetch('/update_settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!res.ok) {
+                    var msg = 'Failed to update refresh schedule';
+                    try { var body = await res.json(); if (body && body.message) msg = body.message; } catch (ignored) {}
+                    showNotification(msg, 'error');
+                    return false;
+                }
+                showNotification(okMsg, 'success');
+                return true;
+            } catch (e) {
+                showNotification('Failed to update refresh schedule', 'error');
+                return false;
+            }
+        };
+
+        // Restore the current selection from settings.
         try {
             var settingsResp = await fetch('/settings');
             var settingsData = await settingsResp.json();
-            if (settingsData.refresh_interval) {
+            if (settingsData.refresh_cron) {
+                if (settingsData.refresh_cron === '1 0 * * *') {
+                    refreshIntervalSelect.value = 'cron:1 0 * * *';
+                } else {
+                    refreshIntervalSelect.value = 'custom';
+                    if (refreshCronInput) refreshCronInput.value = settingsData.refresh_cron;
+                    if (refreshCronRow) refreshCronRow.style.display = '';
+                }
+            } else if (settingsData.refresh_interval) {
                 refreshIntervalSelect.value = String(settingsData.refresh_interval);
             }
         } catch (e) {}
 
         refreshIntervalSelect.addEventListener('change', async function() {
-            try {
-                await fetch('/update_settings', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ refresh_interval: parseInt(refreshIntervalSelect.value) }),
-                });
-                showNotification('Refresh interval updated', 'success');
-            } catch (e) {
-                showNotification('Failed to update interval', 'error');
+            var val = refreshIntervalSelect.value;
+            if (val === 'custom') {
+                if (refreshCronRow) refreshCronRow.style.display = '';
+                if (refreshCronInput) refreshCronInput.focus();
+                return; // wait for the Apply button
+            }
+            if (refreshCronRow) refreshCronRow.style.display = 'none';
+            if (val.indexOf('cron:') === 0) {
+                await saveRefreshSchedule({ refresh_cron: val.slice(5) }, 'Refresh schedule updated');
+            } else {
+                await saveRefreshSchedule({ refresh_interval: parseInt(val, 10) }, 'Refresh interval updated');
             }
         });
+
+        if (refreshCronApply && refreshCronInput) {
+            refreshCronApply.addEventListener('click', async function() {
+                var spec = refreshCronInput.value.trim();
+                if (!spec) { showNotification('Enter a cron expression', 'warning'); return; }
+                await saveRefreshSchedule({ refresh_cron: spec }, 'Cron schedule updated');
+            });
+            refreshCronInput.addEventListener('keydown', function(ev) {
+                if (ev.key === 'Enter') { ev.preventDefault(); refreshCronApply.click(); }
+            });
+        }
     }
 
     // Render quality selector

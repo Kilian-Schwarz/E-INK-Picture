@@ -267,8 +267,22 @@
                         <option value="10800">Every 3 hours</option>
                         <option value="21600">Every 6 hours</option>
                         <option value="43200">Every 12 hours</option>
-                        <option value="86400">Once a day</option>
+                        <option value="cron:1 0 * * *">Once a day (00:01 local time)</option>
+                        <option value="custom">Custom schedule (cron)…</option>
                     </select>
+                    <div id="refresh-cron-row" style="display:none; margin-top:8px;">
+                        <label>Cron schedule</label>
+                        <div style="display:flex; gap:6px; align-items:center;">
+                            <input type="text" id="refresh-cron-input" class="prop-input" placeholder="e.g. 1 0 * * *" autocomplete="off" spellcheck="false" style="flex:1;">
+                            <button id="refresh-cron-apply" class="btn-primary" type="button">Apply</button>
+                        </div>
+                        <div class="property-hint">
+                            Five fields: minute&nbsp;hour&nbsp;day-of-month&nbsp;month&nbsp;day-of-week, in local time.
+                            Examples: <code>1 0 * * *</code> = daily at 00:01,
+                            <code>*/30 * * * *</code> = every 30&nbsp;min,
+                            <code>0 7 * * 1-5</code> = 07:00 on weekdays.
+                        </div>
+                    </div>
                 </div>
                 <div class="property-group">
                     <label>Render Quality</label>
