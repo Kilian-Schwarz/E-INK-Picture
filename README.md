@@ -296,6 +296,15 @@ E-INK-Picture/
 | `GET` | `/location_search` | Search locations (weather) |
 | `POST` | `/update_settings` | Update settings |
 
+### Refresh Schedule (interval or cron)
+
+Auto-refresh runs either on a relative **interval** or on a wall-clock **cron schedule**:
+
+- `POST /update_settings` with `refresh_interval` (seconds) keeps the classic behaviour: refresh when `now − last_client_refresh` exceeds the interval. Picking an interval preset clears any active cron.
+- `POST /update_settings` with `refresh_cron` (a standard 5-field expression `min hour day-of-month month day-of-week`) switches to scheduled refreshes at fixed **local** times (`TZ` env var). When set, `refresh_cron` takes precedence over `refresh_interval`; the interval stays as the fallback. Send `""` to clear it. Supported syntax: `*`, single values, ranges `a-b`, steps `*/n` / `a-b/n`, and comma lists; day-of-week `0-6` (Sunday 0, `7` also = Sunday). Invalid expressions are rejected with `400`; a corrupt value hand-edited into `settings.json` is dropped on load (fail-open to interval). The Designer's "Auto-Refresh" selector offers a **Once a day (00:01 local time)** preset (`1 0 * * *`) and a **Custom schedule (cron)** field. `GET /settings` returns `refresh_cron` (`""` = interval mode).
+
+Examples: `1 0 * * *` = daily at 00:01 · `*/30 * * * *` = every 30 min · `0 7 * * 1-5` = 07:00 on weekdays. Cron ticks keep `reason: "interval"`, so the sleep window and content-skip optimisation apply to them exactly as to interval refreshes.
+
 ### Sleep Window (Panel Care)
 
 `POST /update_settings` accepts `sleep_start` / `sleep_end` (`"HH:MM"`, 24h): inside this window the server suppresses interval refreshes. Both fields must be set together and must differ; send both as `""` to disable. Fields not included in the request stay unchanged. The window is evaluated against local server time (`TZ` env var), is half-open `[start, end)` and may wrap across midnight (e.g. `23:00`–`06:00`). A manual trigger (`POST /api/trigger_refresh`) always breaks through the window. `GET /settings` always returns both fields (`""` = off).

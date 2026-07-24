@@ -43,8 +43,8 @@
 - POST /api/trigger_refresh -- trigger immediate display refresh
 - GET /api/refresh_status -- client polls for refresh_needed
 - POST /api/client_heartbeat -- client reports display updated
-- GET /settings -- includes refresh_interval
-- POST /update_settings -- accepts refresh_interval
+- GET /settings -- includes refresh_interval and refresh_cron
+- POST /update_settings -- accepts refresh_interval OR refresh_cron (5-field cron, local time via TZ; takes precedence over interval, "" clears it)
 
 ## Important
 - Environment: see .env.example
