@@ -131,6 +131,38 @@ func sleepWindowActive(start, end string, now time.Time) bool {
 	return inSleepWindow(now.Hour()*60+now.Minute(), s, e)
 }
 
+// ValidateRefreshCron accepts an empty string (cron scheduling disabled) or a
+// well-formed 5-field cron expression. It is the request-validation gate for
+// the settings handler.
+func ValidateRefreshCron(spec string) error {
+	if spec == "" {
+		return nil
+	}
+	_, err := ParseCron(spec)
+	return err
+}
+
+// scheduledRefreshDue reports whether a scheduled refresh is overdue given the
+// last client refresh time. A non-empty, valid RefreshCron uses wall-clock
+// cron scheduling (due once the next tick after the last refresh has arrived);
+// an invalid cron string falls back to the relative RefreshInterval so a bad
+// value never freezes the panel. last and now must share the location the cron
+// schedule is meant to be read in (server-local).
+func scheduledRefreshDue(settings *models.Settings, last, now time.Time) bool {
+	if settings.RefreshCron != "" {
+		if sched, err := ParseCron(settings.RefreshCron); err == nil {
+			next := sched.Next(last)
+			return !next.IsZero() && !next.After(now)
+		}
+		slog.Warn("invalid refresh_cron, falling back to interval",
+			"refresh_cron", settings.RefreshCron)
+	}
+	if settings.RefreshInterval > 0 {
+		return now.Sub(last) > time.Duration(settings.RefreshInterval)*time.Second
+	}
+	return false
+}
+
 func (s *SettingsService) filePath() string {
 	return filepath.Join(s.dataDir, "settings.json")
 }
@@ -192,6 +224,16 @@ func (s *SettingsService) GetSettings() (*models.Settings, error) {
 				"error", err)
 			settings.SleepStart = ""
 			settings.SleepEnd = ""
+		}
+	}
+	// Same fail-open treatment for a hand-edited/corrupt cron string: drop it so
+	// scheduling reverts to the interval rather than freezing on a bad value.
+	if settings.RefreshCron != "" {
+		if _, err := ParseCron(settings.RefreshCron); err != nil {
+			slog.Warn("invalid refresh_cron in settings, reverting to interval",
+				"refresh_cron", settings.RefreshCron,
+				"error", err)
+			settings.RefreshCron = ""
 		}
 	}
 
@@ -270,6 +312,7 @@ func (s *SettingsService) GetSettingsResponse() (*models.SettingsResponse, error
 		DisplayType:     settings.DisplayType,
 		Display:         models.GetDisplayConfig(settings.DisplayType),
 		RefreshInterval: settings.RefreshInterval,
+		RefreshCron:     settings.RefreshCron,
 		RenderQuality:   settings.RenderQuality,
 		DitherAlgorithm: settings.DitherAlgorithm,
 		Calibration:     settings.Calibration,
@@ -450,17 +493,22 @@ func (s *SettingsService) GetRefreshStatus() (*models.RefreshStatus, error) {
 		}
 	}
 
-	// Check if refresh interval has elapsed. Interval refreshes are
-	// suppressed inside the sleep window (local wall-clock time), except on
-	// first start (last_client_refresh empty): a factory-new panel must
-	// show content instead of staying blank all night.
-	if !shouldRefresh && settings.RefreshInterval > 0 {
+	// Check if a scheduled refresh is due. Scheduled refreshes are suppressed
+	// inside the sleep window (local wall-clock time), except on first start
+	// (last_client_refresh empty): a factory-new panel must show content
+	// instead of staying blank all night.
+	//
+	// A non-empty, valid RefreshCron drives wall-clock cron scheduling and
+	// takes precedence over RefreshInterval; otherwise the relative interval
+	// applies. Cron ticks keep reason "interval" so the client's content-skip
+	// optimisation (reason=="interval") treats them like any scheduled refresh.
+	if !shouldRefresh {
 		if settings.LastClientRefresh == "" {
 			shouldRefresh = true
 			reason = models.RefreshReasonInterval
 		} else if !sleepWindowActive(settings.SleepStart, settings.SleepEnd, now) {
 			clientTime, err := time.Parse(time.RFC3339, settings.LastClientRefresh)
-			if err == nil && now.Sub(clientTime) > time.Duration(settings.RefreshInterval)*time.Second {
+			if err == nil && scheduledRefreshDue(settings, clientTime.In(now.Location()), now) {
 				shouldRefresh = true
 				reason = models.RefreshReasonInterval
 			}

@@ -525,3 +525,59 @@ func TestUpdateSettings_InvalidDitherAlgorithmAndCalibration(t *testing.T) {
 		t.Error("refresh_interval was persisted by a rejected update")
 	}
 }
+
+// refresh_cron round-trips through POST /update_settings and surfaces in GET
+// /settings, and leading/trailing whitespace is trimmed before persisting.
+func TestUpdateSettings_RefreshCronRoundtrip(t *testing.T) {
+	h := newTestSettingsHandler(t)
+
+	if w := postSettings(t, h, `{"refresh_cron":"  1 0 * * *  "}`); w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	resp := getSettingsMap(t, h)
+	if resp["refresh_cron"] != "1 0 * * *" {
+		t.Errorf("expected refresh_cron=%q, got %v", "1 0 * * *", resp["refresh_cron"])
+	}
+}
+
+// An invalid cron expression is rejected with 400 and never persisted.
+func TestUpdateSettings_RefreshCronRejectsInvalid(t *testing.T) {
+	h := newTestSettingsHandler(t)
+
+	for _, spec := range []string{"99 0 * * *", "1 0 * *", "* * * * bad"} {
+		body := `{"refresh_cron":"` + spec + `"}`
+		if w := postSettings(t, h, body); w.Code != http.StatusBadRequest {
+			t.Errorf("expected 400 for refresh_cron=%q, got %d", spec, w.Code)
+		}
+	}
+	if resp := getSettingsMap(t, h); resp["refresh_cron"] != "" {
+		t.Errorf("rejected cron must not persist, got %v", resp["refresh_cron"])
+	}
+}
+
+// Choosing an interval preset (refresh_interval > 0) clears an active cron so
+// the two scheduling modes never coexist; an explicit empty string also clears.
+func TestUpdateSettings_RefreshIntervalClearsCron(t *testing.T) {
+	h := newTestSettingsHandler(t)
+
+	if w := postSettings(t, h, `{"refresh_cron":"1 0 * * *"}`); w.Code != http.StatusOK {
+		t.Fatalf("seed cron: expected 200, got %d", w.Code)
+	}
+	if w := postSettings(t, h, `{"refresh_interval":3600}`); w.Code != http.StatusOK {
+		t.Fatalf("set interval: expected 200, got %d", w.Code)
+	}
+	if resp := getSettingsMap(t, h); resp["refresh_cron"] != "" {
+		t.Errorf("interval preset must clear cron, got %v", resp["refresh_cron"])
+	}
+
+	// Re-set cron, then clear it explicitly with "".
+	if w := postSettings(t, h, `{"refresh_cron":"*/15 * * * *"}`); w.Code != http.StatusOK {
+		t.Fatalf("re-seed cron: expected 200, got %d", w.Code)
+	}
+	if w := postSettings(t, h, `{"refresh_cron":""}`); w.Code != http.StatusOK {
+		t.Fatalf("clear cron: expected 200, got %d", w.Code)
+	}
+	if resp := getSettingsMap(t, h); resp["refresh_cron"] != "" {
+		t.Errorf("empty string must clear cron, got %v", resp["refresh_cron"])
+	}
+}

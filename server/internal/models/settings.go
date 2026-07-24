@@ -64,8 +64,13 @@ const (
 // true it never returns to false. Being a struct field it survives the
 // TriggerRefresh/RecordClientRefresh roundtrips that rewrite settings.json.
 type Settings struct {
-	DisplayType        DisplayType     `json:"display_type"`
-	RefreshInterval    int             `json:"refresh_interval"`
+	DisplayType     DisplayType `json:"display_type"`
+	RefreshInterval int         `json:"refresh_interval"`
+	// RefreshCron is an optional 5-field cron expression. When non-empty it
+	// takes precedence over RefreshInterval: refreshes fire at the scheduled
+	// wall-clock times (server-local, driven by the TZ env) instead of a fixed
+	// interval since the last refresh. Empty means interval scheduling.
+	RefreshCron        string          `json:"refresh_cron,omitempty"`
 	RenderQuality      RenderQuality   `json:"render_quality,omitempty"`
 	DitherAlgorithm    DitherAlgorithm `json:"dither_algorithm,omitempty"`
 	Calibration        CalibrationMode `json:"calibration,omitempty"`
@@ -82,6 +87,7 @@ type SettingsResponse struct {
 	DisplayType     DisplayType     `json:"display_type"`
 	Display         DisplayConfig   `json:"display"`
 	RefreshInterval int             `json:"refresh_interval"`
+	RefreshCron     string          `json:"refresh_cron"`
 	RenderQuality   RenderQuality   `json:"render_quality"`
 	DitherAlgorithm DitherAlgorithm `json:"dither_algorithm"`
 	Calibration     CalibrationMode `json:"calibration"`

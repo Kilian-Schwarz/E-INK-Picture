@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"e-ink-picture/server/internal/models"
@@ -44,6 +45,7 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		DisplayType     models.DisplayType     `json:"display_type"`
 		RefreshInterval *int                   `json:"refresh_interval,omitempty"`
+		RefreshCron     *string                `json:"refresh_cron,omitempty"`
 		RenderQuality   models.RenderQuality   `json:"render_quality,omitempty"`
 		DitherAlgorithm models.DitherAlgorithm `json:"dither_algorithm,omitempty"`
 		Calibration     models.CalibrationMode `json:"calibration,omitempty"`
@@ -74,6 +76,21 @@ func (h *SettingsHandler) UpdateSettings(w http.ResponseWriter, r *http.Request)
 
 	if req.RefreshInterval != nil && *req.RefreshInterval > 0 {
 		current.RefreshInterval = *req.RefreshInterval
+		// Choosing an interval preset switches off cron scheduling so the two
+		// modes never coexist (cron would otherwise always win the decision).
+		current.RefreshCron = ""
+	}
+
+	// refresh_cron: pointer semantics (nil = untouched, "" = clear/back to
+	// interval). A non-empty value must be a valid 5-field cron expression;
+	// invalid input hard-rejects with 400 and leaves the stored value untouched.
+	if req.RefreshCron != nil {
+		spec := strings.TrimSpace(*req.RefreshCron)
+		if err := services.ValidateRefreshCron(spec); err != nil {
+			jsonError(w, "invalid refresh_cron: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		current.RefreshCron = spec
 	}
 
 	if req.RenderQuality != "" {

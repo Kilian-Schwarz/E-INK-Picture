@@ -714,6 +714,128 @@ func TestSettingsService_RefreshReason(t *testing.T) {
 	}
 }
 
+// Cron scheduling: a non-empty, valid refresh_cron fires at wall-clock ticks
+// and takes precedence over refresh_interval, while still honouring the sleep
+// window and the first-start exception. Clock and last_client_refresh are UTC
+// (at() is UTC), so cron ticks are evaluated in UTC here.
+func TestSettingsService_CronScheduling(t *testing.T) {
+	tests := []struct {
+		name        string
+		settings    models.Settings
+		clock       time.Time
+		wantRefresh bool
+		wantReason  string
+	}{
+		{
+			name: "daily cron due after the 00:01 tick",
+			settings: models.Settings{
+				RefreshCron:       "1 0 * * *",
+				RefreshInterval:   3600,
+				LastClientRefresh: "2026-03-03T12:00:00Z",
+			},
+			clock:       at(0, 5), // 2026-03-04 00:05
+			wantRefresh: true,
+			wantReason:  models.RefreshReasonInterval,
+		},
+		{
+			name: "daily cron not due before the next tick",
+			settings: models.Settings{
+				RefreshCron:       "1 0 * * *",
+				RefreshInterval:   3600,
+				LastClientRefresh: "2026-03-04T00:01:00Z",
+			},
+			clock:       at(12, 0),
+			wantRefresh: false,
+			wantReason:  "",
+		},
+		{
+			name: "cron takes precedence: interval would fire but cron is far off",
+			settings: models.Settings{
+				RefreshCron:       "0 0 1 1 *", // only Jan 1st
+				RefreshInterval:   1,           // would fire immediately if honoured
+				LastClientRefresh: "2026-03-04T02:00:00Z",
+			},
+			clock:       at(3, 0),
+			wantRefresh: false,
+			wantReason:  "",
+		},
+		{
+			name: "cron tick suppressed inside the sleep window",
+			settings: models.Settings{
+				RefreshCron:       "1 0 * * *",
+				RefreshInterval:   3600,
+				LastClientRefresh: "2026-03-03T12:00:00Z",
+				SleepStart:        "00:00",
+				SleepEnd:          "06:00",
+			},
+			clock:       at(0, 5),
+			wantRefresh: false,
+			wantReason:  "",
+		},
+		{
+			name: "first start fires even with cron set and inside sleep window",
+			settings: models.Settings{
+				RefreshCron: "0 0 1 1 *",
+				SleepStart:  "00:00",
+				SleepEnd:    "06:00",
+				// LastClientRefresh empty -> factory-new panel.
+			},
+			clock:       at(3, 0),
+			wantRefresh: true,
+			wantReason:  models.RefreshReasonInterval,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeSettingsFile(t, dir, tt.settings)
+			svc := NewSettingsService(dir, models.DisplayWaveshare73E)
+			svc.now = func() time.Time { return tt.clock }
+
+			status, err := svc.GetRefreshStatus()
+			if err != nil {
+				t.Fatalf("GetRefreshStatus: %v", err)
+			}
+			if status.ShouldRefresh != tt.wantRefresh {
+				t.Errorf("should_refresh = %v, want %v", status.ShouldRefresh, tt.wantRefresh)
+			}
+			if status.Reason != tt.wantReason {
+				t.Errorf("reason = %q, want %q", status.Reason, tt.wantReason)
+			}
+		})
+	}
+}
+
+// A corrupt cron string on disk (hand-edited) is dropped on load, reverting to
+// interval scheduling rather than freezing the panel.
+func TestSettingsService_InvalidCronOnDiskRevertsToInterval(t *testing.T) {
+	dir := t.TempDir()
+	writeSettingsFile(t, dir, models.Settings{
+		RefreshCron:       "not a valid cron",
+		RefreshInterval:   1,
+		LastClientRefresh: "2026-03-01T00:00:00Z",
+	})
+	svc := NewSettingsService(dir, models.DisplayWaveshare73E)
+	svc.now = func() time.Time { return at(3, 0) }
+
+	settings, err := svc.GetSettings()
+	if err != nil {
+		t.Fatalf("GetSettings: %v", err)
+	}
+	if settings.RefreshCron != "" {
+		t.Errorf("expected invalid cron to be dropped, got %q", settings.RefreshCron)
+	}
+
+	status, err := svc.GetRefreshStatus()
+	if err != nil {
+		t.Fatalf("GetRefreshStatus: %v", err)
+	}
+	if !status.ShouldRefresh || status.Reason != models.RefreshReasonInterval {
+		t.Errorf("expected interval refresh fallback, got should_refresh=%v reason=%q",
+			status.ShouldRefresh, status.Reason)
+	}
+}
+
 // AC1: a settings.json without the sleep fields loads with the window off.
 func TestSettingsService_SleepWindowLegacyFileLoads(t *testing.T) {
 	dir := t.TempDir()
