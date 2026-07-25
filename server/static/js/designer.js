@@ -473,7 +473,19 @@ document.addEventListener('DOMContentLoaded', async function() {
                     if (refreshCronRow) refreshCronRow.style.display = '';
                 }
             } else if (settingsData.refresh_interval) {
-                refreshIntervalSelect.value = String(settingsData.refresh_interval);
+                var iv = String(settingsData.refresh_interval);
+                refreshIntervalSelect.value = iv;
+                if (refreshIntervalSelect.value !== iv) {
+                    // Persisted interval has no preset option (e.g. the removed
+                    // 86400 "Once a day" value, or a hand-edited number): show
+                    // it as a synthetic option so the dropdown is never blank.
+                    var opt = document.createElement('option');
+                    opt.value = iv;
+                    var mins = Math.round(settingsData.refresh_interval / 60);
+                    opt.textContent = 'Custom interval (every ' + mins + ' min)';
+                    refreshIntervalSelect.insertBefore(opt, refreshIntervalSelect.firstChild);
+                    refreshIntervalSelect.value = iv;
+                }
             }
         } catch (e) {}
 

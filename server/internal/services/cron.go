@@ -109,6 +109,7 @@ func parseCronField(field string, min, max int, normalize func(int) int) ([]int,
 	for _, part := range strings.Split(field, ",") {
 		rng := part
 		step := 1
+		hasStep := false
 
 		if slash := strings.IndexByte(part, '/'); slash >= 0 {
 			rng = part[:slash]
@@ -118,6 +119,7 @@ func parseCronField(field string, min, max int, normalize func(int) int) ([]int,
 				return nil, false, fmt.Errorf("invalid step %q", stepStr)
 			}
 			step = st
+			hasStep = true
 		}
 
 		lo, hi := min, max
@@ -134,7 +136,14 @@ func parseCronField(field string, min, max int, normalize func(int) int) ([]int,
 				if err != nil {
 					return nil, false, fmt.Errorf("invalid value %q", rng)
 				}
-				lo, hi = v, v
+				// "a/n" (single value followed by a step) means a..max step n,
+				// per Vixie cron; a bare "a" (no step) selects exactly a.
+				lo = v
+				if hasStep {
+					hi = max
+				} else {
+					hi = v
+				}
 			}
 		}
 
@@ -178,7 +187,7 @@ func (s *CronSchedule) dayMatches(t time.Time) bool {
 // Next returns the earliest scheduled time strictly after t, evaluated in t's
 // location (so callers control the "local time" the schedule refers to). It
 // advances field by field — whole months/days/hours are skipped rather than
-// stepping minute by minute — and gives up after 5 years, returning the zero
+// stepping minute by minute — and gives up ~5 years out, returning the zero
 // time for an unsatisfiable expression (e.g. "0 0 31 2 *"). Wall-clock times
 // skipped by a spring-forward DST transition simply do not fire that day,
 // matching standard cron behaviour.
@@ -186,31 +195,42 @@ func (s *CronSchedule) Next(t time.Time) time.Time {
 	loc := t.Location()
 	// Start at the next whole minute strictly after t.
 	t = t.Truncate(time.Minute).Add(time.Minute)
-	yearLimit := t.Year() + 5
+	// Absolute-time deadline, not a wall-clock year check: on a DST fall-back
+	// day a wall-clock hour/day boundary can resolve to an instant that pins t
+	// (t.Year() would never grow), so termination must be measured in elapsed
+	// absolute time. cronForward keeps every step strictly monotonic in
+	// absolute time so the deadline is always reached for an unsatisfiable
+	// expression.
+	deadline := t.AddDate(5, 0, 0)
 
-	for {
-		if t.Year() > yearLimit {
-			return time.Time{}
-		}
-		if !s.month[int(t.Month())] {
+	for t.Before(deadline) {
+		switch {
+		case !s.month[int(t.Month())]:
 			// Jump to the first day of the next month at 00:00.
-			t = time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, loc).AddDate(0, 1, 0)
-			continue
-		}
-		if !s.dayMatches(t) {
+			t = cronForward(time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, loc).AddDate(0, 1, 0), t)
+		case !s.dayMatches(t):
 			// Jump to 00:00 of the next day.
-			t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, 1)
-			continue
-		}
-		if !s.hour[t.Hour()] {
+			t = cronForward(time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, loc).AddDate(0, 0, 1), t)
+		case !s.hour[t.Hour()]:
 			// Jump to the next hour at :00.
-			t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, loc).Add(time.Hour)
-			continue
-		}
-		if !s.minute[t.Minute()] {
+			t = cronForward(time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, loc).Add(time.Hour), t)
+		case !s.minute[t.Minute()]:
 			t = t.Add(time.Minute)
-			continue
+		default:
+			return t
 		}
-		return t
 	}
+	return time.Time{}
+}
+
+// cronForward returns next when it lies strictly after cur in absolute time,
+// otherwise cur advanced by one minute. Deriving a wall-clock boundary via
+// time.Date on a DST fall-back day can yield an instant at or before cur (the
+// repeated hour resolves to its earlier occurrence); stepping a minute instead
+// guarantees forward progress so Next() cannot spin forever.
+func cronForward(next, cur time.Time) time.Time {
+	if next.After(cur) {
+		return next
+	}
+	return cur.Add(time.Minute)
 }

@@ -154,6 +154,52 @@ func TestCronUnsatisfiable(t *testing.T) {
 	}
 }
 
+// Regression: Next() must terminate (and return the correct next tick) across
+// a DST fall-back transition even when the schedule excludes the repeated
+// wall-clock hour. Previously this spun forever, hanging the refresh-status
+// request goroutine. Uses the shipped "Once a day 00:01" preset in a US zone
+// where 02:00 EDT rolls back to 01:00 EST on 2024-11-03.
+func TestCronNextDSTFallBackTerminates(t *testing.T) {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Skipf("tzdata unavailable: %v", err)
+	}
+	s := mustParse(t, "1 0 * * *")
+	// 00:01 EDT on the fall-back day (the tick that just fired).
+	from := time.Date(2024, 11, 3, 0, 1, 0, 0, ny)
+
+	done := make(chan time.Time, 1)
+	go func() { done <- s.Next(from) }()
+	select {
+	case got := <-done:
+		want := time.Date(2024, 11, 4, 0, 1, 0, 0, ny)
+		if !got.Equal(want) {
+			t.Errorf("Next(%v) = %v, want %v", from, got, want)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("Next() did not terminate across DST fall-back (infinite loop)")
+	}
+}
+
+// "a/n" (a single value followed by a step) means a..max step n, per Vixie
+// cron — not just the bare value a.
+func TestCronStepFromValue(t *testing.T) {
+	s := mustParse(t, "5/15 * * * *") // minutes 5,20,35,50
+	from := time.Date(2026, 7, 25, 10, 6, 0, 0, time.UTC)
+	got := s.Next(from)
+	want := time.Date(2026, 7, 25, 10, 20, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Errorf("Next(%v) = %v, want %v", from, got, want)
+	}
+	// And it wraps to minute 5 of the next hour after 50.
+	from = time.Date(2026, 7, 25, 10, 50, 0, 0, time.UTC)
+	got = s.Next(from)
+	want = time.Date(2026, 7, 25, 11, 5, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Errorf("Next(%v) = %v, want %v", from, got, want)
+	}
+}
+
 func TestCronNextRespectsLocation(t *testing.T) {
 	// 00:01 "local" must be computed in the caller's location, not UTC.
 	berlin, err := time.LoadLocation("Europe/Berlin")

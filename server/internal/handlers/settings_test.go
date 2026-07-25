@@ -544,7 +544,9 @@ func TestUpdateSettings_RefreshCronRoundtrip(t *testing.T) {
 func TestUpdateSettings_RefreshCronRejectsInvalid(t *testing.T) {
 	h := newTestSettingsHandler(t)
 
-	for _, spec := range []string{"99 0 * * *", "1 0 * *", "* * * * bad"} {
+	// Includes "0 0 31 2 *": syntactically valid but never satisfiable (Feb 31),
+	// which validation must reject rather than persist a silently frozen schedule.
+	for _, spec := range []string{"99 0 * * *", "1 0 * *", "* * * * bad", "0 0 31 2 *"} {
 		body := `{"refresh_cron":"` + spec + `"}`
 		if w := postSettings(t, h, body); w.Code != http.StatusBadRequest {
 			t.Errorf("expected 400 for refresh_cron=%q, got %d", spec, w.Code)

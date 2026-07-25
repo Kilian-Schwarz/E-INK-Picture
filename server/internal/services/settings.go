@@ -132,14 +132,22 @@ func sleepWindowActive(start, end string, now time.Time) bool {
 }
 
 // ValidateRefreshCron accepts an empty string (cron scheduling disabled) or a
-// well-formed 5-field cron expression. It is the request-validation gate for
-// the settings handler.
+// well-formed, satisfiable 5-field cron expression. It is the request-validation
+// gate for the settings handler. A syntactically valid but never-matching
+// expression (e.g. "0 0 31 2 *") is rejected so the user gets immediate feedback
+// instead of a silently frozen schedule.
 func ValidateRefreshCron(spec string) error {
 	if spec == "" {
 		return nil
 	}
-	_, err := ParseCron(spec)
-	return err
+	sched, err := ParseCron(spec)
+	if err != nil {
+		return err
+	}
+	if sched.Next(time.Now()).IsZero() {
+		return fmt.Errorf("cron expression never matches any date")
+	}
+	return nil
 }
 
 // scheduledRefreshDue reports whether a scheduled refresh is overdue given the
@@ -151,11 +159,17 @@ func ValidateRefreshCron(spec string) error {
 func scheduledRefreshDue(settings *models.Settings, last, now time.Time) bool {
 	if settings.RefreshCron != "" {
 		if sched, err := ParseCron(settings.RefreshCron); err == nil {
-			next := sched.Next(last)
-			return !next.IsZero() && !next.After(now)
+			if next := sched.Next(last); !next.IsZero() {
+				return !next.After(now)
+			}
+			// Satisfiable-looking but never-matching (e.g. hand-edited
+			// "0 0 31 2 *"): fall through to the interval rather than freeze.
+			slog.Warn("refresh_cron has no upcoming tick, falling back to interval",
+				"refresh_cron", settings.RefreshCron)
+		} else {
+			slog.Warn("invalid refresh_cron, falling back to interval",
+				"refresh_cron", settings.RefreshCron)
 		}
-		slog.Warn("invalid refresh_cron, falling back to interval",
-			"refresh_cron", settings.RefreshCron)
 	}
 	if settings.RefreshInterval > 0 {
 		return now.Sub(last) > time.Duration(settings.RefreshInterval)*time.Second

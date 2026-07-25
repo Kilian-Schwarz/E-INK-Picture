@@ -784,6 +784,17 @@ func TestSettingsService_CronScheduling(t *testing.T) {
 			wantRefresh: true,
 			wantReason:  models.RefreshReasonInterval,
 		},
+		{
+			name: "unsatisfiable cron (hand-edited) falls back to interval",
+			settings: models.Settings{
+				RefreshCron:       "0 0 31 2 *", // Feb 31 never exists -> Next() is zero
+				RefreshInterval:   1,
+				LastClientRefresh: "2026-03-01T00:00:00Z",
+			},
+			clock:       at(3, 0),
+			wantRefresh: true,
+			wantReason:  models.RefreshReasonInterval,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
