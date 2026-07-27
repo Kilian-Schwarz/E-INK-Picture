@@ -33,9 +33,25 @@ F9: öffentliche Domain+Port für Let's Encrypt oder LAN-only? · lokale CA zum 
 
 **Vorab-Veto-Punkt:** Alle geplanten Quellen sind kostenlos und key-frei (Open-Meteo, Corrently GrünstromIndex, v6.db.transport.rest). Nur Electricity Maps bräuchte ein Token — Default: **nicht** verwenden.
 
+### Deploy Test-Pi (2026-07-27) — `0cb48d0` refresh_cron, **Binary-Swap statt Image-Build**
+
+Test-Pi `.106` läuft auf **`0cb48d0`** (Cron-Refresh, Version `v0.9.0-RC-20-g0cb48d0`). Jessica NICHT angefasst (weiterhin `0c011f9`). Client-Container unverändert (`client.py` ist server-only-Änderung nicht betroffen).
+
+**Neuer Deploy-Weg — löst das „nie auf dem Pi bauen"-Problem endgültig:** Auf dem Mac existiert **keine Container-Runtime mehr** (Rancher Desktop deinstalliert), der bisherige Cross-Build-Weg war damit tot. Lösung ohne jedes lokales Docker: Go-Binaries direkt cross-compilen (`CGO_ENABLED=0 GOOS=linux GOARCH=arm64 -trimpath -ldflags="-s -w -X main.version=…"` für `server` + `cmd/healthcheck`), per scp auf den Pi, dort ein **3-Zeilen-Dockerfile** (`ARG BASE` / `FROM ${BASE}` / 2× `COPY`) mit `--build-arg BASE=e-ink-picture-server:<alter-tag>`. Das Runtime-Image ist `FROM scratch` mit nur Binaries + zoneinfo + CA-Certs + Fonts → durch Basieren auf dem **laufenden** Image bleiben Fonts/Zoneinfo/Certs/ENTRYPOINT/HEALTHCHECK byte-identisch, es wird **nichts kompiliert**. Build auf dem Pi: **32,7 s reine COPY-Layer** statt ~19 min Go-Compile, kein OOM-Risiko. Immer auf den **immutable** Tag basieren (nicht `:latest`), sonst stapeln sich Layer bei Folge-Deploys.
+
+**Nebenbei gelöst:** Die seit 3 Deploys offene Version-Injection — der ldflags-Stamp sitzt jetzt direkt im Cross-Build (`v0.9.0-RC-20-g0cb48d0` statt `dev`). Das `ARG VERSION`-TODO im Dockerfile bleibt für den Docker-Weg bestehen.
+
+**Verifikation (hardware-validator, 0 selbst ausgelöste Panel-Writes):** Server healthy, Client unangetastet (gleiche Image-ID, `RestartCount=0`, Uptime durchlaufend) · `GET /settings` liefert `refresh_cron` (vorher Feld absent) · `POST` 200 für `1 0 * * *`, **400** für `99 0 * * *` und für `0 0 31 2 *` („never matches any date") · `/api/refresh_status` 25,0048 s (Long-Poll-Soll, Baseline 25,0043 s → **kein DST-Hang, keine Regression**) · VmHWM Server 10,5 MB / Client 39,0 MB · Panel-Write 20,15 s (Baseline 20,16 s) · visuelle Evidenz gegen Panel-Foto deckungsgleich. `refresh_cron` final `""` — produktiv nie verändert, Kilian setzt die 00:01-Regel selbst im UI.
+
+**Einschränkung ehrlich:** `POST /update_settings` braucht eine Admin-Session (Passwort nur als bcrypt-Hash in `data/auth.json`). Die 200/400-Checks liefen daher in einem **Wegwerf-Container aus demselben Image** `0cb48d0` mit leerem Data-Dir (Port 127.0.0.1:5099, außerhalb des Compose-Netzes, danach entfernt) — gleiches Binary, nicht dieselbe Instanz. Produktiv-Gegenprobe = einmal im UI eine ungültige Cron eintippen.
+
+**Rollback (eine Zeile):** `sudo docker tag e-ink-picture-server:0c011f9 e-ink-picture-server:latest && sudo docker compose -f /home/ksch/E-INK-Picture/docker-compose.yml up -d --no-deps server` · data-Backup vor Deploy: `~/eink-backups/data-20260727-203801.tar.gz`.
+
+**Beobachten:** Der alte Server-Prozess hatte nach 5 Tagen `VmHWM=72 MB` (Render-Spitzen) bei `EINK_GOMEMLIMIT=64 MiB` — der Peak lag also **über** dem Limit; cgroup-Memory-Limits greifen auf diesem Kernel ohnehin nicht (vorbestehend). Frischer Prozess bei 10,5 MB; ob der Peak wieder hochläuft, ist offen.
+
 ### Deploy-Stand v1.1 (2026-07-21) — ZWEI Zielgeräte, unterschiedlich
 
-Beide Geräte laufen auf **`1305099`** (F7 + F4 + linear-light dithering). L3 auf beiden PASS.
+Beide Geräte liefen auf **`1305099`** (F7 + F4 + linear-light dithering), zuletzt `0c011f9` (F10). L3 auf beiden PASS.
 
 | Gerät | Adresse / User | HW | Betrieb | Panel | Build |
 |---|---|---|---|---|---|
